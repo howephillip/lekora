@@ -177,3 +177,15 @@ Standardized error responses delivered when a request fails or session authentic
 ```
 Standard error codes: `TOKEN_EXPIRED`, `TOKEN_INVALID`, `AUTH_FAILED`, `INCOMPATIBLE_VERSION`.
 
+Added by the host gateway (Phase 1):
+- `INVALID_MESSAGE`: malformed JSON, wrong `instance_id`, empty `text`, or unknown message type.
+- `UNKNOWN_PROFILE`: `chat.send` named a profile the host does not have (recoverable).
+- `AGENT_ERROR`: the agent could not take the message (recoverable).
+
+Auth-related errors (`TOKEN_*`, `AUTH_FAILED`, `INCOMPATIBLE_VERSION`) close the socket (code 1008) after the error is sent. An unauthenticated socket that sends nothing valid within 5 seconds is closed with code 1008.
+
+## 4. Gateway behaviour notes (Phase 1)
+- A successful `pair.request` also authenticates that socket; the app may send `hello` on the same socket straight afterwards.
+- `chat.send` is stored as an event (`role: "user"`) and pushed to the sender's *other* devices only; replies (`role: "assistant"`) go to every connected device. Replay after `hello.ack` includes both roles.
+- A repeated `chat.send` `id` on one connection is ignored (idempotent).
+

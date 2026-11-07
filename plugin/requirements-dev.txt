@@ -1,0 +1,5 @@
+# Test-only: an independent WebSocket client to check the plugin's own stdlib server.
+# The plugin itself has NO third-party dependencies.
+websockets
+pytest
+pytest-asyncio

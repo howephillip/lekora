@@ -1,0 +1,10 @@
+name: lekora-platform
+label: Lekora
+kind: platform
+version: 0.1.0
+description: >
+  Connects the Lekora iOS app to Hermes as a native messaging platform.
+  Pairs phones with a one-time code and relays chat over a WebSocket on
+  your LAN or Tailscale. No changes to Hermes core.
+author: Lekora
+requires_hermes: ">=0.22,<1.0"
