@@ -16,5 +16,12 @@ _Last updated: 2026-11-07_
 7. ⏳ **Real-Hermes pass** — to be run on the owner's separate Tailscale test machine using `docs/install.md`. Already verified on this Mac before that was clarified: Hermes accepts the plugin, the gateway connects Lekora, and pair/hello worked against it (no chat message sent).
 8. ⏳ Owner test on a real iPhone.
 
-### Heads-up: this Mac's `~/.hermes` was changed by mistake
-Before the owner clarified that Hermes runs on another machine, the plugin was installed and enabled here (gateway restarted once, a backup is at `~/.hermes/backups/config/config.yaml.pre-lekora.20261107-162316`). Waiting on the owner to say whether to undo it (steps in `docs/install.md`, "Undo").
+### Resolved: this Mac's `~/.hermes` is back to its original state
+The plugin had been installed here by mistake (Hermes runs on a separate Tailscale machine). It was fully removed on 2026-11-07: plugin deleted, `config.yaml` restored byte-for-byte from `~/.hermes/backups/config/config.yaml.pre-lekora.20261107-162316` (kept), gateway restarted, `lekora.db` deleted, nothing listening on the Lekora port.
+## Follow-ups found in live test
+- Hermes shows a "no home channel" notice on the first message; the plugin should handle it.
+- App allows plain `ws://` to any address (ATS exception); consider tightening.
+- Revoke the half-finished device from the earlier failed attempt on the host.
+- Owner to pick a developer team in Xcode and sign off on a real iPhone (bundle ID `app.lekora.Lekora`).
+
+Done since: tapping a `lekora-pair://` link now starts pairing (bad links show a clear error); Keychain errors are readable; route-probe crash fixed. Event 1/2 gap is expected (ping and pong are stored on the host).

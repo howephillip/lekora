@@ -34,6 +34,43 @@ public final class GatewayClient: ObservableObject {
         self.prober = prober
     }
 
+    public func handlePairingPayload(_ payload: String) {
+        // Syntax: lekora-pair://pair?token=<tok>&instance_id=<id>&endpoints=<csv>
+        guard let url = URL(string: payload.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme == "lekora-pair",
+              let queryItems = components.queryItems else {
+            state = .error("That isn't a Lekora pairing link. Run the pair command on your Hermes machine again and use the new link.")
+            return
+        }
+
+        let token = queryItems.first(where: { $0.name == "token" })?.value ?? ""
+        let instanceId = queryItems.first(where: { $0.name == "instance_id" })?.value ?? ""
+        let endpointsRaw = queryItems.first(where: { $0.name == "endpoints" })?.value ?? ""
+        let endpoints = endpointsRaw.components(separatedBy: ",").filter { !$0.isEmpty }
+
+        guard !token.isEmpty, !instanceId.isEmpty, !endpoints.isEmpty else {
+            state = .error("The pairing link is incomplete. Run the pair command on your Hermes machine again and use the new link.")
+            return
+        }
+
+        // Ignore a repeat tap while a pairing attempt is already running (the token is single-use).
+        switch state {
+        case .probing, .pairing, .connecting:
+            return
+        default:
+            break
+        }
+
+        Task {
+            await self.pairAndConnect(
+                pairingToken: token,
+                instanceId: instanceId,
+                candidateEndpoints: endpoints
+            )
+        }
+    }
+
     // MARK: - Pairing & Connection Flow
     public func pairAndConnect(pairingToken: String, instanceId: String, candidateEndpoints: [String]) async {
         state = .probing

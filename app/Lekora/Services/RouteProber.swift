@@ -47,16 +47,14 @@ public actor RouteProber {
                 }
             }
 
-            do {
-                if let winner = try await group.next() {
+            // A failed probe must not stop the race; keep waiting for the others.
+            while true {
+                do {
+                    guard let winner = try await group.next() else { break }
                     group.cancelAll()
                     return winner
-                }
-            } catch {
-                // If a probe failed, continue checking if other endpoints succeed
-                while let result = try? await group.next() {
-                    group.cancelAll()
-                    return result
+                } catch {
+                    continue
                 }
             }
 
@@ -70,7 +68,9 @@ public actor RouteProber {
         wsTask.resume()
 
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (rawContinuation: CheckedContinuation<RouteProbeResult, Error>) in
+                // Timeout, ping reply and cancellation can all fire; only the first may resume.
+                let continuation = ResumeOnce(rawContinuation)
                 let timeoutTask = Task {
                     try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
                     wsTask.cancel(with: .goingAway, reason: nil)
@@ -94,4 +94,24 @@ public actor RouteProber {
             wsTask.cancel(with: .goingAway, reason: nil)
         }
     }
+}
+
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<RouteProbeResult, Error>?
+
+    init(_ continuation: CheckedContinuation<RouteProbeResult, Error>) {
+        self.continuation = continuation
+    }
+
+    private func take() -> CheckedContinuation<RouteProbeResult, Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+        let taken = continuation
+        continuation = nil
+        return taken
+    }
+
+    func resume(returning value: RouteProbeResult) { take()?.resume(returning: value) }
+    func resume(throwing error: Error) { take()?.resume(throwing: error) }
 }

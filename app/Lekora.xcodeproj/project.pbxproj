@@ -1,0 +1,348 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		36E2264B53D152FEBB4E6FA5 /* WalkingSkeletonPingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */; };
+		5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */; };
+		79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */; };
+		85721F1A389C4C7C54E14060 /* SetupWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */; };
+		888B003DBEEC83DAAD851C7B /* LekoraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA5EC2D74AA90CF7D81DF01 /* LekoraApp.swift */; };
+		8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */; };
+		AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D236D28311188A8777EEA28 /* RouteProber.swift */; };
+		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
+		E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */; };
+		F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AAD08A77D2306086B8F45308 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7E91D350641E6C64990AE136 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FDB685BF8194DC2A623F48A2;
+			remoteInfo = Lekora;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		2CD6AF1AA6582890921BFB14 /* LekoraTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LekoraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingSkeletonPingView.swift; sourceTree = "<group>"; };
+		3AA5EC2D74AA90CF7D81DF01 /* LekoraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LekoraApp.swift; sourceTree = "<group>"; };
+		5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
+		67CFF004E89499109A1FC23C /* Lekora.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Lekora.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
+		7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolMessages.swift; sourceTree = "<group>"; };
+		8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolMessagesTests.swift; sourceTree = "<group>"; };
+		9D236D28311188A8777EEA28 /* RouteProber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProber.swift; sourceTree = "<group>"; };
+		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
+		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
+		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProberTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		08C8D04330BB4F194B82DB82 /* Setup */ = {
+			isa = PBXGroup;
+			children = (
+				DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */,
+				DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */,
+			);
+			path = Setup;
+			sourceTree = "<group>";
+		};
+		1A59BCF1B37E3C88C315DE26 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		46518048217CBD42E0393F16 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				67CFF004E89499109A1FC23C /* Lekora.app */,
+				2CD6AF1AA6582890921BFB14 /* LekoraTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		7FD5CAFEC3588A0DD9C186E3 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */,
+				5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */,
+				9D236D28311188A8777EEA28 /* RouteProber.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		9D9F5422A769D25309EC607F /* LekoraTests */ = {
+			isa = PBXGroup;
+			children = (
+				8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */,
+				F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */,
+			);
+			path = LekoraTests;
+			sourceTree = "<group>";
+		};
+		CADC9A93832FCA6EDE03F23B = {
+			isa = PBXGroup;
+			children = (
+				CE88A20EDD3F68316E5CAD45 /* Lekora */,
+				9D9F5422A769D25309EC607F /* LekoraTests */,
+				46518048217CBD42E0393F16 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		CE88A20EDD3F68316E5CAD45 /* Lekora */ = {
+			isa = PBXGroup;
+			children = (
+				E9EA3C23333BF65550CF492F /* Info.plist */,
+				3AA5EC2D74AA90CF7D81DF01 /* LekoraApp.swift */,
+				1A59BCF1B37E3C88C315DE26 /* Models */,
+				7FD5CAFEC3588A0DD9C186E3 /* Services */,
+				E17703F65E5D53B9795F68C9 /* Views */,
+			);
+			path = Lekora;
+			sourceTree = "<group>";
+		};
+		DCFB9DB67227C71469250099 /* Chat */ = {
+			isa = PBXGroup;
+			children = (
+				3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */,
+			);
+			path = Chat;
+			sourceTree = "<group>";
+		};
+		E17703F65E5D53B9795F68C9 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				DCFB9DB67227C71469250099 /* Chat */,
+				08C8D04330BB4F194B82DB82 /* Setup */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1B4AFAB2BA8AEF360E6BE88C /* LekoraTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A718A36181A1163E88CB8A2C /* Build configuration list for PBXNativeTarget "LekoraTests" */;
+			buildPhases = (
+				F7A2DAD064C1020B38784EA6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				379A6992D7C42660903AB615 /* PBXTargetDependency */,
+			);
+			name = LekoraTests;
+			packageProductDependencies = (
+			);
+			productName = LekoraTests;
+			productReference = 2CD6AF1AA6582890921BFB14 /* LekoraTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		FDB685BF8194DC2A623F48A2 /* Lekora */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7CD9EDE71AE2D729211FA15E /* Build configuration list for PBXNativeTarget "Lekora" */;
+			buildPhases = (
+				04F5BCE46588F31DEBBDE43A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Lekora;
+			packageProductDependencies = (
+			);
+			productName = Lekora;
+			productReference = 67CFF004E89499109A1FC23C /* Lekora.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7E91D350641E6C64990AE136 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					FDB685BF8194DC2A623F48A2 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = D5C4653055D658BBECE262F4 /* Build configuration list for PBXProject "Lekora" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = CADC9A93832FCA6EDE03F23B;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 46518048217CBD42E0393F16 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				FDB685BF8194DC2A623F48A2 /* Lekora */,
+				1B4AFAB2BA8AEF360E6BE88C /* LekoraTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		04F5BCE46588F31DEBBDE43A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */,
+				5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */,
+				888B003DBEEC83DAAD851C7B /* LekoraApp.swift in Sources */,
+				D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */,
+				F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */,
+				AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */,
+				85721F1A389C4C7C54E14060 /* SetupWizardView.swift in Sources */,
+				36E2264B53D152FEBB4E6FA5 /* WalkingSkeletonPingView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7A2DAD064C1020B38784EA6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */,
+				79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		379A6992D7C42660903AB615 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FDB685BF8194DC2A623F48A2 /* Lekora */;
+			targetProxy = AAD08A77D2306086B8F45308 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		05882E986A8DB1B790AF6457 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = app.lekora.LekoraTests;
+				PRODUCT_NAME = LekoraTests;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lekora.app/Lekora";
+			};
+			name = Debug;
+		};
+		18E67B46E2A7E8069240726F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		3A98B44EFF34352761D2ABC6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = app.lekora.LekoraTests;
+				PRODUCT_NAME = LekoraTests;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lekora.app/Lekora";
+			};
+			name = Release;
+		};
+		C48EB65AB05B443699661A0B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = Lekora/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.lekora.Lekora;
+				PRODUCT_NAME = Lekora;
+			};
+			name = Release;
+		};
+		E3580E4F7FF35A438AC2CF52 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = Lekora/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.lekora.Lekora;
+				PRODUCT_NAME = Lekora;
+			};
+			name = Debug;
+		};
+		F2D9C2E95A85540CF394D885 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7CD9EDE71AE2D729211FA15E /* Build configuration list for PBXNativeTarget "Lekora" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E3580E4F7FF35A438AC2CF52 /* Debug */,
+				C48EB65AB05B443699661A0B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A718A36181A1163E88CB8A2C /* Build configuration list for PBXNativeTarget "LekoraTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				05882E986A8DB1B790AF6457 /* Debug */,
+				3A98B44EFF34352761D2ABC6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D5C4653055D658BBECE262F4 /* Build configuration list for PBXProject "Lekora" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				18E67B46E2A7E8069240726F /* Debug */,
+				F2D9C2E95A85540CF394D885 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 7E91D350641E6C64990AE136 /* Project object */;
+}

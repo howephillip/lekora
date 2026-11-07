@@ -1,11 +1,25 @@
 import Foundation
 import Security
 
-public enum KeychainError: Error {
+public enum KeychainError: Error, LocalizedError {
     case duplicateItem
     case itemNotFound
     case unexpectedStatus(OSStatus)
     case invalidData
+
+    public var errorDescription: String? {
+        switch self {
+        case .duplicateItem:
+            return "Item already exists in Keychain."
+        case .itemNotFound:
+            return "Item not found in Keychain."
+        case .unexpectedStatus(let status):
+            let msg = SecCopyErrorMessageString(status, nil) as String? ?? "Unknown error"
+            return "Keychain error: \(msg) (OSStatus \(status))"
+        case .invalidData:
+            return "Invalid data format for Keychain item."
+        }
+    }
 }
 
 public final class KeychainManager {

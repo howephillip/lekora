@@ -149,28 +149,6 @@ public struct SetupWizardView: View {
     }
 
     public func handlePairingPayload(_ payload: String) {
-        // Syntax: lekora-pair://pair?token=<tok>&instance_id=<id>&endpoints=<csv>
-        guard let url = URL(string: payload.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = components.queryItems else {
-            return
-        }
-
-        let token = queryItems.first(where: { $0.name == "token" })?.value ?? ""
-        let instanceId = queryItems.first(where: { $0.name == "instance_id" })?.value ?? ""
-        let endpointsRaw = queryItems.first(where: { $0.name == "endpoints" })?.value ?? ""
-        let endpoints = endpointsRaw.components(separatedBy: ",").filter { !$0.isEmpty }
-
-        guard !token.isEmpty, !instanceId.isEmpty, !endpoints.isEmpty else {
-            return
-        }
-
-        Task {
-            await gateway.pairAndConnect(
-                pairingToken: token,
-                instanceId: instanceId,
-                candidateEndpoints: endpoints
-            )
-        }
+        gateway.handlePairingPayload(payload)
     }
 }

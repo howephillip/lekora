@@ -25,7 +25,7 @@ public struct LekoraApp: App {
 
     private func handleIncomingURL(_ url: URL) {
         guard url.scheme == "lekora-pair" else { return }
-        SetupWizardView(gateway: gateway).handlePairingPayload(url.absoluteString)
+        gateway.handlePairingPayload(url.absoluteString)
     }
 }
 
