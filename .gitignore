@@ -6,3 +6,5 @@ app/.swiftpm/
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv/
+plugin/.venv/
