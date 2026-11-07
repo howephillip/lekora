@@ -15,7 +15,7 @@ Targets: iOS 27 primary, iOS 26 minimum (degrade gracefully). Push notifications
 Analytics (usage and spend) · model selection · multiple profiles (all equal, create/delete) · multiple Hermes instances · delegation and sub-agents (agents talking to each other, shown as a tree) · per-chat and per-agent settings (reasoning, length, temperature...) · live agent calling · skills (create, add, remove) · MCP (add, large curated library) · slash commands (many) · permission pop-ups (Approve once / always / this session / Deny) · native Tailscale support (detect, use tailnet addresses, deep-link).
 
 ## Setup wizard
-Install plugin (one command) → discover/pair (code or QR) → verify → choose profiles → done. Re-run only on a major incompatibility, which the version handshake reports plainly.
+Install plugin via single terminal command on the Hermes machine → Plugin outputs pairing invite (QR code or code with local LAN, Tailscale, and remote endpoints) → Phone pairs over whichever network connects → Plugin generates persistent device credentials → Choose profiles → Done. Re-run only on a major incompatibility, which the version handshake reports plainly.
 
 ## Build order
 1. Foundation: protocol, pairing wizard, store, design system, test harness.

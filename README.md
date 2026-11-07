@@ -1,4 +1,4 @@
-# Hermes Companion
+# Lekora
 
 A native iPhone app that sits **on top of any existing Hermes instance**, plus the **plugin** that connects the two.
 
