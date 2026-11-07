@@ -116,3 +116,64 @@ The plugin verifies the credentials against its store:
 }
 ```
 Immediately following `hello.ack`, the plugin replays all events with `seq > last_seq` (events 143 through 150) so the phone's cache catches up completely.
+
+---
+
+## 2. `chat.*` (Walking Skeleton Ping/Pong)
+
+In Phase 1 (Walking Skeleton), chat messages confirm bidirectional end-to-end communication between the mobile app and the Hermes agent via the native platform hook.
+
+### `chat.send` (Client -> Host)
+The mobile app dispatches a user message to the specified agent profile:
+```json
+{
+  "v": 1,
+  "id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+  "type": "chat.send",
+  "instance_id": "<instance_id>",
+  "profile_id": "assistant",
+  "ts": "2026-11-07T21:05:00Z",
+  "data": {
+    "text": "Ping"
+  }
+}
+```
+
+### `chat.message` (Host -> Client)
+The host delivers the sequenced response from the Hermes agent:
+```json
+{
+  "v": 1,
+  "id": "e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b",
+  "type": "chat.message",
+  "instance_id": "<instance_id>",
+  "profile_id": "assistant",
+  "ts": "2026-11-07T21:05:01Z",
+  "data": {
+    "seq": 106,
+    "role": "assistant",
+    "text": "Pong from Hermes"
+  }
+}
+```
+
+---
+
+## 3. `error` (Host -> Client)
+Standardized error responses delivered when a request fails or session authentication fails:
+```json
+{
+  "v": 1,
+  "id": "d0e1f2a3-b4c5-6d7e-8f9a-0b1c2d3e4f5a",
+  "type": "error",
+  "instance_id": "<instance_id>",
+  "ts": "2026-11-07T21:00:01Z",
+  "data": {
+    "code": "AUTH_FAILED",
+    "reason": "Invalid or revoked device token",
+    "recoverable": false
+  }
+}
+```
+Standard error codes: `TOKEN_EXPIRED`, `TOKEN_INVALID`, `AUTH_FAILED`, `INCOMPATIBLE_VERSION`.
+
