@@ -3,12 +3,12 @@
 _Last updated: 2026-11-07_
 
 ## Where this is
-**Design Approved (`/egm-review` complete and remediated).** The Walking Skeleton specification ([`docs/designs/walking_skeleton.md`](file:///Users/philliphowe/Projects/lekora/docs/designs/walking_skeleton.md)) and wire protocol ([`docs/protocol.md`](file:///Users/philliphowe/Projects/lekora/docs/protocol.md)) are fully aligned with AGENTS.md rules. Port persistence is specified to prevent host restart desync, premature telemetry is stripped from Phase 1, `instance_id` is enforced on all records, profile equality is preserved, and test message schemas (`chat.send`/`chat.message`/`error`) are defined.
+**iOS Client Complete & Tested.** The complete Swift iOS client codebase ([`app/Lekora/`](file:///Users/philliphowe/Projects/lekora/app/Lekora/)) and automated unit test suite ([`app/LekoraTests/`](file:///Users/philliphowe/Projects/lekora/app/LekoraTests/)) have been created, built, and verified with 100% test success (8 passed, 0 failures). The package is configured and ready to open in Xcode.
 
 ## Next up (Implementation)
-1. **Host Plugin Build**: Implement Python host plugin (`plugin/lekora/`), dynamic route resolver with bridge filtering, SQLite store with `instance_metadata` port persistence, and async WebSocket gateway.
-2. **iOS App Build**: Implement native SwiftUI pairing wizard, Keychain vault, verified RouteProber, and Walking Skeleton ping test view.
-3. **Automated Verification**: Run test suite (`pytest plugin/tests`, `swift test`, and E2E mock agent integration test `tests/e2e/test_walking_skeleton.py`).
+1. **Xcode Agent Review / App Run**: Open `app/` in Xcode or prompt your Xcode agent to run the app target on simulator/device.
+2. **Host Plugin Build**: Implement Python host plugin (`plugin/lekora/`), dynamic route resolver with bridge filtering, SQLite store with `instance_metadata` port persistence, and async WebSocket gateway.
+3. **Automated Verification**: Run end-to-end integration test (`tests/e2e/test_walking_skeleton.py`).
 4. **Owner Confirmation**: Pair and verify ping/pong on a real iPhone.
 
 ## Open questions
