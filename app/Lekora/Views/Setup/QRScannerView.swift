@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import AudioToolbox
 
 #if os(iOS)
 public struct QRScannerView: UIViewControllerRepresentable {
@@ -24,6 +25,8 @@ public struct QRScannerView: UIViewControllerRepresentable {
 
     public class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
         let parent: QRScannerView
+        // The camera reports the same code many times; the pairing token is single-use.
+        private var hasScanned = false
 
         init(parent: QRScannerView) {
             self.parent = parent
@@ -34,8 +37,10 @@ public struct QRScannerView: UIViewControllerRepresentable {
             didOutput metadataObjects: [AVMetadataObject],
             from connection: AVCaptureConnection
         ) {
+            guard !hasScanned else { return }
             if let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
                let stringValue = metadataObject.stringValue {
+                hasScanned = true
                 AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
                 parent.onCodeScanned(stringValue)
                 parent.presentationMode.wrappedValue.dismiss()
@@ -53,7 +58,18 @@ public class ScannerViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .black
 
-        guard let videoCaptureDevice = AVCaptureDevice.default(for: .video) else { return }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .denied, .restricted:
+            showMessage("Camera access is off. Turn it on in Settings > Lekora, or paste the pairing link instead.")
+            return
+        default:
+            break
+        }
+
+        guard let videoCaptureDevice = AVCaptureDevice.default(for: .video) else {
+            showMessage("No camera is available. Paste the pairing link instead.")
+            return
+        }
         let videoInput: AVCaptureDeviceInput
 
         do {
@@ -89,6 +105,26 @@ public class ScannerViewController: UIViewController {
         DispatchQueue.global(qos: .userInitiated).async {
             session.startRunning()
         }
+    }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer?.frame = view.bounds
+    }
+
+    private func showMessage(_ text: String) {
+        let label = UILabel()
+        label.text = text
+        label.textColor = .white
+        label.numberOfLines = 0
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
+            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
     }
 
     public override func viewWillDisappear(_ animated: Bool) {

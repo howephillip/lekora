@@ -23,6 +23,7 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: app.lekora.pair
             CFBundleURLSchemes: [lekora-pair]
+        NSCameraUsageDescription: Lekora uses the camera only to scan the pairing QR code shown on your Hermes computer.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
     settings:

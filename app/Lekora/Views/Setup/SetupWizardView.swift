@@ -21,11 +21,14 @@ public struct SetupWizardView: View {
                         .font(.largeTitle)
                         .fontWeight(.bold)
 
-                    Text("Scan the QR code shown in your host terminal or paste the pairing code below.")
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("1. On the computer running Hermes, run the pair command: hermes lekora pair")
+                        Text("2. Scan the QR code it shows, or copy the pairing link that starts with lekora-pair:// and paste it below.")
+                        Text("3. Tap Connect. The link works once and expires after 30 minutes.")
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 24)
                 }
                 .padding(.top, 24)
 
