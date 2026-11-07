@@ -3,13 +3,12 @@
 _Last updated: 2026-11-07_
 
 ## Where this is
-**Planning.** Protocol specification for plugin-managed dynamic pairing and connection handshake (`hello/pair`) completed in `docs/protocol.md`.
+**Planning (EGM Brainstorm Complete).** Concept exploration, dynamic pairing design, naming to Lekora, and handshake protocol (`hello/pair`) completed and captured in `docs/concepts_brief.md`.
 
-## Next up
-1. Build the walking skeleton:
-   - Plugin: WebSocket listener, dynamic port selection, SQLite `paired_devices` store, and terminal pairing invite command (`pair.request` / `pair.response`).
-   - App: Minimal SwiftUI screen to scan/paste pairing invite, store token in Keychain, and exchange `hello` / `hello.ack`.
-2. Stream a test ping/message through to verify end-to-end connectivity.
+## Next up (EGM Workflow)
+1. **`/egm-draft`**: Formalize the detailed technical specification and file-level implementation plan for the walking skeleton.
+2. **`/egm-review`**: Stress-test the design draft with Goldfish reviewer subagents.
+3. **Build & Verify**: Implement the walking skeleton (plugin listener + SQLite paired store + SwiftUI pairing screen).
 
 ## Open questions
 - Which Hermes versions to support.
