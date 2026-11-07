@@ -3,15 +3,14 @@
 _Last updated: 2026-11-07_
 
 ## Where this is
-**Planning (EGM Brainstorm Complete).** Concept exploration, dynamic pairing design, naming to Lekora, and handshake protocol (`hello/pair`) completed and captured in `docs/concepts_brief.md`.
+**Design Draft Complete (`/egm-draft`).** Technical specification, multi-modal pairing architecture (QR + deep links), wire protocol schemas, privacy-preserving developer telemetry, and 21-file implementation plan finalized in `docs/designs/walking_skeleton.md`.
 
 ## Next up (EGM Workflow)
-1. **`/egm-draft`**: Formalize the detailed technical specification and file-level implementation plan for the walking skeleton.
-2. **`/egm-review`**: Stress-test the design draft with Goldfish reviewer subagents.
-3. **Build & Verify**: Implement the walking skeleton (plugin listener + SQLite paired store + SwiftUI pairing screen).
+1. **`/egm-review docs/designs/walking_skeleton.md`**: Stress-test the finalized design document with Goldfish reviewer subagents across comprehension, edge cases, and implementation readiness.
+2. **Build & Verify**: Implement the walking skeleton (Python host plugin, SQLite store, and SwiftUI pairing/ping interface).
 
 ## Open questions
-- Which Hermes versions to support.
+- None blocking. Hermes runtime baseline verified against latest version; pairing invite expiration set to 30 minutes.
 
 ## Blockers
 None.
