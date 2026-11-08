@@ -16,7 +16,7 @@ Every Hermes profile on the host is an agent in the app, and all are equal.
 - Agents removed on the host are dropped from the choice at the next connect; if the current one is gone, the first remaining is used; if none remain, Choose Agents shows again. New agents are offered in Choose Agents but not switched on automatically.
 
 ## Not yet
-- Creating and deleting agents from the phone (required by the project rules; separate feature).
+- Creating and deleting agents: see `docs/agent-lifecycle.md`.
 - An agent added on the host while the phone is connected appears after the next reconnect.
 - No unread indicator for replies that arrive for an agent you're not viewing.
 

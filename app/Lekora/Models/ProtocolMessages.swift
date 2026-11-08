@@ -189,3 +189,53 @@ public struct ErrorData: Codable, Equatable {
         self.recoverable = recoverable
     }
 }
+
+// MARK: - Agent lifecycle (docs/agent-lifecycle.md)
+public struct ProfileCreateData: Codable, Equatable {
+    public let name: String
+    public let description: String?
+}
+
+public struct ProfileCreateAckData: Codable, Equatable {
+    public let status: String
+    public let profile: ProfileData
+}
+
+/// `confirm` must equal `profile_id`: the host refuses a delete without it.
+public struct ProfileDeleteData: Codable, Equatable {
+    public let profile_id: String
+    public let confirm: String
+}
+
+public struct ProfileDeleteAckData: Codable, Equatable {
+    public let status: String
+    public let profile_id: String
+    /// Where the host saved the backup, relative to the Hermes folder.
+    public let backup: String
+}
+
+/// Broadcast to every phone when agents are created or deleted.
+public struct ProfilesChangedData: Codable, Equatable {
+    public let profiles: [ProfileData]
+}
+
+/// Mirrors the host's rule ('Research Assistant' -> 'research-assistant'), so the phone can
+/// show the id an agent will get. The host decides.
+public enum ProfileNaming {
+    public static func id(for name: String) -> String {
+        var slug = ""
+        var pendingDash = false
+        for scalar in name.lowercased().unicodeScalars {
+            if ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar) {
+                if pendingDash && !slug.isEmpty { slug.append("-") }
+                slug.unicodeScalars.append(scalar)
+                pendingDash = false
+            } else {
+                pendingDash = true
+            }
+        }
+        var trimmed = String(slug.prefix(64))
+        while trimmed.hasSuffix("-") { trimmed.removeLast() }
+        return trimmed
+    }
+}

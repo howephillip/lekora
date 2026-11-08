@@ -25,6 +25,18 @@ final class FakeHost: @unchecked Sendable {
     private(set) var port: UInt16 = 0
     /// Set once the app's Forget Host revoked the device; later unpairs are rejected.
     var unpaired = false
+    /// Makes the next profile.delete fail like a failed backup.
+    var failNextDelete = false
+    /// Set to stop answering profile.create (to test the phone's timeout and disconnect handling).
+    var ignoreCreates = false
+
+    /// Like the plugin's `profiles.changed`: every live connection hears about agent changes.
+    func broadcastProfiles() {
+        lock.lock(); let open = connections; lock.unlock()
+        for connection in open where connection.state == .ready {
+            send(type: "profiles.changed", data: ["profiles": profiles], on: connection)
+        }
+    }
 
     var endpoint: String { "ws://127.0.0.1:\(port)" }
 
@@ -135,6 +147,44 @@ final class FakeHost: @unchecked Sendable {
             send(type: "device.unpair.ack", id: id,
                  data: ["status": "ok", "device_id": data["device_id"] as? String ?? ""], on: connection)
             queue.asyncAfter(deadline: .now() + 0.1) { connection.cancel() }
+
+        case "profile.create":
+            if ignoreCreates { return }
+            let name = data["name"] as? String ?? ""
+            let profileId = ProfileNaming.id(for: name)
+            guard !profileId.isEmpty else {
+                send(error: "INVALID_NAME", reason: "Give the agent a name", id: id, on: connection, close: false)
+                return
+            }
+            guard !profiles.contains(where: { $0["profile_id"] == profileId }) else {
+                send(error: "PROFILE_EXISTS", reason: "An agent called '\(profileId)' already exists", id: id, on: connection, close: false)
+                return
+            }
+            var created = ["profile_id": profileId, "name": profileId.capitalized, "avatar": "sparkles"]
+            if let description = data["description"] as? String { created["description"] = description }
+            profiles.append(created)
+            send(type: "profile.create.ack", id: id, data: ["status": "ok", "profile": created], on: connection)
+            broadcastProfiles()
+
+        case "profile.delete":
+            let profileId = data["profile_id"] as? String ?? ""
+            if profileId == "default" {
+                send(error: "CANNOT_DELETE_DEFAULT", reason: "The default agent can't be deleted", id: id, on: connection, close: false)
+            } else if data["confirm"] as? String != profileId {
+                send(error: "CONFIRMATION_REQUIRED", reason: "Deleting an agent needs explicit confirmation", id: id, on: connection, close: false)
+            } else if !profiles.contains(where: { $0["profile_id"] == profileId }) {
+                send(error: "UNKNOWN_PROFILE", reason: "There is no agent called '\(profileId)'", id: id, on: connection, close: false)
+            } else if failNextDelete {
+                failNextDelete = false
+                send(error: "BACKUP_FAILED", reason: "Backup failed, so nothing was deleted", id: id, on: connection, close: false)
+            } else {
+                profiles.removeAll { $0["profile_id"] == profileId }
+                history.removeAll { $0.profile == profileId }
+                send(type: "profile.delete.ack", id: id,
+                     data: ["status": "ok", "profile_id": profileId, "backup": "lekora-backups/profiles/\(profileId)-x.tar.gz"],
+                     on: connection)
+                broadcastProfiles()
+            }
 
         case "chat.send":
             // Like the plugin: unknown agents are rejected; replies come from the agent addressed.

@@ -46,3 +46,51 @@ def fake_hermes_root(tmp_path, monkeypatch):
     import lekora.profiles
     monkeypatch.setattr(lekora.profiles, "hermes_root", lambda: root)
     return root
+
+
+@pytest.fixture(autouse=True)
+def no_real_hermes_cli(monkeypatch):
+    """Tests must never run the real `hermes` command (it would change this machine's Hermes)."""
+    import lekora.profile_admin
+
+    def refuse():
+        raise AssertionError("a test tried to run the real hermes CLI")
+    monkeypatch.setattr(lekora.profile_admin, "hermes_command", refuse)
+
+
+class FakeHermesCli:
+    """Acts like `hermes profile create/export/delete` on the fake Hermes root."""
+
+    def __init__(self, root):
+        self.root = root
+        self.calls = []
+        self.fail = {}        # subcommand -> (exit code, output)
+        self.empty_export = False
+
+    async def __call__(self, args):
+        self.calls.append(list(args))
+        sub, name = args[1], args[2]
+        if sub in self.fail:
+            return self.fail[sub]
+        home = self.root / "profiles" / name
+        if sub == "create":
+            home.mkdir(parents=True)
+            (home / "config.yaml").write_text("model: cloned\n")
+            if "--description" in args:
+                desc = args[args.index("--description") + 1]
+                (home / "profile.yaml").write_text(f"description: {desc}\n")
+            return 0, f"Created profile {name}\n"
+        if sub == "export":
+            out = args[args.index("-o") + 1]
+            Path(out).write_bytes(b"" if self.empty_export else b"archive")
+            return 0, f"Exported to {out}\n"
+        if sub == "delete":
+            import shutil
+            shutil.rmtree(home)
+            return 0, f"Deleted {name}\n"
+        return 2, "unknown"
+
+
+@pytest.fixture
+def fake_cli(fake_hermes_root):
+    return FakeHermesCli(fake_hermes_root)

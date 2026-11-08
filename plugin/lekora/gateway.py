@@ -10,6 +10,7 @@ Agent replies come back through :meth:`Gateway.publish_message`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -17,10 +18,13 @@ import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from .store import Store, TokenExpired, TokenInvalid
 from .ws import ConnectionClosed, ServerConnection, serve
+
+if TYPE_CHECKING:
+    from .profile_admin import ProfileAdmin
 
 log = logging.getLogger(__name__)
 
@@ -67,8 +71,11 @@ class Gateway:
         endpoints: EndpointsProvider = lambda port: [],
         host: str = "0.0.0.0",
         auth_timeout: float = AUTH_TIMEOUT_SECONDS,
+        profile_admin: Optional["ProfileAdmin"] = None,
     ) -> None:
         self.store = store
+        # Creates/deletes Hermes profiles (docs/agent-lifecycle.md); None = not offered.
+        self._profile_admin = profile_admin
         self._dispatch = dispatch
         self._profiles = profiles
         self._endpoints = endpoints
@@ -233,6 +240,14 @@ class Gateway:
                           False, True, msg_id)
         elif type_ == "chat.send":
             await self._chat_send(conn, msg_id, env.get("profile_id"), data)
+        elif type_ in ("profile.create", "profile.delete"):
+            if self._profile_admin is None:
+                raise _Reject("PROFILE_ADMIN_UNAVAILABLE",
+                              "Agents can't be added or deleted from the phone on this host",
+                              True, False, msg_id)
+            # Runs in the background: cloning or backing up a profile takes seconds, and
+            # this connection must keep reading (pings, other messages) meanwhile.
+            self._spawn(self._profile_op(conn, msg_id, type_, data))
         else:
             raise _Reject("INVALID_MESSAGE", f"Unknown message type: {type_}",
                           True, False, msg_id)
@@ -342,6 +357,50 @@ class Gateway:
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    def _spawn(self, coro) -> None:
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _profile_op(self, conn: _Conn, msg_id: Optional[str], type_: str, data: dict) -> None:
+        from .profile_admin import ProfileAdminError
+        try:
+            if type_ == "profile.create":
+                created = await self._profile_admin.create(data.get("name"), data.get("description"))
+                ack = self._envelope("profile.create.ack", {"status": "ok", "profile": created}, msg_id=msg_id)
+            else:
+                profile_id = data.get("profile_id")
+                backup = await self._profile_admin.delete(profile_id, data.get("confirm"))
+                ack = self._envelope("profile.delete.ack",
+                                     {"status": "ok", "profile_id": profile_id, "backup": backup},
+                                     msg_id=msg_id)
+        except ProfileAdminError as exc:
+            reply = self._envelope("error", {"code": exc.code, "reason": exc.reason, "recoverable": True},
+                                   msg_id=msg_id)
+            with contextlib.suppress(ConnectionClosed):
+                await self._send(conn, reply)
+            return
+        except Exception:
+            log.exception("Profile operation failed")
+            reply = self._envelope("error", {"code": "PROFILE_OP_FAILED",
+                                             "reason": "The agent change failed on the host",
+                                             "recoverable": True}, msg_id=msg_id)
+            with contextlib.suppress(ConnectionClosed):
+                await self._send(conn, reply)
+            return
+        with contextlib.suppress(ConnectionClosed):
+            await self._send(conn, ack)
+        await self.broadcast_profiles()
+
+    async def broadcast_profiles(self) -> None:
+        """Tell every connected phone the agent list changed."""
+        payload = self._envelope("profiles.changed", {"profiles": self._profiles()})
+        for conn in list(self._conns):
+            if not conn.authed or not self.store.is_device_active(conn.device_id):
+                continue
+            with contextlib.suppress(ConnectionClosed):
+                await self._send(conn, payload)
 
     async def _run_dispatch(self, conn: _Conn, msg_id: Optional[str],
                             profile_id: str, text: str) -> None:

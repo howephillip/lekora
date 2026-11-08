@@ -55,6 +55,8 @@ public final class GatewayClient: ObservableObject {
     private let prober: RouteProber
     private var heartbeatTimer: Timer?
     private var activeURL: URL?
+    /// Requests awaiting a reply with the same envelope id (agent create/delete).
+    private var pendingReplies: [String: CheckedContinuation<Data, Error>] = [:]
 
     public init(
         session: URLSession = .shared,
@@ -357,6 +359,72 @@ public final class GatewayClient: ObservableObject {
         persistProfileChoice(host)
     }
 
+    /// New agent list from the host (another phone created or deleted one).
+    private func applyProfiles(_ newProfiles: [ProfileData]) {
+        let removed = Set(profiles.map(\.profile_id)).subtracting(newProfiles.map(\.profile_id))
+        profiles = newProfiles
+        for id in removed { timeline.removeEntries(for: id) }
+        reconcileProfileChoice()
+    }
+
+    /// Creates an agent on the host (a clone of the default agent's settings). If this phone
+    /// already has a choice, the new agent is switched on and becomes the current chat.
+    @discardableResult
+    public func createProfile(name: String, description: String? = nil) async throws -> ProfileData {
+        let trimmed = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ack = try await request(
+            type: "profile.create",
+            data: ProfileCreateData(name: name, description: (trimmed?.isEmpty ?? true) ? nil : trimmed),
+            reply: ProfileCreateAckData.self, timeout: 200)
+        let created = ack.profile
+        if !profiles.contains(where: { $0.profile_id == created.profile_id }) {
+            profiles.append(created)
+        }
+        if let enabled = savedHost?.enabledProfileIds, !enabled.isEmpty {
+            chooseProfiles(enabled + [created.profile_id])
+            switchToProfile(created.profile_id)
+        }
+        return created
+    }
+
+    /// Deletes an agent on the host. The host backs it up first and refuses `default`.
+    /// Returns the backup's location on the host.
+    @discardableResult
+    public func deleteProfile(_ profileId: String) async throws -> String {
+        let ack = try await request(
+            type: "profile.delete",
+            data: ProfileDeleteData(profile_id: profileId, confirm: profileId),
+            reply: ProfileDeleteAckData.self, timeout: 200)
+        applyProfiles(profiles.filter { $0.profile_id != profileId })
+        return ack.backup
+    }
+
+    private func request<T: Codable, R: Codable>(type: String, data: T, reply: R.Type, timeout: Double) async throws -> R {
+        guard case .connected = state, let wsTask = webSocketTask, let instanceId = savedHost?.instanceId else {
+            throw HostError(code: "DISCONNECTED", reason: "Not connected to the host.")
+        }
+        let envelope = Envelope(type: type, instance_id: instanceId, data: data)
+        let raw: Data = try await withCheckedThrowingContinuation { continuation in
+            pendingReplies[envelope.id] = continuation
+            Task { [weak self] in
+                do {
+                    try await self?.send(envelope, on: wsTask)
+                } catch {
+                    self?.resolvePending(envelope.id, .failure(error))
+                }
+            }
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                self?.resolvePending(envelope.id, .failure(HostError(code: "TIMEOUT", reason: "The host didn't answer in time.")))
+            }
+        }
+        return try JSONDecoder().decode(Envelope<R>.self, from: raw).data
+    }
+
+    private func resolvePending(_ id: String, _ result: Result<Data, Error>) {
+        pendingReplies.removeValue(forKey: id)?.resume(with: result)
+    }
+
     private func persistProfileChoice(_ host: SavedHost) {
         try? host.saveProfileChoice(to: keychain)
         savedHost = host
@@ -434,7 +502,20 @@ public final class GatewayClient: ObservableObject {
         let decoder = JSONDecoder()
         guard let header = try? decoder.decode(EnvelopeHeader.self, from: data) else { return }
 
+        // A reply (or error) to a pending request, e.g. profile.create.ack.
+        if pendingReplies[header.id] != nil {
+            if header.type == "error", let envelope = try? decoder.decode(Envelope<ErrorData>.self, from: data) {
+                resolvePending(header.id, .failure(HostError(code: envelope.data.code, reason: envelope.data.reason)))
+            } else {
+                resolvePending(header.id, .success(data))
+            }
+            return
+        }
+
         switch header.type {
+        case "profiles.changed":
+            guard let envelope = try? decoder.decode(Envelope<ProfilesChangedData>.self, from: data) else { return }
+            applyProfiles(envelope.data.profiles)
         case "chat.message":
             guard let envelope = try? decoder.decode(Envelope<ChatMessageData>.self, from: data) else { return }
             currentSeq = max(currentSeq, envelope.data.seq)
@@ -487,12 +568,20 @@ public final class GatewayClient: ObservableObject {
     }
 
     private func handleDisconnection() {
+        failPendingReplies()
         heartbeatTimer?.invalidate()
         webSocketTask = nil
         state = .disconnected
     }
 
+    private func failPendingReplies() {
+        for id in Array(pendingReplies.keys) {
+            resolvePending(id, .failure(HostError(code: "DISCONNECTED", reason: "The connection to the host was lost.")))
+        }
+    }
+
     private func closeSocket() {
+        failPendingReplies()
         heartbeatTimer?.invalidate()
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil

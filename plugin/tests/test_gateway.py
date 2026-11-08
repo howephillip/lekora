@@ -337,3 +337,84 @@ async def test_unpair_does_not_touch_other_devices(gw, store):
     await ws.send(unpair_env(store, a_id, a_tok))
     await recv(ws)
     assert [d.active for d in store.list_devices()] == [False, True]
+
+
+# ---- agent lifecycle (profile.create / profile.delete) ----------------------------
+
+@pytest.fixture
+async def admin_gw(store, fake_hermes_root, fake_cli, clock):
+    from lekora.profile_admin import ProfileAdmin
+    from lekora.profiles import discover_profiles
+
+    async def dispatch(profile_id, text, message_id):
+        pass
+
+    g = Gateway(store, dispatch, lambda: discover_profiles(fake_hermes_root),
+                endpoints=lambda p: [f"ws://127.0.0.1:{p}"], host="127.0.0.1",
+                profile_admin=ProfileAdmin(store, lambda: fake_hermes_root, run_cli=fake_cli, clock=clock))
+    await g.start()
+    yield g
+    await g.stop()
+
+
+async def connected(gw, store, name="iPhone"):
+    device_id, tok = store.register_device(name)
+    ws = await hello(gw, store, device_id, tok)
+    await recv(ws)  # hello.ack
+    return ws
+
+
+async def test_create_agent_acks_and_tells_every_phone(admin_gw, store):
+    a = await connected(admin_gw, store, "a")
+    b = await connected(admin_gw, store, "b")
+    await a.send(env(store, "profile.create", {"name": "Research Assistant", "description": "Sources"},
+                     msg_id="c1"))
+    ack = await recv(a, timeout=5)
+    assert ack["type"] == "profile.create.ack" and ack["id"] == "c1"
+    assert ack["data"]["profile"]["profile_id"] == "research-assistant"
+    for ws in (a, b):
+        changed = await recv(ws, timeout=5)
+        assert changed["type"] == "profiles.changed"
+        assert [p["profile_id"] for p in changed["data"]["profiles"]] == ["default", "research-assistant"]
+    await a.close(); await b.close()
+
+
+async def test_delete_agent_acks_with_backup_and_broadcasts(admin_gw, store, fake_hermes_root):
+    (fake_hermes_root / "profiles" / "bruce").mkdir(parents=True)
+    (fake_hermes_root / "profiles" / "bruce" / "config.yaml").write_text("m: x\n")
+    ws = await connected(admin_gw, store)
+    await ws.send(env(store, "profile.delete", {"profile_id": "bruce", "confirm": "bruce"}, msg_id="d1"))
+    ack = await recv(ws, timeout=5)
+    assert ack["type"] == "profile.delete.ack" and ack["id"] == "d1"
+    assert ack["data"]["backup"].startswith("lekora-backups/profiles/bruce-")
+    changed = await recv(ws, timeout=5)
+    assert [p["profile_id"] for p in changed["data"]["profiles"]] == ["default"]
+    await ws.close()
+
+
+async def test_lifecycle_errors_come_back_with_the_request_id(admin_gw, store):
+    ws = await connected(admin_gw, store)
+    await ws.send(env(store, "profile.delete", {"profile_id": "default", "confirm": "default"}, msg_id="d2"))
+    err = await recv(ws, timeout=5)
+    assert err["type"] == "error" and err["id"] == "d2"
+    assert err["data"]["code"] == "CANNOT_DELETE_DEFAULT" and err["data"]["recoverable"] is True
+    await ws.send(env(store, "profile.create", {"name": "!!!"}, msg_id="c2"))
+    assert (await recv(ws, timeout=5))["data"]["code"] == "INVALID_NAME"
+    # The connection stays usable after an error.
+    await ws.send(env(store, "profile.create", {"name": "Ok"}, msg_id="c3"))
+    assert (await recv(ws, timeout=5))["type"] == "profile.create.ack"
+    await ws.close()
+
+
+async def test_lifecycle_unavailable_without_admin(gw, store):
+    ws = await connected(gw, store)
+    await ws.send(env(store, "profile.create", {"name": "Bruce"}, msg_id="c1"))
+    err = await recv(ws)
+    assert err["data"]["code"] == "PROFILE_ADMIN_UNAVAILABLE" and err["id"] == "c1"
+    await ws.close()
+
+
+async def test_lifecycle_needs_authentication(admin_gw, store):
+    ws = await open_ws(admin_gw)
+    await ws.send(env(store, "profile.create", {"name": "Bruce"}, msg_id="c1"))
+    assert (await recv(ws))["data"]["code"] == "AUTH_FAILED"

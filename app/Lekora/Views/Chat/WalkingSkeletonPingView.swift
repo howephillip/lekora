@@ -62,7 +62,7 @@ public struct WalkingSkeletonPingView: View {
                         }
                     }
                     Divider()
-                    Button("Choose Agents…", systemImage: "person.2") {
+                    Button("Manage Agents…", systemImage: "person.2") {
                         choosingAgents = true
                     }
                 }

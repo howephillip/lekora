@@ -11,10 +11,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Protocol
 
 from . import __version__
 from .gateway import Gateway
+from .profile_admin import ProfileAdmin, RunCli, run_hermes_cli
+from . import profiles as _profiles
 from .profiles import discover_profiles
 from .routes import resolve_candidate_endpoints
 from .store import Store
@@ -104,7 +107,9 @@ class LekoraService:
         check_version: bool = True,
         auth_timeout: Optional[float] = None,
         profiles_provider: Optional[Callable[[], list[dict]]] = None,
+        run_cli: RunCli = run_hermes_cli,
     ) -> None:
+        self._run_cli = run_cli
         self._bridge = bridge
         # What the phone is offered; the Hermes adapter narrows it to routable profiles.
         self._profiles_provider = profiles_provider
@@ -133,6 +138,13 @@ class LekoraService:
         kwargs: dict[str, Any] = {}
         if self._auth_timeout is not None:
             kwargs["auth_timeout"] = self._auth_timeout
+        # Create/delete agents from the phone, unless the owner pinned a fixed agent list.
+        admin = None
+        if self.config.profiles is None:
+            admin = ProfileAdmin(
+                self._store,
+                hermes_root=lambda: Path(self.config.hermes_root) if self.config.hermes_root else _profiles.hermes_root(),
+                run_cli=self._run_cli)
         self.gateway = Gateway(
             self._store,
             dispatch=self._bridge.deliver_to_agent,
@@ -140,6 +152,7 @@ class LekoraService:
             endpoints=lambda port: resolve_candidate_endpoints(
                 port, self.config.extra_hosts),
             host=self.config.listen_host,
+            profile_admin=admin,
             **kwargs,
         )
         try:

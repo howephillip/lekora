@@ -314,9 +314,12 @@ class Store:
             return int(cur.lastrowid)
 
     def current_seq(self) -> int:
+        """Highest seq ever issued. Never goes backwards, even after a deleted agent's
+        events are removed (AUTOINCREMENT never reuses numbers)."""
         with self._lock:
             row = self._db.execute(
-                "SELECT COALESCE(MAX(seq), 0) AS s FROM events WHERE instance_id = ?",
+                "SELECT MAX(COALESCE((SELECT MAX(seq) FROM events WHERE instance_id = ?), 0),"
+                " COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0)) AS s",
                 (self.instance_id,),
             ).fetchone()
         return int(row["s"])
@@ -332,3 +335,17 @@ class Store:
                   json.loads(r["payload_json"]), r["created_at"])
             for r in rows
         ]
+
+    def events_for_profile(self, profile_id: str) -> list[Event]:
+        """One agent's events in order (for the backup taken before deleting it)."""
+        return [e for e in self.fetch_events_since(0) if e.profile_id == profile_id]
+
+    def delete_profile_events(self, profile_id: str) -> int:
+        """Remove a deleted agent's events, so a new agent with the same name starts clean."""
+        with self._lock:
+            cur = self._db.execute(
+                "DELETE FROM events WHERE instance_id = ? AND profile_id = ?",
+                (self.instance_id, profile_id),
+            )
+            self._db.commit()
+            return cur.rowcount

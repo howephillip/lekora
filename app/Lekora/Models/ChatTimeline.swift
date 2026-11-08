@@ -47,6 +47,11 @@ public struct ChatTimeline: Equatable {
         entries.filter { $0.profileId == profileId }
     }
 
+    /// Drops a deleted agent's messages (the host keeps them in its backup).
+    public mutating func removeEntries(for profileId: String) {
+        entries.removeAll { $0.profileId == profileId }
+    }
+
     public mutating func addOutgoing(id: String, profileId: String, text: String) {
         entries.append(ChatEntry(id: id, profileId: profileId, role: .user, text: text, status: .sending))
     }

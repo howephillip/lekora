@@ -110,3 +110,17 @@ async def test_restart_keeps_identity_and_port(tmp_path):
     b = LekoraService(FakeHermes(), cfg, check_version=False)
     assert await b.start() == port and b.store.instance_id == inst
     await b.stop()
+
+
+async def test_agent_management_off_when_owner_pins_the_list(tmp_path):
+    pinned = LekoraConfig(db_path=str(tmp_path / "p.db"), listen_host="127.0.0.1",
+                          profiles=[{"profile_id": "default", "name": "Home", "avatar": "sparkles"}])
+    discovered = LekoraConfig(db_path=str(tmp_path / "d.db"), listen_host="127.0.0.1")
+    a = LekoraService(FakeHermes(), pinned, check_version=False)
+    b = LekoraService(FakeHermes(), discovered, check_version=False)
+    await a.start(); await b.start()
+    try:
+        assert a.gateway._profile_admin is None
+        assert b.gateway._profile_admin is not None
+    finally:
+        await a.stop(); await b.stop()
