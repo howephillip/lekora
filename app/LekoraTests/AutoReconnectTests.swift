@@ -85,7 +85,7 @@ final class AutoReconnectTests: XCTestCase {
 
         await gateway.sendMessage("Are you there?")
 
-        let replied = await waitUntil { gateway.timeline.entries.last?.text == "Echo: Are you there?" }
+        let replied = await waitUntil { gateway.timeline.entries.last?.text == "assistant says: Are you there?" }
         XCTAssertTrue(replied)
         let sent = try XCTUnwrap(host.received(type: "chat.send").first)
         XCTAssertEqual(sent["instance_id"] as? String, host.instanceId)

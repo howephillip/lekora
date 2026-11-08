@@ -5,8 +5,12 @@ and its IRC reference adapter. It only imports Hermes modules, so it loads
 inside Hermes and is NOT exercised by the fake-Hermes unit tests. It must be
 verified in the real-Hermes pass before this feature counts as done.
 
-Mapping: each Lekora profile is one Hermes chat (``chat_id == profile_id``), so
-every profile is equal. Paired devices are authenticated by Lekora itself, so
+Mapping: each Lekora profile is a real Hermes profile, and one Hermes chat
+(``chat_id == profile_id == profile name``). One Hermes gateway serves every
+profile, so each message is stamped with its target profile
+(``source.profile``) and Hermes runs that turn as that profile; replies come
+back through ``send(chat_id=profile)``. No Hermes config is written. Every
+profile is equal. Paired devices are authenticated by Lekora itself, so
 the platform is registered ``trusted_inbound`` (no second allow-list/pairing).
 """
 
@@ -50,9 +54,10 @@ class LekoraAdapter(BasePlatformAdapter):
         Scheduled-job output with no explicit target goes to the first profile.
         """
         try:
-            if getattr(config, "home_channel", None) or not self._cfg.profiles:
+            profiles = self._cfg.current_profiles()
+            if getattr(config, "home_channel", None) or not profiles:
                 return
-            first = self._cfg.profiles[0]
+            first = profiles[0]
             config.home_channel = HomeChannel(
                 platform=Platform(PLATFORM_NAME),
                 chat_id=first["profile_id"], name=first["name"])
@@ -70,6 +75,11 @@ class LekoraAdapter(BasePlatformAdapter):
         source = self.build_source(
             chat_id=profile_id, chat_name=profile_id, chat_type="dm",
             user_id="lekora-owner", user_name="Lekora")
+        # Run this turn as the chosen profile. The gateway already rejected unknown
+        # profiles (UNKNOWN_PROFILE), so this never silently falls back to another agent.
+        # A configured gateway.profile_routes entry for this chat still takes precedence.
+        if not getattr(source, "profile", None):
+            source.profile = profile_id
         await self.handle_message(MessageEvent(
             text=text, message_type=MessageType.TEXT, source=source,
             message_id=message_id, timestamp=datetime.datetime.now()))

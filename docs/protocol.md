@@ -109,12 +109,14 @@ The plugin verifies the credentials against its store:
     "current_seq": 150,
     "instance_name": "Primary Hermes",
     "profiles": [
-      { "profile_id": "coder", "name": "Coder", "avatar": "terminal" },
-      { "profile_id": "assistant", "name": "General Assistant", "avatar": "sparkles" }
+      { "profile_id": "default", "name": "Default", "avatar": "sparkles" },
+      { "profile_id": "work", "name": "Work", "avatar": "sparkles", "description": "Email and calendar" }
     ]
   }
 }
 ```
+`profiles` are the real Hermes profiles on the host, discovered live on every `hello` (`default` first, then named profiles alphabetically; deleted and parked profiles are left out). `profile_id` is the Hermes profile name; `name` is its `display_name` from `profile.yaml`, else a readable form of the id; `description` (optional) comes from `profile.yaml`. A `profile_id` on `chat.send` is checked against this list at send time, so a profile deleted since `hello` gets `UNKNOWN_PROFILE`.
+
 Immediately following `hello.ack`, the plugin replays all events with `seq > last_seq` (events 143 through 150) so the phone's cache catches up completely.
 
 ---

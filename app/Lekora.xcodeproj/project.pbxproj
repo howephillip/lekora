@@ -26,6 +26,8 @@
 		CDAB305C30A01664009D7D27 /* LKControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305B30A01664009D7D27 /* LKControls.swift */; };
 		CDAB305E30A0166E009D7D27 /* LKChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305D30A0166E009D7D27 /* LKChat.swift */; };
 		CDAB306030A016C9009D7D27 /* LKPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305F30A016C9009D7D27 /* LKPreviews.swift */; };
+		CDE32E9630A0229400309969 /* ChooseProfilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDE32E9530A0229400309969 /* ChooseProfilesView.swift */; };
+		CDE32E9830A0234900309969 /* AgentSwitchingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDE32E9730A0234900309969 /* AgentSwitchingTests.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
 		E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */; };
 		F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */; };
@@ -62,6 +64,8 @@
 		CDAB305B30A01664009D7D27 /* LKControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKControls.swift; sourceTree = "<group>"; };
 		CDAB305D30A0166E009D7D27 /* LKChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKChat.swift; sourceTree = "<group>"; };
 		CDAB305F30A016C9009D7D27 /* LKPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKPreviews.swift; sourceTree = "<group>"; };
+		CDE32E9530A0229400309969 /* ChooseProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChooseProfilesView.swift; sourceTree = "<group>"; };
+		CDE32E9730A0234900309969 /* AgentSwitchingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSwitchingTests.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -76,6 +80,7 @@
 				DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */,
 				00F0CED43AE9F169638D5D29 /* ReconnectingView.swift */,
 				DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */,
+				CDE32E9530A0229400309969 /* ChooseProfilesView.swift */,
 			);
 			path = Setup;
 			sourceTree = "<group>";
@@ -118,6 +123,7 @@
 				19C424E99FE08F51187724FC /* FakeHost.swift */,
 				8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */,
 				F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */,
+				CDE32E9730A0234900309969 /* AgentSwitchingTests.swift */,
 			);
 			path = LekoraTests;
 			sourceTree = "<group>";
@@ -256,6 +262,7 @@
 				E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */,
 				CDAB305C30A01664009D7D27 /* LKControls.swift in Sources */,
 				CDAB305830A01650009D7D27 /* LKTheme.swift in Sources */,
+				CDE32E9630A0229400309969 /* ChooseProfilesView.swift in Sources */,
 				CDAB305A30A01658009D7D27 /* LKSurfaces.swift in Sources */,
 				5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */,
 				888B003DBEEC83DAAD851C7B /* LekoraApp.swift in Sources */,
@@ -279,6 +286,7 @@
 				C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */,
 				B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */,
 				8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */,
+				CDE32E9830A0234900309969 /* AgentSwitchingTests.swift in Sources */,
 				79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -45,8 +45,8 @@ def test_unsupported_versions_give_plain_message(v):
 
 def test_config_defaults_and_overrides():
     d = LekoraConfig.from_extra(None)
-    assert d.listen_host == "0.0.0.0" and d.profiles[0]["profile_id"] == "assistant"
-    assert all(p["profile_id"] != "main" for p in d.profiles)
+    assert d.listen_host == "0.0.0.0" and d.profiles is None  # None: discover real profiles
+    assert [p["profile_id"] for p in d.current_profiles()] == ["default"]
     c = LekoraConfig.from_extra({
         "db_path": "/x/y.db", "extra_hosts": ["h.example.com"], "instance_name": "Home",
         "profiles": [{"profile_id": "coder", "name": "Coder"}, {"profile_id": "assistant"}]})

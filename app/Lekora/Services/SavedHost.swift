@@ -17,6 +17,10 @@ public struct SavedHost: Equatable {
     public let deviceToken: String
     /// Candidate `ws://` addresses, tried in parallel; the one that worked last is first.
     public let endpoints: [String]
+    /// Agents (profile ids) chosen for this phone; nil until the user has chosen.
+    public var enabledProfileIds: [String]?
+    /// The agent the chat screen last showed.
+    public var activeProfileId: String?
 
     private enum Key {
         static let instanceId = "instance_id"
@@ -24,15 +28,20 @@ public struct SavedHost: Equatable {
         static let deviceId = "device_id"
         static let deviceToken = "device_token"
         static let endpoints = "endpoints"
-        static let all = [instanceId, instanceName, deviceId, deviceToken, endpoints]
+        static let enabledProfiles = "enabled_profiles"
+        static let activeProfile = "active_profile"
+        static let all = [instanceId, instanceName, deviceId, deviceToken, endpoints, enabledProfiles, activeProfile]
     }
 
-    public init(instanceId: String, instanceName: String, deviceId: String, deviceToken: String, endpoints: [String]) {
+    public init(instanceId: String, instanceName: String, deviceId: String, deviceToken: String, endpoints: [String],
+                enabledProfileIds: [String]? = nil, activeProfileId: String? = nil) {
         self.instanceId = instanceId
         self.instanceName = instanceName
         self.deviceId = deviceId
         self.deviceToken = deviceToken
         self.endpoints = endpoints
+        self.enabledProfileIds = enabledProfileIds
+        self.activeProfileId = activeProfileId
     }
 
     /// Returns nil unless every piece is present. Pairings made before addresses were
@@ -55,7 +64,9 @@ public struct SavedHost: Equatable {
             instanceName: value(Key.instanceName) ?? "Hermes",
             deviceId: deviceId,
             deviceToken: deviceToken,
-            endpoints: endpoints
+            endpoints: endpoints,
+            enabledProfileIds: value(Key.enabledProfiles).map { $0.split(separator: "\n").map(String.init) },
+            activeProfileId: value(Key.activeProfile)
         )
     }
 
@@ -65,6 +76,21 @@ public struct SavedHost: Equatable {
         try store.save(key: Key.deviceId, value: deviceId)
         try store.save(key: Key.deviceToken, value: deviceToken)
         try store.save(key: Key.endpoints, value: endpoints.joined(separator: "\n"))
+        try saveProfileChoice(to: store)
+    }
+
+    /// Persists just the agent choice (after "Choose Agents" or switching agents).
+    public func saveProfileChoice(to store: CredentialStore) throws {
+        if let enabledProfileIds, !enabledProfileIds.isEmpty {
+            try store.save(key: Key.enabledProfiles, value: enabledProfileIds.joined(separator: "\n"))
+        } else {
+            try store.delete(key: Key.enabledProfiles)
+        }
+        if let activeProfileId {
+            try store.save(key: Key.activeProfile, value: activeProfileId)
+        } else {
+            try store.delete(key: Key.activeProfile)
+        }
     }
 
     public static func clear(from store: CredentialStore) {

@@ -30,9 +30,23 @@ public final class GatewayClient: ObservableObject {
     /// The paired host, if any. While set, the app reconnects instead of showing the setup wizard.
     @Published public private(set) var savedHost: SavedHost?
 
-    /// The profile the chat screen talks to. Falls back to the protocol's default profile id.
-    public var activeProfileId: String {
-        profiles.first?.profile_id ?? "assistant"
+    /// The agent the chat screen talks to; `chat.send` goes to this profile.
+    @Published public private(set) var activeProfileId: String = "default"
+
+    /// The host's agents that this phone uses, in the host's order.
+    public var enabledProfiles: [ProfileData] {
+        guard let chosen = savedHost?.enabledProfileIds else { return [] }
+        return profiles.filter { chosen.contains($0.profile_id) }
+    }
+
+    public var activeProfile: ProfileData? {
+        profiles.first { $0.profile_id == activeProfileId }
+    }
+
+    /// True when connected but no usable agent has been chosen yet: show "Choose Agents".
+    public var needsProfileChoice: Bool {
+        guard case .connected = state else { return false }
+        return enabledProfiles.isEmpty
     }
 
     private var webSocketTask: URLSessionWebSocketTask?
@@ -192,8 +206,9 @@ public final class GatewayClient: ObservableObject {
             }
 
             self.profiles = ack.profiles
-            let primaryProfileName = ack.profiles.first?.name ?? "Hermes Agent"
-            state = .connected(instanceName: ack.instance_name, profileName: primaryProfileName)
+            reconcileProfileChoice()
+            let activeName = activeProfile?.name ?? ack.profiles.first?.name ?? "Hermes Agent"
+            state = .connected(instanceName: ack.instance_name, profileName: activeName)
 
             startHeartbeat()
             startReceiveLoop(wsTask: wsTask)
@@ -292,6 +307,59 @@ public final class GatewayClient: ObservableObject {
         timeline = ChatTimeline()
         profiles = []
         currentSeq = 0
+        activeProfileId = "default"
+    }
+
+    // MARK: - Agents (profiles)
+
+    /// Keeps the saved choice in step with the host's current profiles: drops agents that
+    /// no longer exist, picks the only agent automatically, and keeps a valid active agent.
+    private func reconcileProfileChoice() {
+        guard var host = savedHost else { return }
+        let available = profiles.map(\.profile_id)
+
+        if let chosen = host.enabledProfileIds {
+            host.enabledProfileIds = available.filter { chosen.contains($0) }
+        } else if available.count == 1 {
+            host.enabledProfileIds = available  // nothing to choose
+        }
+        let enabled = host.enabledProfileIds ?? []
+        if let active = host.activeProfileId, enabled.contains(active) {
+            activeProfileId = active
+        } else if let first = enabled.first {
+            activeProfileId = first
+        } else {
+            activeProfileId = available.first ?? "default"
+        }
+        host.activeProfileId = enabled.isEmpty ? nil : activeProfileId
+        persistProfileChoice(host)
+    }
+
+    /// Sets which agents this phone uses (host order is kept). Ignores unknown ids;
+    /// an empty choice is not allowed.
+    public func chooseProfiles(_ ids: [String]) {
+        guard var host = savedHost else { return }
+        let chosen = profiles.map(\.profile_id).filter { ids.contains($0) }
+        guard !chosen.isEmpty else { return }
+        host.enabledProfileIds = chosen
+        if !chosen.contains(activeProfileId) {
+            activeProfileId = chosen[0]
+        }
+        host.activeProfileId = activeProfileId
+        persistProfileChoice(host)
+    }
+
+    /// Shows another chosen agent's conversation; new messages go to it.
+    public func switchToProfile(_ id: String) {
+        guard var host = savedHost, enabledProfiles.contains(where: { $0.profile_id == id }) else { return }
+        activeProfileId = id
+        host.activeProfileId = id
+        persistProfileChoice(host)
+    }
+
+    private func persistProfileChoice(_ host: SavedHost) {
+        try? host.saveProfileChoice(to: keychain)
+        savedHost = host
     }
 
     // MARK: - Socket helpers

@@ -1,19 +1,25 @@
 import SwiftUI
 
-/// The connected screen: a chat with the active profile.
+/// The connected screen: a chat with the active agent. Tap the title to switch agents.
 public struct WalkingSkeletonPingView: View {
     @ObservedObject public var gateway: GatewayClient
     public let instanceName: String
-    public let profileName: String
+    /// Name to show until the active agent is known.
+    private let fallbackProfileName: String
+
+    private var profileName: String {
+        gateway.activeProfile?.name ?? fallbackProfileName
+    }
 
     @State private var draft: String = ""
     @FocusState private var inputFocused: Bool
     @State private var confirmingForget = false
+    @State private var choosingAgents = false
 
     public init(gateway: GatewayClient, instanceName: String, profileName: String) {
         self.gateway = gateway
         self.instanceName = instanceName
-        self.profileName = profileName
+        self.fallbackProfileName = profileName
     }
 
     private var messages: [ChatEntry] {
@@ -42,6 +48,27 @@ public struct WalkingSkeletonPingView: View {
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
+                // Agent switcher: tapping the title opens this menu (the system adds the chevron).
+                .toolbarTitleMenu {
+                    ForEach(gateway.enabledProfiles) { profile in
+                        Button {
+                            gateway.switchToProfile(profile.profile_id)
+                        } label: {
+                            if profile.profile_id == gateway.activeProfileId {
+                                Label(profile.name, systemImage: "checkmark")
+                            } else {
+                                Text(profile.name)
+                            }
+                        }
+                    }
+                    Divider()
+                    Button("Choose Agents…", systemImage: "person.2") {
+                        choosingAgents = true
+                    }
+                }
+                .sheet(isPresented: $choosingAgents) {
+                    ChooseProfilesView(gateway: gateway, mode: .edit)
+                }
                 // No "connected" badge: this screen only shows while connected; any
                 // connection problem switches the app to the Reconnecting screen.
                 .toolbar {
@@ -93,6 +120,8 @@ public struct WalkingSkeletonPingView: View {
                 .padding(.vertical, LK.Spacing.md)
             }
             .defaultScrollAnchor(.bottom)
+            // A fresh list per agent, so switching opens that agent's chat at its newest message.
+            .id(gateway.activeProfileId)
             #if os(iOS)
             .scrollDismissesKeyboard(.interactively)
             #endif

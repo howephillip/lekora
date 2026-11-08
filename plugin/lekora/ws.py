@@ -85,6 +85,31 @@ class ServerConnection:
 
     # ---- internals ---------------------------------------------------------
 
+    async def _reject(self, code: int, reason: str) -> None:
+        """Close after a protocol error, without losing the close frame.
+
+        The error is often found mid-message (e.g. a too-big header), with the rest still
+        arriving. Closing a socket that has unread data makes the OS send a reset, which can
+        destroy the close frame in flight, so the peer would see 1006 instead of the real code.
+        So: send the close frame, discard what the peer is still sending (bounded in time and
+        size), then close."""
+        if not self._close_sent:
+            self._close_sent = True
+            with contextlib.suppress(Exception):
+                await self._write_frame(
+                    OP_CLOSE, struct.pack(">H", code) + reason.encode("utf-8")[:120], force=True)
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(self._discard_incoming(4 * self._max), 1.0)
+        await self._finish(ConnectionClosed(code, reason))
+
+    async def _discard_incoming(self, limit: int) -> None:
+        total = 0
+        while total < limit:
+            chunk = await self._r.read(65536)
+            if not chunk:
+                return
+            total += len(chunk)
+
     async def _write_frame(self, opcode: int, payload: bytes, force: bool = False) -> None:
         n = len(payload)
         if n < 126:
@@ -184,7 +209,7 @@ class ServerConnection:
                 else:
                     raise _ProtocolError(1002, "unknown opcode")
         except _ProtocolError as err:
-            await self.close(err.code, err.reason)
+            await self._reject(err.code, err.reason)
         except (asyncio.IncompleteReadError, ConnectionError, OSError):
             await self._finish(ConnectionClosed(1006, "connection lost"))
         except asyncio.CancelledError:

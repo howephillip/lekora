@@ -9,10 +9,12 @@ final class FakeHost: @unchecked Sendable {
     let instanceName = "Test Host"
     let validPairingToken = "pair_ok"
     let acceptedDeviceToken = "tok_good"
+    /// The agents (Hermes profiles) this host offers, in order.
+    var profiles: [[String: String]] = [["profile_id": "assistant", "name": "Assistant", "avatar": "sparkles"]]
     /// Messages the host has stored, replayed after `hello` when newer than `last_seq`.
-    var history: [(seq: Int, role: String, text: String)] = [
-        (1, "user", "Hello from earlier"),
-        (2, "assistant", "Hi! Welcome back."),
+    var history: [(seq: Int, role: String, text: String, profile: String)] = [
+        (1, "user", "Hello from earlier", "assistant"),
+        (2, "assistant", "Hi! Welcome back.", "assistant"),
     ]
 
     private let listener: NWListener
@@ -117,11 +119,11 @@ final class FakeHost: @unchecked Sendable {
             let lastSeq = data["last_seq"] as? Int ?? 0
             send(type: "hello.ack", id: id, data: [
                 "status": "ok", "current_seq": history.last?.seq ?? 0, "instance_name": instanceName,
-                "profiles": [["profile_id": "assistant", "name": "Assistant", "avatar": "sparkles"]],
+                "profiles": profiles,
             ], on: connection)
             for event in history where event.seq > lastSeq {
                 send(type: "chat.message", data: ["seq": event.seq, "role": event.role, "text": event.text],
-                     profileId: "assistant", on: connection)
+                     profileId: event.profile, on: connection)
             }
 
         case "device.unpair":
@@ -135,11 +137,19 @@ final class FakeHost: @unchecked Sendable {
             queue.asyncAfter(deadline: .now() + 0.1) { connection.cancel() }
 
         case "chat.send":
+            // Like the plugin: unknown agents are rejected; replies come from the agent addressed.
+            let profile = message["profile_id"] as? String ?? ""
+            guard profiles.contains(where: { $0["profile_id"] == profile }) else {
+                send(error: "UNKNOWN_PROFILE", reason: "Unknown profile", id: id, on: connection, close: false)
+                return
+            }
+            let text = data["text"] as? String ?? ""
+            let reply = "\(profile) says: \(text)"
             let seq = (history.last?.seq ?? 0) + 1
-            history.append((seq, "user", data["text"] as? String ?? ""))
-            history.append((seq + 1, "assistant", "Echo: \(data["text"] as? String ?? "")"))
-            send(type: "chat.message", data: ["seq": seq + 1, "role": "assistant", "text": "Echo: \(data["text"] as? String ?? "")"],
-                 profileId: "assistant", on: connection)
+            history.append((seq, "user", text, profile))
+            history.append((seq + 1, "assistant", reply, profile))
+            send(type: "chat.message", data: ["seq": seq + 1, "role": "assistant", "text": reply],
+                 profileId: profile, on: connection)
 
         default:
             break

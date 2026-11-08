@@ -35,3 +35,14 @@ def store(db_path, clock):
     s = Store(db_path, clock=clock)
     yield s
     s.close()
+
+
+@pytest.fixture(autouse=True)
+def fake_hermes_root(tmp_path, monkeypatch):
+    """Profile discovery must never read the real ~/.hermes in tests."""
+    root = tmp_path / "hermes-root"
+    root.mkdir()
+    (root / "config.yaml").write_text("model: test\n")
+    import lekora.profiles
+    monkeypatch.setattr(lekora.profiles, "hermes_root", lambda: root)
+    return root

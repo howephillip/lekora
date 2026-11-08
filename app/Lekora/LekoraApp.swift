@@ -45,11 +45,15 @@ public struct ContentView: View {
     public var body: some View {
         switch gateway.state {
         case .connected(let instanceName, let profileName):
-            WalkingSkeletonPingView(
-                gateway: gateway,
-                instanceName: instanceName,
-                profileName: profileName
-            )
+            if gateway.needsProfileChoice {
+                ChooseProfilesView(gateway: gateway, mode: .setup)
+            } else {
+                WalkingSkeletonPingView(
+                    gateway: gateway,
+                    instanceName: instanceName,
+                    profileName: profileName
+                )
+            }
         default:
             if let host = gateway.savedHost {
                 ReconnectingView(gateway: gateway, host: host)

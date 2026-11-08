@@ -109,11 +109,14 @@ public struct ProfileData: Codable, Identifiable, Equatable {
     public let profile_id: String
     public let name: String
     public let avatar: String
+    /// What this agent is for, from the Hermes profile's `profile.yaml` (optional).
+    public let description: String?
 
-    public init(profile_id: String, name: String, avatar: String) {
+    public init(profile_id: String, name: String, avatar: String, description: String? = nil) {
         self.profile_id = profile_id
         self.name = name
         self.avatar = avatar
+        self.description = description
     }
 }
 

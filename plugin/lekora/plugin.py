@@ -15,6 +15,7 @@ from typing import Any, Mapping, Optional, Protocol
 
 from . import __version__
 from .gateway import Gateway
+from .profiles import discover_profiles
 from .routes import resolve_candidate_endpoints
 from .store import Store
 
@@ -23,11 +24,6 @@ log = logging.getLogger(__name__)
 # Hermes releases this plugin is known to work with (inclusive min, exclusive max).
 MIN_HERMES = (0, 22, 0)
 MAX_HERMES_EXCLUSIVE = (1, 0, 0)
-
-DEFAULT_PROFILES = [
-    {"profile_id": "assistant", "name": "Hermes Assistant", "avatar": "sparkles"},
-]
-
 
 class UnsupportedHermesVersion(RuntimeError):
     """Raised at startup when the running Hermes is outside the supported range."""
@@ -65,7 +61,17 @@ class LekoraConfig:
     listen_host: str = "0.0.0.0"
     instance_name: Optional[str] = None
     extra_hosts: list[str] = field(default_factory=list)   # e.g. a domain name you own
-    profiles: list[dict] = field(default_factory=lambda: [dict(p) for p in DEFAULT_PROFILES])
+    # None (the normal case): the phone sees the real Hermes profiles, discovered live.
+    # A list here pins a fixed set instead (tests, or hiding profiles from the phone).
+    profiles: Optional[list[dict]] = None
+    hermes_root: Optional[str] = None        # where to discover profiles; None -> Hermes' root
+
+    def current_profiles(self) -> list[dict]:
+        """The agents offered to the phone right now (re-read on every use, so a profile
+        created or deleted in Hermes shows up at the phone's next connect)."""
+        if self.profiles is not None:
+            return [dict(p) for p in self.profiles]
+        return discover_profiles(self.hermes_root)
 
     @classmethod
     def from_extra(cls, extra: Optional[Mapping[str, Any]]) -> "LekoraConfig":
@@ -75,12 +81,14 @@ class LekoraConfig:
         cfg.listen_host = extra.get("listen_host") or cfg.listen_host
         cfg.instance_name = extra.get("instance_name") or None
         cfg.extra_hosts = [str(h) for h in extra.get("extra_hosts") or []]
+        cfg.hermes_root = extra.get("hermes_root") or None
         profiles = extra.get("profiles")
         if profiles:
             cfg.profiles = [
                 {"profile_id": str(p["profile_id"]),
                  "name": str(p.get("name", p["profile_id"])),
-                 "avatar": str(p.get("avatar", "sparkles"))}
+                 "avatar": str(p.get("avatar", "sparkles")),
+                 **({"description": str(p["description"])} if p.get("description") else {})}
                 for p in profiles
             ]
         return cfg
@@ -119,14 +127,13 @@ class LekoraService:
         if self.config.instance_name:
             self._store.set_instance_name(self.config.instance_name)
 
-        profiles = self.config.profiles
         kwargs: dict[str, Any] = {}
         if self._auth_timeout is not None:
             kwargs["auth_timeout"] = self._auth_timeout
         self.gateway = Gateway(
             self._store,
             dispatch=self._bridge.deliver_to_agent,
-            profiles=lambda: profiles,
+            profiles=self.config.current_profiles,
             endpoints=lambda port: resolve_candidate_endpoints(
                 port, self.config.extra_hosts),
             host=self.config.listen_host,

@@ -102,3 +102,23 @@ public struct LKComposer: View {
         .padding(.vertical, LK.Spacing.sm)
     }
 }
+
+/// An agent's initial in a tinted circle. Hermes profiles have no pictures yet.
+public struct LKAgentAvatar: View {
+    private let name: String
+    private let size: CGFloat
+
+    public init(_ name: String, size: CGFloat = 40) {
+        self.name = name
+        self.size = size
+    }
+
+    public var body: some View {
+        Text(name.first.map { String($0).uppercased() } ?? "?")
+            .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
+            .foregroundStyle(LK.Palette.accent)
+            .frame(width: size, height: size)
+            .background(LK.Palette.accent.opacity(0.15), in: Circle())
+            .accessibilityHidden(true)
+    }
+}
