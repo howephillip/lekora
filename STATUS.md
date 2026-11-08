@@ -3,11 +3,12 @@
 _Last updated: 2026-11-08_
 
 ## Where this is
-**Phase 1 (Foundation) features are done and confirmed on your iPhone and Hermes machine.** Pair by QR, chat, auto-reconnect, device management, iOS 26 design system, choosing and switching between your real Hermes agents, and creating/deleting agents from the phone all work end to end. 152 plugin tests and 69 app tests pass.
+**Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Before Phase 1 is fully closed** (see "Open" at the bottom):
-1. ✅ Pairing by link: confirmed.
-2. Encrypted connections: built, waiting on your phone test.
+**Phase 2 (complete chat) has started.**
+
+## In progress: streaming replies (spec: `docs/streaming.md`)
+⏳ Built: replies appear word by word, with a "thinking…" line showing what the agent is doing ("Searching the web…"). Streaming is switched on for Lekora only, in memory (no Hermes config change, no command for you; other messaging apps keep their own setting); if a Hermes update breaks that, replies arrive whole as before. Finished replies are saved as normal messages, so history and replay are unchanged. Plugin 176 tests, app 79; real app checked against the real plugin over the encrypted connection. Waiting on: plugin update on the Hermes machine and your phone test (Hermes' real streaming only runs there).
 
 ## Done: create and delete agents from the phone (spec: `docs/agent-lifecycle.md`)
 ✅ Confirmed on your iPhone and Hermes machine 2026-11-08: created an agent from the phone, chatted with it, deleted it (backup kept in `~/.hermes/lekora-backups/profiles/`), and `default` offers no delete. "Manage Agents…" in the chat's agent menu → Add Agent (clones your default agent's settings) and swipe-left / long-press → Delete with confirmation. The host runs Hermes' own `hermes profile` commands, refuses to delete `default`, needs explicit confirmation, and backs up first; if the backup fails, nothing is deleted. Other phones update live.
@@ -50,8 +51,8 @@ The plugin had been installed here by mistake (Hermes runs on a separate Tailsca
 
 Done since: tapping a `lekora-pair://` link now starts pairing (bad links show a clear error); Keychain errors are readable; route-probe crash fixed. Event 1/2 gap is expected (ping and pong are stored on the host).
 
-## Open
+## Open / known limits
 - 🐞 **Fixed, needs your update (2026-11-08): pairing codes pointed at a dead port.** Creating an agent from the phone started a second copy of Lekora inside that agent's profile. That copy moved to port 40225 and saved it over the real port (45733), so every new code advertised a port nothing listened on. Your existing pairing kept working; only new codes broke. Fix: Lekora runs only from the default profile (other copies stay idle), one copy per machine (lock), and `hermes lekora pair` refuses to print a code for a port nothing answers on. Plugin 144 tests.
 - ✅ Pairing by link (copied to the phone) confirmed on your iPhone 2026-11-08, after the dead-port fix.
-- ⏳ **Encrypted connections built (spec: `docs/encryption.md`).** The plugin makes its own certificate; pairing codes carry its fingerprint; the phone accepts only that certificate; plain `ws://` is refused on both sides. Plugin 152 tests, app 69; real app checked against the real plugin (right certificate pairs/chats/reconnects; wrong one refused with a clear message). Waiting on: plugin update on the Hermes machine, one re-pair, and your phone test.
+- ✅ Encrypted connections (spec: `docs/encryption.md`): plugin-made certificate, fingerprint in the pairing code, phone accepts only that certificate, plain `ws://` refused on both sides. Confirmed on your iPhone and Hermes machine 2026-11-08.
 - Known limits (by design, documented in the specs): agent routing uses Hermes internals (re-check after Hermes upgrades; the plugin falls back to Default-only if they change); chat history isn't stored on the phone between launches (replayed from the host); no unread indicator for other agents; agent display names come from their IDs.

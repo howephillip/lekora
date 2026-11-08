@@ -143,24 +143,56 @@ class Gateway:
         async with conn.lock:
             await conn.ws.send(text)
 
-    def _message_json(self, seq: int, profile_id: str, role: str, text: str) -> str:
-        return self._envelope(
-            "chat.message", {"seq": seq, "role": role, "text": text},
-            profile_id=profile_id)
+    def _message_json(self, seq: int, profile_id: str, role: str, text: str,
+                      draft_id: Optional[str] = None) -> str:
+        data: dict[str, Any] = {"seq": seq, "role": role, "text": text}
+        if draft_id:
+            data["draft_id"] = draft_id  # replaces the phone's live bubble with this message
+        return self._envelope("chat.message", data, profile_id=profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
 
     async def publish_message(self, profile_id: str, text: str,
-                              role: str = "assistant") -> int:
+                              role: str = "assistant", draft_id: Optional[str] = None) -> int:
         """Record a message as an event and push it to every connected phone."""
         seq = self.store.append_event(
             profile_id, "chat.message", {"role": role, "text": text})
-        await self._broadcast(seq, profile_id, role, text, exclude=None)
+        await self._broadcast(seq, profile_id, role, text, exclude=None, draft_id=draft_id)
         return seq
 
+    async def update_message(self, seq: int, text: str) -> bool:
+        """Change a saved message (Hermes corrected it after it was sealed). Phones receive
+        it again with the same seq and replace the text; replays carry the new text."""
+        event = self.store.update_event_text(seq, text)
+        if event is None:
+            return False
+        await self._broadcast(seq, event.profile_id, event.payload.get("role", "assistant"), text,
+                              exclude=None, resend=True)
+        return True
+
+    async def publish_draft(self, profile_id: str, draft_id: str, text: str) -> None:
+        """Live text of a reply being written (full text so far). Not stored or replayed."""
+        await self._broadcast_ephemeral(self._envelope(
+            "chat.draft", {"draft_id": draft_id, "text": text}, profile_id=profile_id))
+
+    async def publish_typing(self, profile_id: str, active: bool, status: Optional[str] = None) -> None:
+        """Whether an agent is working, and on what. Not stored or replayed."""
+        data: dict[str, Any] = {"active": active}
+        if active and status:
+            data["status"] = status
+        await self._broadcast_ephemeral(self._envelope("chat.typing", data, profile_id=profile_id))
+
+    async def _broadcast_ephemeral(self, payload: str) -> None:
+        for conn in list(self._conns):
+            if not conn.authed or not self.store.is_device_active(conn.device_id):
+                continue
+            with contextlib.suppress(ConnectionClosed):
+                await self._send(conn, payload)
+
     async def _broadcast(self, seq: int, profile_id: str, role: str, text: str,
-                         exclude: Optional[_Conn]) -> None:
-        payload = self._message_json(seq, profile_id, role, text)
+                         exclude: Optional[_Conn], draft_id: Optional[str] = None,
+                         resend: bool = False) -> None:
+        payload = self._message_json(seq, profile_id, role, text, draft_id)
         for conn in list(self._conns):
             if conn is exclude or not conn.authed:
                 continue
@@ -170,10 +202,10 @@ class Gateway:
                     await conn.ws.close(1008, "AUTH_FAILED")
                     continue
                 async with conn.lock:
-                    if seq <= conn.sent_seq:
+                    if seq <= conn.sent_seq and not resend:
                         continue  # already delivered by replay
                     await conn.ws.send(payload)
-                    conn.sent_seq = seq
+                    conn.sent_seq = max(conn.sent_seq, seq)
             except ConnectionClosed:
                 pass
 

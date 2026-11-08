@@ -182,6 +182,15 @@ The host delivers the sequenced response from the Hermes agent:
 
 ---
 
+### Streaming: `chat.draft` and `chat.typing` (Host -> Client)
+See `streaming.md`. Neither is stored or replayed.
+- `chat.draft` `{draft_id, text}`: the full text so far of a reply being written. Empty `text` drops it.
+- `chat.typing` `{active, status?}`: whether the agent is working, and on what.
+- A saved `chat.message` may carry `draft_id`, so the phone replaces that live bubble.
+- A `chat.message` with a `seq` the phone already has replaces its text (an agent's correction).
+
+---
+
 ## 3. `error` (Host -> Client)
 Standardized error responses delivered when a request fails or session authentication fails:
 ```json

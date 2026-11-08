@@ -152,12 +152,28 @@ public struct ChatMessageData: Codable, Equatable {
     public let seq: Int
     public let role: String
     public let text: String
+    /// Set when this saved message replaces a live reply (`chat.draft`) on the phone.
+    public let draft_id: String?
 
-    public init(seq: Int, role: String, text: String) {
+    public init(seq: Int, role: String, text: String, draft_id: String? = nil) {
         self.seq = seq
         self.role = role
         self.text = text
+        self.draft_id = draft_id
     }
+}
+
+// MARK: - Streaming (docs/streaming.md); neither is stored or replayed by the host
+/// A reply being written: the full text so far. Empty text = drop the live bubble.
+public struct ChatDraftData: Codable, Equatable {
+    public let draft_id: String
+    public let text: String
+}
+
+/// Whether an agent is working, and on what ("Searching the web…") when Hermes knows.
+public struct ChatTypingData: Codable, Equatable {
+    public let active: Bool
+    public let status: String?
 }
 
 // MARK: - Unpairing ("Forget Host")

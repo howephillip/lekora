@@ -337,6 +337,22 @@ class Store:
             for r in rows
         ]
 
+    def update_event_text(self, seq: int, text: str) -> Optional[Event]:
+        """Replace a saved chat message's text in place (an agent's later correction)."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM events WHERE instance_id = ? AND seq = ?",
+                (self.instance_id, int(seq))).fetchone()
+            if row is None or row["event_type"] != "chat.message":
+                return None
+            payload = json.loads(row["payload_json"])
+            payload["text"] = text
+            self._db.execute("UPDATE events SET payload_json = ? WHERE seq = ?",
+                             (json.dumps(payload), int(seq)))
+            self._db.commit()
+        return Event(row["seq"], row["instance_id"], row["profile_id"], row["event_type"],
+                     payload, row["created_at"])
+
     def events_for_profile(self, profile_id: str) -> list[Event]:
         """One agent's events in order (for the backup taken before deleting it)."""
         return [e for e in self.fetch_events_since(0) if e.profile_id == profile_id]

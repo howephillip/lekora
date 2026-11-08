@@ -30,6 +30,33 @@ final class FakeHost: @unchecked Sendable {
     /// Set to stop answering profile.create (to test the phone's timeout and disconnect handling).
     var ignoreCreates = false
 
+    /// Streams a reply like the plugin does: typing, growing drafts, then the saved message
+    /// linked to the draft. `seal: false` leaves it as a draft (a turn that ends unsealed).
+    func streamReply(profile: String, words: [String], status: String? = nil, seal: Bool = true,
+                     draftId: String = "live-test") {
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        var typing: [String: Any] = ["active": true]
+        if let status { typing["status"] = status }
+        var text = ""
+        for connection in open {
+            send(type: "chat.typing", data: typing, profileId: profile, on: connection)
+        }
+        for word in words {
+            text = text.isEmpty ? word : text + " " + word
+            for connection in open {
+                send(type: "chat.draft", data: ["draft_id": draftId, "text": text], profileId: profile, on: connection)
+            }
+        }
+        guard seal else { return }
+        let seq = (history.last?.seq ?? 0) + 1
+        history.append((seq, "assistant", text, profile))
+        for connection in open {
+            send(type: "chat.message", data: ["seq": seq, "role": "assistant", "text": text, "draft_id": draftId],
+                 profileId: profile, on: connection)
+            send(type: "chat.typing", data: ["active": false], profileId: profile, on: connection)
+        }
+    }
+
     /// Like the plugin's `profiles.changed`: every live connection hears about agent changes.
     func broadcastProfiles() {
         lock.lock(); let open = connections; lock.unlock()

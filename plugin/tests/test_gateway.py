@@ -418,3 +418,48 @@ async def test_lifecycle_needs_authentication(admin_gw, store):
     ws = await open_ws(admin_gw)
     await ws.send(env(store, "profile.create", {"name": "Bruce"}, msg_id="c1"))
     assert (await recv(ws))["data"]["code"] == "AUTH_FAILED"
+
+
+# ---- streaming (docs/streaming.md) ------------------------------------------------
+
+async def test_drafts_and_typing_reach_every_phone_and_are_never_stored(gw, store):
+    a = await connected(gw, store, "a")
+    b = await connected(gw, store, "b")
+    await gw.publish_typing("bruce", True, "Searching the web")
+    await gw.publish_draft("bruce", "live-1", "Hello")
+    for ws in (a, b):
+        typing = await recv(ws)
+        assert typing["type"] == "chat.typing" and typing["profile_id"] == "bruce"
+        assert typing["data"] == {"active": True, "status": "Searching the web"}
+        draft = await recv(ws)
+        assert draft["type"] == "chat.draft" and draft["data"] == {"draft_id": "live-1", "text": "Hello"}
+    assert store.fetch_events_since(0) == []          # nothing saved, nothing to replay
+    await gw.publish_typing("bruce", False, "ignored when inactive")
+    assert (await recv(a))["data"] == {"active": False}
+    await a.close(); await b.close()
+
+
+async def test_saved_reply_carries_its_draft_id(gw, store):
+    ws = await connected(gw, store)
+    seq = await gw.publish_message("bruce", "Hello there.", draft_id="live-1")
+    msg = await recv(ws)
+    assert msg["data"] == {"seq": seq, "role": "assistant", "text": "Hello there.", "draft_id": "live-1"}
+    await ws.close()
+
+
+async def test_corrected_message_is_resent_and_replayed_with_new_text(gw, store):
+    device_id, tok = store.register_device()
+    ws = await hello(gw, store, device_id, tok)
+    await recv(ws)
+    seq = await gw.publish_message("bruce", "Version one")
+    assert (await recv(ws))["data"]["text"] == "Version one"
+    assert await gw.update_message(seq, "Version two")
+    again = await recv(ws)
+    assert again["data"]["seq"] == seq and again["data"]["text"] == "Version two"
+    await ws.close()
+    # A phone catching up later gets the corrected text.
+    ws2 = await hello(gw, store, device_id, tok, last_seq=0)
+    await recv(ws2)
+    assert (await recv(ws2))["data"]["text"] == "Version two"
+    await ws2.close()
+    assert not await gw.update_message(9999, "nope")

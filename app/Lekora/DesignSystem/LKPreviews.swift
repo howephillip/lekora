@@ -54,3 +54,16 @@ private final class PreviewCredentialStore: CredentialStore {
     func get(key: String) throws -> String? { nil }
     func delete(key: String) throws {}
 }
+
+#Preview("Streaming") {
+    ScrollView {
+        VStack(spacing: LK.Spacing.sm) {
+            LKMessageBubble("Can you find me a good ramen place nearby?", from: .user)
+            LKTypingIndicator(status: "Searching the web for ramen near you")
+            LKMessageBubble("I found three places within a ten-minute walk. The best reviewed is", from: .agent, delivery: .streaming)
+            LKTypingIndicator()
+        }
+        .padding(LK.Spacing.lg)
+    }
+    .lkScreenBackground()
+}

@@ -12,6 +12,8 @@ public struct LKMessageBubble: View {
         case delivered
         case sending
         case failed(String)
+        /// The agent is still writing this reply: show a cursor at the end.
+        case streaming
     }
 
     private let text: String
@@ -31,7 +33,7 @@ public struct LKMessageBubble: View {
             if isUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: LK.Spacing.xs) {
-                Text(text)
+                Text(delivery == .streaming ? "\(text) ▍" : text)
                     .font(LK.Typography.body)
                     .textSelection(.enabled)
                     .foregroundStyle(isUser ? LK.Palette.onAccent : .primary)
@@ -42,7 +44,7 @@ public struct LKMessageBubble: View {
                     .opacity(delivery == .sending ? 0.6 : 1)
 
                 switch delivery {
-                case .delivered:
+                case .delivered, .streaming:
                     EmptyView()
                 case .sending:
                     Text("Sending…")
@@ -120,5 +122,46 @@ public struct LKAgentAvatar: View {
             .frame(width: size, height: size)
             .background(LK.Palette.accent.opacity(0.15), in: Circle())
             .accessibilityHidden(true)
+    }
+}
+
+/// Shown while an agent works: animated dots, plus what it's doing when Hermes says
+/// ("Searching the web…"). Sits where the agent's next bubble will appear.
+public struct LKTypingIndicator: View {
+    private let status: String?
+
+    public init(status: String? = nil) {
+        self.status = status
+    }
+
+    public var body: some View {
+        HStack {
+            HStack(spacing: LK.Spacing.sm) {
+                TimelineView(.animation(minimumInterval: 0.35)) { context in
+                    let phase = Int(context.date.timeIntervalSinceReferenceDate / 0.35) % 3
+                    HStack(spacing: 4) {
+                        ForEach(0..<3, id: \.self) { index in
+                            Circle()
+                                .frame(width: 7, height: 7)
+                                .opacity(index == phase ? 1 : 0.35)
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                if let status, !status.isEmpty {
+                    Text(status)
+                        .font(LK.Typography.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding(.horizontal, LK.Spacing.md + LK.Spacing.xxs)
+            .padding(.vertical, LK.Spacing.md)
+            .background(LK.Surface.inset, in: RoundedRectangle(cornerRadius: LK.Radius.bubble, style: .continuous))
+
+            Spacer(minLength: LK.Size.bubbleSideMargin)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(status.map { "Agent is working: \($0)" } ?? "Agent is typing")
     }
 }

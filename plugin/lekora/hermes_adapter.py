@@ -24,7 +24,9 @@ from gateway.config import HomeChannel, Platform
 from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
+from . import hermes_streaming
 from .hermes_routes import ProfileRouter, check_routed
+from .streaming import LiveReplies
 from .plugin import LekoraAlreadyRunning, LekoraConfig, LekoraService, UnsupportedHermesVersion
 from .profiles import named_profile_in_scope
 
@@ -42,11 +44,20 @@ def _hermes_version() -> Optional[str]:
 
 
 class LekoraAdapter(BasePlatformAdapter):
+    # Streaming (docs/streaming.md): Hermes sends the first words, then edits the message.
+    SUPPORTS_MESSAGE_EDITING = True
+    REQUIRES_EDIT_FINALIZE = True       # always told when a message is sealed
+    MAX_MESSAGE_LENGTH = 100_000        # the phone shows long replies in one bubble
+    supports_status_text = True         # "Searching the web…" in the working indicator
+
     def __init__(self, config, **kwargs):
         super().__init__(config=config, platform=Platform(PLATFORM_NAME))
         self._cfg = LekoraConfig.from_extra(getattr(config, "extra", {}) or {})
         self._service: Optional[LekoraService] = None
         self._router = ProfileRouter(lambda: self.gateway_runner, PLATFORM_NAME)
+        self._live = LiveReplies(
+            lambda: self._service.gateway if self._service is not None else None,
+            cursor=lambda: hermes_streaming.cursor_of(self.gateway_runner))
         # A copy started inside another agent's profile stays idle (see connect), so it
         # must not become that agent's home channel either: its job output would be lost.
         if named_profile_in_scope(getattr(self, "_owner_profile", None)) is None:
@@ -121,6 +132,7 @@ class LekoraAdapter(BasePlatformAdapter):
             logger.error("Lekora: failed to start: %s", exc)
             self._set_fatal_error("start_failed", str(exc), retryable=True)
             return False
+        hermes_streaming.install(self.gateway_runner)  # streaming on for Lekora only, in memory
         self._mark_connected()
         logger.info("Lekora: listening on port %s", port)
         self._wire_plugin_handlers(None)
@@ -138,13 +150,44 @@ class LekoraAdapter(BasePlatformAdapter):
         if self._service is None:
             return SendResult(success=False, error="Lekora is not running")
         try:
-            seq = await self._service.handle_agent_reply(chat_id, content)
+            message_id = await self._live.send(
+                chat_id, content, expect_edits=bool((metadata or {}).get("expect_edits")))
         except Exception as exc:
             return SendResult(success=False, error=str(exc))
-        return SendResult(success=True, message_id=str(seq))
+        return SendResult(success=True, message_id=message_id)
+
+    async def edit_message(self, chat_id: str, message_id: str, content: str, *,
+                           finalize: bool = False, metadata=None) -> SendResult:
+        if self._service is None:
+            return SendResult(success=False, error="Lekora is not running")
+        try:
+            ok = await self._live.edit(chat_id, str(message_id), content, finalize)
+        except Exception as exc:
+            return SendResult(success=False, error=str(exc))
+        if not ok:
+            return SendResult(success=False, error="Unknown message")
+        return SendResult(success=True, message_id=str(message_id))
 
     async def send_typing(self, chat_id: str, metadata=None) -> None:
-        """Typing indicators arrive with the streaming feature."""
+        """Hermes calls this every ~2 s while an agent works: tell the phone, with what
+        it is doing when Hermes knows ("Searching the web…")."""
+        gateway = self._service.gateway if self._service is not None else None
+        if gateway is not None:
+            status = (getattr(self, "_status_text", None) or {}).get(str(chat_id))
+            await gateway.publish_typing(str(chat_id), True, status)
+
+    async def stop_typing(self, chat_id: str, metadata=None) -> None:
+        gateway = self._service.gateway if self._service is not None else None
+        if gateway is not None:
+            await gateway.publish_typing(str(chat_id), False)
+
+    async def on_processing_complete(self, event, outcome) -> None:
+        """The reply is finished: save anything still live, and stop the working indicator."""
+        await super().on_processing_complete(event, outcome)
+        chat_id = str(getattr(getattr(event, "source", None), "chat_id", "") or "")
+        if chat_id and self._service is not None:
+            await self._live.turn_ended(chat_id)
+            await self.stop_typing(chat_id)
 
     async def get_chat_info(self, chat_id: str) -> dict[str, Any]:
         return {"name": chat_id, "type": "dm", "chat_id": chat_id}
@@ -171,5 +214,8 @@ def register(ctx) -> None:
         install_hint="No extra packages needed (standard library only)",
         trusted_inbound=True,  # devices are authenticated by Lekora's own pairing
         emoji="📱",
+        # Lekora's own display defaults: stream (see hermes_streaming.py) and show tool
+        # activity in the working indicator instead of as extra chat messages.
+        display_overrides={"streaming": hermes_streaming.STREAMING_MARK, "tool_progress": "off"},
         pii_safe=False,
     )

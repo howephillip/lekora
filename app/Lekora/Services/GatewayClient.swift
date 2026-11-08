@@ -30,6 +30,12 @@ public final class GatewayClient: ObservableObject {
     /// The paired host, if any. While set, the app reconnects instead of showing the setup wizard.
     @Published public private(set) var savedHost: SavedHost?
 
+    /// Agents currently working (profile id -> what they're doing). Cleared when the host
+    /// says they've stopped, or when it goes quiet for `activityTimeout` seconds.
+    @Published public private(set) var agentActivity: [String: AgentActivity] = [:]
+    /// Hermes pings every ~2 s while an agent works; 3 missed pings means it's done.
+    var activityTimeout: TimeInterval = 6
+
     /// The agent the chat screen talks to; `chat.send` goes to this profile.
     @Published public private(set) var activeProfileId: String = "default"
 
@@ -236,6 +242,9 @@ public final class GatewayClient: ObservableObject {
 
             self.profiles = ack.profiles
             reconcileProfileChoice()
+            // Live bubbles from before the reconnect are previews; the replay is the truth.
+            timeline.dropUnfinishedReplies()
+            agentActivity = [:]
             let activeName = activeProfile?.name ?? ack.profiles.first?.name ?? "Hermes Agent"
             state = .connected(instanceName: ack.instance_name, profileName: activeName)
 
@@ -336,7 +345,25 @@ public final class GatewayClient: ObservableObject {
         state = .disconnected
     }
 
+    private func setActivity(_ profileId: String, active: Bool, status: String?) {
+        guard active else {
+            agentActivity[profileId] = nil
+            return
+        }
+        let activity = AgentActivity(status: status, token: UUID())
+        agentActivity[profileId] = activity
+        let timeout = activityTimeout
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            // Only clear if no newer ping arrived in the meantime.
+            if self?.agentActivity[profileId]?.token == activity.token {
+                self?.agentActivity[profileId] = nil
+            }
+        }
+    }
+
     private func resetSessionData() {
+        agentActivity = [:]
         timeline = ChatTimeline()
         profiles = []
         currentSeq = 0
@@ -554,8 +581,18 @@ public final class GatewayClient: ObservableObject {
                 seq: envelope.data.seq,
                 profileId: envelope.profile_id ?? activeProfileId,
                 role: envelope.data.role,
-                text: envelope.data.text
+                text: envelope.data.text,
+                draftId: envelope.data.draft_id
             )
+        case "chat.draft":
+            guard let envelope = try? decoder.decode(Envelope<ChatDraftData>.self, from: data) else { return }
+            timeline.applyDraft(draftId: envelope.data.draft_id,
+                                profileId: envelope.profile_id ?? activeProfileId,
+                                text: envelope.data.text)
+        case "chat.typing":
+            guard let envelope = try? decoder.decode(Envelope<ChatTypingData>.self, from: data) else { return }
+            setActivity(envelope.profile_id ?? activeProfileId,
+                        active: envelope.data.active, status: envelope.data.status)
         case "error":
             guard let envelope = try? decoder.decode(Envelope<ErrorData>.self, from: data) else { return }
             // Errors about a chat.send reuse that message's id.
@@ -600,6 +637,7 @@ public final class GatewayClient: ObservableObject {
 
     private func handleDisconnection() {
         failPendingReplies()
+        agentActivity = [:]
         heartbeatTimer?.invalidate()
         webSocketTask = nil
         state = .disconnected
@@ -623,4 +661,11 @@ public final class GatewayClient: ObservableObject {
         closeSocket()
         state = .disconnected
     }
+}
+
+/// An agent at work, as shown by the "thinking…" indicator.
+public struct AgentActivity: Equatable {
+    /// What it's doing, when Hermes says ("Searching the web…").
+    public let status: String?
+    let token: UUID
 }

@@ -26,6 +26,20 @@ public struct WalkingSkeletonPingView: View {
         gateway.timeline.entries(for: gateway.activeProfileId)
     }
 
+    private static let typingRowID = "agent-typing"
+
+    private var activity: AgentActivity? {
+        gateway.agentActivity[gateway.activeProfileId]
+    }
+
+    /// Dots while the agent works. Hidden while its reply is already streaming in,
+    /// unless Hermes says what it's doing (e.g. running a tool between messages).
+    private var showsTypingIndicator: Bool {
+        guard let activity else { return false }
+        let streaming = messages.last?.status == .streaming
+        return !streaming || !(activity.status ?? "").isEmpty
+    }
+
     private var canSend: Bool {
         isConnected && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -115,6 +129,11 @@ public struct WalkingSkeletonPingView: View {
                                         delivery: delivery(for: entry))
                             .id(entry.id)
                     }
+                    if showsTypingIndicator {
+                        LKTypingIndicator(status: activity?.status)
+                            .id(Self.typingRowID)
+                            .transition(.opacity)
+                    }
                 }
                 .padding(.horizontal, LK.Spacing.lg)
                 .padding(.vertical, LK.Spacing.md)
@@ -128,6 +147,14 @@ public struct WalkingSkeletonPingView: View {
             .onChange(of: messages.last?.id) { _, newest in
                 scrollToNewest(newest, proxy: proxy)
             }
+            .onChange(of: messages.last?.text) { _, _ in
+                // A live reply grows: keep its newest words in view.
+                scrollToNewest(showsTypingIndicator ? Self.typingRowID : messages.last?.id, proxy: proxy)
+            }
+            .onChange(of: showsTypingIndicator) { _, showing in
+                if showing { scrollToNewest(Self.typingRowID, proxy: proxy) }
+            }
+            .animation(.easeOut(duration: 0.2), value: showsTypingIndicator)
             .onChange(of: inputFocused) { _, focused in
                 // Keep the newest message visible when the keyboard slides up.
                 if focused { scrollToNewest(messages.last?.id, proxy: proxy) }
@@ -156,6 +183,7 @@ public struct WalkingSkeletonPingView: View {
         case .sending: return .sending
         case .sent: return .delivered
         case .failed(let reason): return .failed(reason)
+        case .streaming: return .streaming
         }
     }
 
