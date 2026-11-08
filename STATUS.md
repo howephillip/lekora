@@ -3,7 +3,7 @@
 _Last updated: 2026-11-08_
 
 ## Where this is
-**Phase 1 (Foundation) features are done and confirmed on your iPhone and Hermes machine.** Pair by QR, chat, auto-reconnect, device management, iOS 26 design system, choosing and switching between your real Hermes agents, and creating/deleting agents from the phone all work end to end. 139 plugin tests and 58 app tests pass.
+**Phase 1 (Foundation) features are done and confirmed on your iPhone and Hermes machine.** Pair by QR, chat, auto-reconnect, device management, iOS 26 design system, choosing and switching between your real Hermes agents, and creating/deleting agents from the phone all work end to end. 144 plugin tests and 58 app tests pass.
 
 **Two items before Phase 1 is fully closed** (see "Open" at the bottom):
 1. You: the 2-minute check of pairing by tapping a `lekora-pair://` link.
@@ -51,6 +51,7 @@ The plugin had been installed here by mistake (Hermes runs on a separate Tailsca
 Done since: tapping a `lekora-pair://` link now starts pairing (bad links show a clear error); Keychain errors are readable; route-probe crash fixed. Event 1/2 gap is expected (ping and pong are stored on the host).
 
 ## Open
+- 🐞 **Fixed, needs your update (2026-11-08): pairing codes pointed at a dead port.** Creating an agent from the phone started a second copy of Lekora inside that agent's profile. That copy moved to port 40225 and saved it over the real port (45733), so every new code advertised a port nothing listened on. Your existing pairing kept working; only new codes broke. Fix: Lekora runs only from the default profile (other copies stay idle), one copy per machine (lock), and `hermes lekora pair` refuses to print a code for a port nothing answers on. Plugin 144 tests.
 - ⏳ **You:** pair by tapping a link. In a terminal app on your phone, SSH to the Hermes machine, run `hermes lekora pair --no-qr`, and tap the `lekora-pair://` link. (A bad link has been checked; a full pairing from a tapped link hasn't.) Pairing again replaces the current pairing; revoke the old one afterwards with `hermes lekora devices`.
 - ⏸ **Decision: connection encryption.** The app allows plain `ws://` to any address. Over Tailscale that traffic is already encrypted by Tailscale; on home Wi-Fi the device token and chats are not. Options to decide before Phase 2: require Tailscale, add TLS (`wss://`) with a certificate the plugin creates and the phone pins at pairing, or accept LAN as trusted.
 - Known limits (by design, documented in the specs): agent routing uses Hermes internals (re-check after Hermes upgrades; the plugin falls back to Default-only if they change); chat history isn't stored on the phone between launches (replayed from the host); no unread indicator for other agents; agent display names come from their IDs.

@@ -15,6 +15,14 @@ The plugin runs Hermes' own CLI as a **separate process** (`hermes profile …`)
 - The user types a name, e.g. "Research Assistant". The id is derived: lowercase, other characters become `-`, at most 64 characters (`research-assistant`).
 - The phone shows the readable form of the id ("Research assistant"). Hermes has no CLI for a named profile's display name, and writing Hermes' own profile files would break rule 8.
 
+### Cloned agents and Lekora (found 2026-11-08)
+- A clone of `default` can still carry what enables Lekora. Hermes then starts a second Lekora inside the new agent's profile.
+- That copy once took a new port and overwrote the saved one, so new pairing codes advertised a dead port.
+- The plugin now prevents this three ways:
+  - **Default profile only.** A copy inside any other profile stays idle and logs that it did; it also isn't made that agent's home channel.
+  - **One copy per machine.** The running copy holds a lock next to `lekora.db`, so any other copy stays out.
+  - **Pair checks first.** `hermes lekora pair` refuses to print a code if nothing answers on the saved port.
+
 ## Safeguards (delete)
 1. **Explicit confirmation.** The phone asks first, naming the agent and host and saying a backup is kept. The request must also carry `confirm` equal to the `profile_id`; the host refuses without it.
 2. **Never `default`.** Refused with `CANNOT_DELETE_DEFAULT` before anything runs.

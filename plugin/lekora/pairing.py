@@ -89,16 +89,19 @@ def run_pair(
     listening: Callable[[int], bool] = _gateway_listening,
 ) -> int:
     """Returns a process exit code."""
+    # Never hand out a code for a port nothing listens on: the phone could not connect.
+    port = store.get_persisted_port()
+    if port and not listening(port):
+        print(f"Lekora isn't answering on port {port} on this machine, so a pairing code "
+              "would not work.\nStart or restart the Hermes gateway (hermes gateway restart), "
+              "then run this command again.", file=out)
+        return 1
     try:
         invite = create_invite(store, extra_hosts)
     except (NoPortYet, RuntimeError) as exc:
         print(str(exc), file=out)
         return 1
     print(format_pairing_output(invite, show_qr), file=out)
-    port = store.get_persisted_port()
-    if port and not listening(port):
-        print("\nNote: Lekora does not seem to be running right now. "
-              "Start Hermes before scanning, or the phone won't connect.", file=out)
     return 0
 
 

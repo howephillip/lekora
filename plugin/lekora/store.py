@@ -111,6 +111,7 @@ class Store:
         self._clock = clock
         self._lock = threading.RLock()
         db_path = Path(path) if path is not None else default_db_path()
+        self.path = db_path
         if str(db_path) != ":memory:":
             db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(db_path), check_same_thread=False)

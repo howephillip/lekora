@@ -39,15 +39,25 @@ def test_invite_is_stored_hashed_single_use_and_expires(store):
     store.consume_invite(inv.token)  # works once
 
 
-def test_run_pair_output_and_warning_when_not_running(store):
+def test_run_pair_output_when_running(store):
     store.set_persisted_port(50000)
     out = io.StringIO()
-    code = run_pair(store, out, listening=lambda p: False)
+    code = run_pair(store, out, listening=lambda p: True)
     text = out.getvalue()
     assert code == 0
     assert "lekora-pair://pair?token=" in text and "expires at" in text
     assert "▀" in text and "\x1b[" in text            # QR drawn with colored half blocks
-    assert "does not seem to be running" in text
+
+
+def test_run_pair_refuses_when_nothing_listens_on_the_port(store):
+    # The 2026-11-08 bug: a stray second copy had saved a port nothing listened on.
+    store.set_persisted_port(40225)
+    out = io.StringIO()
+    code = run_pair(store, out, listening=lambda p: False)
+    text = out.getvalue()
+    assert code == 1
+    assert "isn't answering on port 40225" in text and "hermes gateway restart" in text
+    assert "lekora-pair://" not in text
 
 
 def test_run_pair_no_qr_and_running(store):

@@ -25,7 +25,8 @@ from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
 from .hermes_routes import ProfileRouter, check_routed
-from .plugin import LekoraConfig, LekoraService, UnsupportedHermesVersion
+from .plugin import LekoraAlreadyRunning, LekoraConfig, LekoraService, UnsupportedHermesVersion
+from .profiles import named_profile_in_scope
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,10 @@ class LekoraAdapter(BasePlatformAdapter):
         self._cfg = LekoraConfig.from_extra(getattr(config, "extra", {}) or {})
         self._service: Optional[LekoraService] = None
         self._router = ProfileRouter(lambda: self.gateway_runner, PLATFORM_NAME)
-        self._set_in_memory_home_channel(config)
+        # A copy started inside another agent's profile stays idle (see connect), so it
+        # must not become that agent's home channel either: its job output would be lost.
+        if named_profile_in_scope(getattr(self, "_owner_profile", None)) is None:
+            self._set_in_memory_home_channel(config)
 
     def offered_profiles(self) -> list[dict]:
         """Profiles for the phone, refreshing the in-memory routes on every call (each
@@ -90,6 +94,14 @@ class LekoraAdapter(BasePlatformAdapter):
 
     # -- lifecycle -----------------------------------------------------------
     async def connect(self, *, is_reconnect: bool = False) -> bool:
+        # Lekora serves every agent from the default profile. Hermes also starts a copy in
+        # any other profile whose settings enable it (e.g. an agent cloned from default);
+        # that copy stays idle so it can't take another port and break pairing codes.
+        other = named_profile_in_scope(getattr(self, "_owner_profile", None))
+        if other is not None:
+            logger.info("Lekora: runs from the default profile only; the copy in profile %r stays idle", other)
+            self._mark_connected()
+            return True
         self._service = LekoraService(
             self, config=self._cfg, hermes_version=_hermes_version(),
             profiles_provider=self.offered_profiles)
@@ -100,6 +112,11 @@ class LekoraAdapter(BasePlatformAdapter):
             logger.error("Lekora: %s", exc)
             self._set_fatal_error("unsupported_hermes", str(exc), retryable=False)
             return False
+        except LekoraAlreadyRunning as exc:
+            logger.warning("Lekora: %s; this copy stays idle", exc)
+            self._service = None
+            self._mark_connected()
+            return True
         except Exception as exc:
             logger.error("Lekora: failed to start: %s", exc)
             self._set_fatal_error("start_failed", str(exc), retryable=True)

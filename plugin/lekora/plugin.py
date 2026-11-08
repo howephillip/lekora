@@ -16,6 +16,7 @@ from typing import Any, Callable, Mapping, Optional, Protocol
 
 from . import __version__
 from .gateway import Gateway
+from .instance_lock import InstanceLock, LekoraAlreadyRunning  # noqa: F401 (re-exported)
 from .profile_admin import ProfileAdmin, RunCli, run_hermes_cli
 from . import profiles as _profiles
 from .profiles import discover_profiles
@@ -110,6 +111,7 @@ class LekoraService:
         run_cli: RunCli = run_hermes_cli,
     ) -> None:
         self._run_cli = run_cli
+        self._instance_lock: Optional[InstanceLock] = None
         self._bridge = bridge
         # What the phone is offered; the Hermes adapter narrows it to routable profiles.
         self._profiles_provider = profiles_provider
@@ -132,6 +134,16 @@ class LekoraService:
             check_hermes_version(self._hermes_version)  # before touching disk or network
         if self._store is None:
             self._store = Store(self.config.db_path)
+        # One running Lekora per store (instance_lock.py). A second copy stops here,
+        # before it can take another port and overwrite the saved one.
+        if str(self._store.path) != ":memory:":
+            lock = InstanceLock(Path(str(self._store.path) + ".lock"))
+            try:
+                lock.acquire()
+            except LekoraAlreadyRunning:
+                await self.stop()
+                raise
+            self._instance_lock = lock
         if self.config.instance_name:
             self._store.set_instance_name(self.config.instance_name)
 
@@ -168,6 +180,9 @@ class LekoraService:
         if self._owns_store and self._store is not None:
             self._store.close()
             self._store = None
+        if self._instance_lock is not None:
+            self._instance_lock.release()
+            self._instance_lock = None
 
     async def handle_agent_reply(self, profile_id: str, text: str) -> int:
         """Called when an agent produces output for a phone; returns its event seq."""

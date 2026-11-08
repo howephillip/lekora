@@ -109,3 +109,25 @@ def discover_profiles(root: Optional[Path] = None) -> list[dict]:
                     and not (home / _PARKED_MARKER).exists()):
                 profiles.append(_entry(home.name, home))
     return profiles
+
+
+def named_profile_in_scope(owner_profile: Optional[str] = None) -> Optional[str]:
+    """The named profile this code runs for, or None for ``default``.
+
+    Lekora must run only in the default profile: Hermes starts a copy of a platform in
+    every profile whose settings enable it (e.g. one cloned from default). Uses Hermes'
+    owner tag when set, else compares the active Hermes home with the Hermes root."""
+    if owner_profile and owner_profile != DEFAULT_PROFILE_ID:
+        return owner_profile
+    try:
+        from hermes_constants import get_default_hermes_root, get_hermes_home, profile_name_for_home
+    except Exception:
+        return None  # not inside Hermes
+    try:
+        home = Path(get_hermes_home()).resolve()
+        if home == Path(get_default_hermes_root()).resolve():
+            return None
+        name = profile_name_for_home(home)
+        return name if name and name != DEFAULT_PROFILE_ID else home.name
+    except Exception:
+        return None
