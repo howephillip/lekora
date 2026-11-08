@@ -27,11 +27,13 @@ Pairing is managed entirely by the plugin. It works whether the phone is on the 
 ### Step 1: Pairing Invitation
 Upon plugin installation/startup, the plugin starts its WebSocket listener on a dynamically selected port and prints an invite URI (and terminal QR code):
 ```
-lekora-pair://pair?token=<one_time_token>&instance_id=<instance_id>&endpoints=<url_encoded_csv>
+lekora-pair://pair?token=<one_time_token>&instance_id=<instance_id>&endpoints=<url_encoded_csv>&fp=<cert_fingerprint>
 ```
+All connections are encrypted (`wss://`); see `encryption.md`. `fp` is the host certificate's fingerprint, base64url(SHA-256(DER)) without padding. The phone accepts only that certificate and refuses links without `fp` or with plain `ws://` addresses.
+
 Endpoints include all detected routes:
-- Local LAN (e.g. `ws://192.168.1.50:48123`)
-- Tailscale (e.g. `ws://hermes-host.tailnet.ts.net:48123` if Tailscale is detected)
+- Local LAN (e.g. `wss://192.168.1.50:48123`)
+- Tailscale (e.g. `wss://hermes-host.tailnet.ts.net:48123` if Tailscale is detected)
 - Remote host / domain (if configured)
 
 ### Step 2: `pair.request`
@@ -68,8 +70,8 @@ The plugin validates the one-time token, generates a persistent `device_id` and 
     "device_token": "sec_tok_5a4b3c2d1e0f...",
     "instance_name": "Primary Hermes",
     "endpoints": [
-      "ws://192.168.1.50:48123",
-      "ws://hermes-host.tailnet.ts.net:48123"
+      "wss://192.168.1.50:48123",
+      "wss://hermes-host.tailnet.ts.net:48123"
     ]
   }
 }

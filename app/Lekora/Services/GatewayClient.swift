@@ -50,23 +50,49 @@ public final class GatewayClient: ObservableObject {
     }
 
     private var webSocketTask: URLSessionWebSocketTask?
-    private let session: URLSession
     private let keychain: CredentialStore
-    private let prober: RouteProber
+    /// Only encrypted (`wss://`), certificate-pinned connections. Off only in tests
+    /// that talk to the plain local fake host.
+    private let requireTLS: Bool
+    /// Makes a URLSession for a host; pinned to its certificate when a pin is given.
+    private let sessionFactory: (String?) -> URLSession
+    /// The session of the current connection (pinned to the host's certificate).
+    private var currentSession: URLSession?
     private var heartbeatTimer: Timer?
     private var activeURL: URL?
     /// Requests awaiting a reply with the same envelope id (agent create/delete).
     private var pendingReplies: [String: CheckedContinuation<Data, Error>] = [:]
 
     public init(
-        session: URLSession = .shared,
         keychain: CredentialStore = KeychainManager.shared,
-        prober: RouteProber = RouteProber()
+        requireTLS: Bool = true,
+        sessionFactory: @escaping (String?) -> URLSession = { PinnedSession.make(pin: $0) }
     ) {
-        self.session = session
         self.keychain = keychain
-        self.prober = prober
-        self.savedHost = SavedHost.load(from: keychain)
+        self.requireTLS = requireTLS
+        self.sessionFactory = sessionFactory
+        let saved = SavedHost.load(from: keychain)
+        if requireTLS, let saved, saved.certPin == nil {
+            // Paired before connections were encrypted: that pairing can't be used any more.
+            SavedHost.clear(from: keychain)
+            self.savedHost = nil
+            self.state = .error("Lekora now encrypts the connection to \(saved.instanceName), so this iPhone needs to pair again. On your Hermes computer, run hermes lekora pair and scan the new code.")
+        } else {
+            self.savedHost = saved
+        }
+    }
+
+    /// A fresh session for the next connection, pinned to `pin`; the previous one is released.
+    private func connectionSession(pin: String?) -> URLSession {
+        currentSession?.invalidateAndCancel()
+        let session = sessionFactory(pin)
+        currentSession = session
+        return session
+    }
+
+    /// With TLS required, only encrypted addresses are ever tried.
+    private func usable(_ endpoints: [String]) -> [String] {
+        requireTLS ? endpoints.filter { $0.lowercased().hasPrefix("wss://") } : endpoints
     }
 
     private var isBusy: Bool {
@@ -79,22 +105,12 @@ public final class GatewayClient: ObservableObject {
     }
 
     public func handlePairingPayload(_ payload: String) {
-        // Syntax: lekora-pair://pair?token=<tok>&instance_id=<id>&endpoints=<csv>
-        guard let url = URL(string: payload.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme == "lekora-pair",
-              let queryItems = components.queryItems else {
-            state = .error("That isn't a Lekora pairing link. Run the pair command on your Hermes machine again and use the new link.")
-            return
-        }
-
-        let token = queryItems.first(where: { $0.name == "token" })?.value ?? ""
-        let instanceId = queryItems.first(where: { $0.name == "instance_id" })?.value ?? ""
-        let endpointsRaw = queryItems.first(where: { $0.name == "endpoints" })?.value ?? ""
-        let endpoints = endpointsRaw.components(separatedBy: ",").filter { !$0.isEmpty }
-
-        guard !token.isEmpty, !instanceId.isEmpty, !endpoints.isEmpty else {
-            state = .error("The pairing link is incomplete. Run the pair command on your Hermes machine again and use the new link.")
+        // lekora-pair://pair?token=<tok>&instance_id=<id>&endpoints=<csv>&fp=<cert fingerprint>
+        let link: PairingLink
+        do {
+            link = try PairingLink.parse(payload, requireTLS: requireTLS)
+        } catch {
+            state = .error(error.localizedDescription)
             return
         }
 
@@ -108,25 +124,31 @@ public final class GatewayClient: ObservableObject {
 
         Task {
             await self.pairAndConnect(
-                pairingToken: token,
-                instanceId: instanceId,
-                candidateEndpoints: endpoints
+                pairingToken: link.token,
+                instanceId: link.instanceId,
+                candidateEndpoints: link.endpoints,
+                certPin: link.certPin
             )
         }
     }
 
     // MARK: - Pairing & Connection Flow
-    public func pairAndConnect(pairingToken: String, instanceId: String, candidateEndpoints: [String]) async {
+    public func pairAndConnect(pairingToken: String, instanceId: String, candidateEndpoints: [String],
+                               certPin: String? = nil) async {
         // A new pairing replaces whatever this phone was connected to before.
         closeSocket()
         resetSessionData()
         state = .probing
         do {
-            let probeResult = try await prober.probeFastest(endpoints: candidateEndpoints)
+            if requireTLS, certPin == nil {
+                throw PairingLink.ParseError.notEncrypted
+            }
+            let session = connectionSession(pin: certPin)
+            let probeResult = try await RouteProber(session: session).probeFastest(endpoints: usable(candidateEndpoints))
             self.activeURL = probeResult.winningURL
 
             state = .pairing
-            let wsTask = openSocket(to: probeResult.winningURL)
+            let wsTask = openSocket(to: probeResult.winningURL, session: session)
 
             let pairReq = Envelope(
                 type: "pair.request",
@@ -150,8 +172,9 @@ public final class GatewayClient: ObservableObject {
                 instanceName: response.instance_name,
                 deviceId: response.device_id,
                 deviceToken: response.device_token,
-                endpoints: SavedHost.orderedEndpoints(
-                    preferred: probeResult.winningURL, response.endpoints, candidateEndpoints)
+                endpoints: usable(SavedHost.orderedEndpoints(
+                    preferred: probeResult.winningURL, response.endpoints, candidateEndpoints)),
+                certPin: certPin
             )
             try host.save(to: keychain)
             savedHost = host
@@ -171,12 +194,16 @@ public final class GatewayClient: ObservableObject {
 
         state = .probing
         do {
-            let probeResult = try await prober.probeFastest(endpoints: host.endpoints)
+            let session = connectionSession(pin: host.certPin)
+            let probeResult = try await RouteProber(session: session).probeFastest(endpoints: usable(host.endpoints))
             self.activeURL = probeResult.winningURL
 
             state = .connecting
-            let wsTask = openSocket(to: probeResult.winningURL)
+            let wsTask = openSocket(to: probeResult.winningURL, session: session)
             await completeSessionHandshake(wsTask: wsTask, host: host)
+        } catch RouteProberError.certificateMismatch {
+            closeSocket()
+            state = .error(RouteProberError.certificateMismatch.localizedDescription)
         } catch {
             closeSocket()
             state = .error("Can't reach \(host.instanceName) right now. Check that the computer is on and that this phone is on the same network or Tailscale.")
@@ -259,9 +286,13 @@ public final class GatewayClient: ObservableObject {
     /// other than "already revoked" counts as unreachable.
     private func requestUnpair(host: SavedHost, endpoints: [String]) async -> ForgetOutcome {
         var unpairSocket: URLSessionWebSocketTask?
-        defer { unpairSocket?.cancel(with: .normalClosure, reason: nil) }
+        let session = sessionFactory(host.certPin)  // its own pinned session
+        defer {
+            unpairSocket?.cancel(with: .normalClosure, reason: nil)
+            session.invalidateAndCancel()
+        }
         do {
-            let route = try await prober.probeFastest(endpoints: endpoints, timeoutSeconds: 2)
+            let route = try await RouteProber(session: session).probeFastest(endpoints: usable(endpoints), timeoutSeconds: 2)
             let wsTask = session.webSocketTask(with: route.winningURL)
             unpairSocket = wsTask
             wsTask.resume()
@@ -431,7 +462,7 @@ public final class GatewayClient: ObservableObject {
     }
 
     // MARK: - Socket helpers
-    private func openSocket(to url: URL) -> URLSessionWebSocketTask {
+    private func openSocket(to url: URL, session: URLSession) -> URLSessionWebSocketTask {
         let wsTask = session.webSocketTask(with: url)
         webSocketTask = wsTask
         wsTask.resume()

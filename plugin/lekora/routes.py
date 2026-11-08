@@ -136,11 +136,12 @@ def resolve_candidate_endpoints(
     configured_hosts: Iterable[str] = (),
     lister: InterfaceLister = list_interfaces,
     tailscale: Callable[[], list[str]] = tailscale_hosts,
+    scheme: str = "wss",
 ) -> list[str]:
-    """ws:// URLs the phone can try: LAN first, then Tailscale, then user-configured hosts."""
+    """wss:// URLs the phone can try: LAN first, then Tailscale, then user-configured hosts."""
     hosts: list[str] = []
     for h in [*lan_addresses(lister), *tailscale(), *configured_hosts]:
         h = h.strip()
         if h and h not in hosts:
             hosts.append(h)
-    return [f"ws://{h}:{int(port)}" for h in hosts]
+    return [f"{scheme}://{h}:{int(port)}" for h in hosts]

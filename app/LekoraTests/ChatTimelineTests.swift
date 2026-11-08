@@ -73,7 +73,7 @@ final class ChatTimelineTests: XCTestCase {
 
     @MainActor
     func testGatewayAppliesHostFrames() throws {
-        let gateway = GatewayClient()
+        let gateway = GatewayClient(keychain: InMemoryCredentialStore(), requireTLS: false)
         let reply = """
         {"v":1,"id":"e1","type":"chat.message","instance_id":"inst_1","profile_id":"assistant",
          "ts":"2026-11-07T21:05:01Z","data":{"seq":12,"role":"assistant","text":"Pong"}}

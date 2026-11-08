@@ -21,6 +21,7 @@ from .profile_admin import ProfileAdmin, RunCli, run_hermes_cli
 from . import profiles as _profiles
 from .profiles import discover_profiles
 from .routes import resolve_candidate_endpoints
+from .tls import TLSIdentity, ensure_identity, tls_dir_for
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ class LekoraService:
     ) -> None:
         self._run_cli = run_cli
         self._instance_lock: Optional[InstanceLock] = None
+        self.tls: Optional[TLSIdentity] = None
         self._bridge = bridge
         # What the phone is offered; the Hermes adapter narrows it to routable profiles.
         self._profiles_provider = profiles_provider
@@ -146,6 +148,18 @@ class LekoraService:
             self._instance_lock = lock
         if self.config.instance_name:
             self._store.set_instance_name(self.config.instance_name)
+        # Every connection is encrypted (wss://) with the plugin's own certificate, which
+        # phones pin at pairing (tls.py). Created once, next to lekora.db.
+        try:
+            if str(self._store.path) == ":memory:":
+                import tempfile
+                tls_dir = Path(tempfile.mkdtemp(prefix="lekora-tls-"))
+            else:
+                tls_dir = tls_dir_for(self._store.path)
+            self.tls = ensure_identity(tls_dir, common_name=f"Lekora {self._store.instance_id}")
+        except BaseException:
+            await self.stop()
+            raise
 
         kwargs: dict[str, Any] = {}
         if self._auth_timeout is not None:
@@ -165,6 +179,7 @@ class LekoraService:
                 port, self.config.extra_hosts),
             host=self.config.listen_host,
             profile_admin=admin,
+            ssl_context=self.tls.server_context(),
             **kwargs,
         )
         try:

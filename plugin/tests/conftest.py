@@ -94,3 +94,25 @@ class FakeHermesCli:
 @pytest.fixture
 def fake_cli(fake_hermes_root):
     return FakeHermesCli(fake_hermes_root)
+
+
+@pytest.fixture
+def tls_identity(store):
+    """The certificate the gateway creates on first start, next to the test store."""
+    from lekora.tls import ensure_identity, tls_dir_for
+    return ensure_identity(tls_dir_for(store.path))
+
+
+def pinned_client_ssl():
+    """A TLS client context for tests; callers check the pin with `assert_pinned`
+    (the phone does the same: accept only the certificate whose fingerprint it was given)."""
+    import ssl
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def peer_fingerprint(ws):
+    from lekora.tls import fingerprint_of_der
+    return fingerprint_of_der(ws.transport.get_extra_info("ssl_object").getpeercert(binary_form=True))

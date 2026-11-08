@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 from .qr import make_qr, render_ansi
 from .routes import resolve_candidate_endpoints
+from .tls import load_identity, tls_dir_for
 from .store import INVITE_TTL, Device, Store
 
 SCHEME = "lekora-pair://pair"
@@ -26,11 +27,13 @@ class Invite:
     expires_at: datetime
 
 
-def build_invite_uri(token: str, instance_id: str, endpoints: Iterable[str]) -> str:
+def build_invite_uri(token: str, instance_id: str, endpoints: Iterable[str], fingerprint: str) -> str:
     # The whole comma-separated list is percent-encoded as one query value;
     # the app decodes it and splits on commas.
     csv = quote(",".join(endpoints), safe="")
-    return f"{SCHEME}?token={quote(token, safe='')}&instance_id={quote(instance_id, safe='')}&endpoints={csv}"
+    # fp: the host certificate's fingerprint; the phone accepts only that certificate.
+    return (f"{SCHEME}?token={quote(token, safe='')}&instance_id={quote(instance_id, safe='')}"
+            f"&endpoints={csv}&fp={quote(fingerprint, safe='')}")
 
 
 class NoPortYet(RuntimeError):
@@ -47,6 +50,11 @@ def create_invite(
         raise NoPortYet(
             "Lekora has not started yet. Start Hermes with the Lekora platform enabled, "
             "then run this command again.")
+    identity = load_identity(tls_dir_for(store.path))
+    if identity is None:
+        raise NoPortYet(
+            "Lekora hasn't created its secure-connection certificate yet. Restart the Hermes "
+            "gateway (hermes gateway restart), then run this command again.")
     endpoints = endpoints_fn(port, list(extra_hosts))
     if not endpoints:
         raise RuntimeError(
@@ -54,7 +62,7 @@ def create_invite(
             "(or Tailscale), or pass --host <name-or-ip>.")
     token = store.create_invite()
     return Invite(token, store.instance_id, endpoints,
-                  build_invite_uri(token, store.instance_id, endpoints),
+                  build_invite_uri(token, store.instance_id, endpoints, identity.fingerprint),
                   store.now() + INVITE_TTL)
 
 

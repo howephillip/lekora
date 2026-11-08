@@ -1,5 +1,7 @@
 # Test-only: an independent WebSocket client to check the plugin's own stdlib server.
-# The plugin itself has NO third-party dependencies.
+# The plugin itself installs nothing: `cryptography` (for its TLS certificate) is a
+# pinned dependency of Hermes, so it is already present inside Hermes.
 websockets
 pytest
 pytest-asyncio
+cryptography

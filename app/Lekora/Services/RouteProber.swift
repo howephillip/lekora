@@ -9,6 +9,8 @@ public enum RouteProberError: Error, LocalizedError {
     case noEndpointsProvided
     case allEndpointsFailed
     case timeout
+    /// A host answered with a different certificate than the one pinned at pairing.
+    case certificateMismatch
 
     public var errorDescription: String? {
         switch self {
@@ -18,6 +20,8 @@ public enum RouteProberError: Error, LocalizedError {
             return "Could not reach any host endpoint. Please check your network or Tailscale connection."
         case .timeout:
             return "Connection probe timed out."
+        case .certificateMismatch:
+            return "The computer that answered isn't the Hermes computer this iPhone was paired with: its security certificate doesn't match. If you reinstalled Lekora on your Hermes computer, pair again with a new code."
         }
     }
 }
@@ -48,17 +52,31 @@ public actor RouteProber {
             }
 
             // A failed probe must not stop the race; keep waiting for the others.
+            var certificateRejected = false
             while true {
                 do {
                     guard let winner = try await group.next() else { break }
                     group.cancelAll()
                     return winner
                 } catch {
+                    if Self.isCertificateRejection(error) { certificateRejected = true }
                     continue
                 }
             }
 
-            throw RouteProberError.allEndpointsFailed
+            throw certificateRejected ? RouteProberError.certificateMismatch : RouteProberError.allEndpointsFailed
+        }
+    }
+
+    /// A pinned session cancels the TLS challenge when the certificate doesn't match the pin.
+    static func isCertificateRejection(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .cancelled, .serverCertificateUntrusted, .serverCertificateHasUnknownRoot,
+             .serverCertificateHasBadDate, .serverCertificateNotYetValid, .secureConnectionFailed:
+            return true
+        default:
+            return false
         }
     }
 

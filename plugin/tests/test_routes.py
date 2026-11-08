@@ -93,10 +93,10 @@ def test_resolve_candidate_endpoints_order_and_dedupe():
         tailscale=lambda: ["hermes-host.tailnet01.ts.net", "100.64.1.2"],
     )
     assert eps == [
-        "ws://192.168.1.120:49152",
-        "ws://hermes-host.tailnet01.ts.net:49152",
-        "ws://100.64.1.2:49152",
-        "ws://hermes.example.com:49152",
+        "wss://192.168.1.120:49152",
+        "wss://hermes-host.tailnet01.ts.net:49152",
+        "wss://100.64.1.2:49152",
+        "wss://hermes.example.com:49152",
     ]
 
 

@@ -53,7 +53,7 @@ final class AutoReconnectTests: XCTestCase {
     // MARK: - Launch
 
     func testNoSavedHostShowsSetupWizard() async {
-        let gateway = GatewayClient(keychain: InMemoryCredentialStore())
+        let gateway = GatewayClient(keychain: InMemoryCredentialStore(), requireTLS: false)
         XCTAssertNil(gateway.savedHost)
         await gateway.resumeSavedSession()
         XCTAssertEqual(gateway.state, .disconnected)
@@ -61,7 +61,7 @@ final class AutoReconnectTests: XCTestCase {
     }
 
     func testLaunchReconnectsAndRestoresHistoryFromHost() async throws {
-        let gateway = GatewayClient(keychain: try savedStore())
+        let gateway = GatewayClient(keychain: try savedStore(), requireTLS: false)
         XCTAssertNotNil(gateway.savedHost)
 
         await gateway.resumeSavedSession()
@@ -79,7 +79,7 @@ final class AutoReconnectTests: XCTestCase {
     }
 
     func testChatWorksAfterAutomaticReconnect() async throws {
-        let gateway = GatewayClient(keychain: try savedStore())
+        let gateway = GatewayClient(keychain: try savedStore(), requireTLS: false)
         await gateway.resumeSavedSession()
         _ = await waitUntil { gateway.timeline.entries.count == 2 }
 
@@ -92,7 +92,7 @@ final class AutoReconnectTests: XCTestCase {
     }
 
     func testReconnectAfterDropAsksOnlyForNewMessages() async throws {
-        let gateway = GatewayClient(keychain: try savedStore())
+        let gateway = GatewayClient(keychain: try savedStore(), requireTLS: false)
         await gateway.resumeSavedSession()
         _ = await waitUntil { gateway.timeline.entries.count == 2 }
 
@@ -108,7 +108,7 @@ final class AutoReconnectTests: XCTestCase {
     }
 
     func testRepeatedResumeWhileConnectedDoesNothing() async throws {
-        let gateway = GatewayClient(keychain: try savedStore())
+        let gateway = GatewayClient(keychain: try savedStore(), requireTLS: false)
         await gateway.resumeSavedSession()
         await gateway.resumeSavedSession()
         XCTAssertEqual(host.received(type: "hello").count, 1)
@@ -118,7 +118,7 @@ final class AutoReconnectTests: XCTestCase {
 
     func testRevokedDeviceForgetsHostAndShowsWizard() async throws {
         let store = try savedStore(token: "tok_revoked")
-        let gateway = GatewayClient(keychain: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
 
         await gateway.resumeSavedSession()
 
@@ -132,7 +132,7 @@ final class AutoReconnectTests: XCTestCase {
 
     func testUnreachableHostKeepsPairing() async throws {
         let store = try savedStore(endpoints: ["ws://127.0.0.1:1"])
-        let gateway = GatewayClient(keychain: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
 
         await gateway.resumeSavedSession()
 
@@ -148,20 +148,20 @@ final class AutoReconnectTests: XCTestCase {
 
     func testPairingSavesHostForNextLaunch() async throws {
         let store = InMemoryCredentialStore()
-        let gateway = GatewayClient(keychain: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
 
         await gateway.pairAndConnect(pairingToken: host.validPairingToken, instanceId: host.instanceId,
                                      candidateEndpoints: [host.endpoint])
 
         XCTAssertEqual(gateway.state, .connected(instanceName: "Test Host", profileName: "Assistant"))
-        let nextLaunch = GatewayClient(keychain: store)
+        let nextLaunch = GatewayClient(keychain: store, requireTLS: false)
         XCTAssertEqual(nextLaunch.savedHost?.deviceToken, host.acceptedDeviceToken)
         XCTAssertEqual(nextLaunch.savedHost?.endpoints.first, host.endpoint)
     }
 
     func testInvalidPairingCodeShowsHostReason() async {
         let store = InMemoryCredentialStore()
-        let gateway = GatewayClient(keychain: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
 
         await gateway.pairAndConnect(pairingToken: "used_up", instanceId: host.instanceId,
                                      candidateEndpoints: [host.endpoint])
@@ -173,7 +173,7 @@ final class AutoReconnectTests: XCTestCase {
 
     func testForgetHostClearsEverything() async throws {
         let store = try savedStore()
-        let gateway = GatewayClient(keychain: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
         await gateway.resumeSavedSession()
         _ = await waitUntil { gateway.timeline.entries.count == 2 }
 
@@ -189,13 +189,13 @@ final class AutoReconnectTests: XCTestCase {
         XCTAssertNil(gateway.savedHost)
         XCTAssertTrue(store.values.isEmpty)
         XCTAssertTrue(gateway.timeline.entries.isEmpty)
-        XCTAssertNil(GatewayClient(keychain: store).savedHost, "next launch shows the setup wizard")
+        XCTAssertNil(GatewayClient(keychain: store, requireTLS: false).savedHost, "next launch shows the setup wizard")
     }
 
     func testForgetWhileNotConnectedStillRemovesFromHost() async throws {
         // E.g. Forget Host on the Reconnecting screen: no chat socket is open.
         let store = try savedStore()
-        let gateway = GatewayClient(keychain: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
 
         let outcome = await gateway.forgetHost()
 
@@ -207,7 +207,7 @@ final class AutoReconnectTests: XCTestCase {
 
     func testForgetWhenHostUnreachableForgetsLocallyAndExplains() async throws {
         let store = try savedStore(endpoints: ["ws://127.0.0.1:1"])
-        let gateway = GatewayClient(keychain: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
 
         let outcome = await gateway.forgetHost()
 
@@ -222,14 +222,14 @@ final class AutoReconnectTests: XCTestCase {
 
     func testForgetWhenAlreadyRevokedCountsAsRemoved() async throws {
         host.unpaired = true
-        let gateway = GatewayClient(keychain: try savedStore())
+        let gateway = GatewayClient(keychain: try savedStore(), requireTLS: false)
         let outcome = await gateway.forgetHost()
         XCTAssertEqual(outcome, .removedFromHost)
         XCTAssertEqual(gateway.state, .disconnected)
     }
 
     func testPairingSendsDescriptiveDeviceName() async throws {
-        let gateway = GatewayClient(keychain: InMemoryCredentialStore())
+        let gateway = GatewayClient(keychain: InMemoryCredentialStore(), requireTLS: false)
         await gateway.pairAndConnect(pairingToken: host.validPairingToken, instanceId: host.instanceId,
                                      candidateEndpoints: [host.endpoint])
         let request = try XCTUnwrap(host.received(type: "pair.request").first?["data"] as? [String: Any])

@@ -9,6 +9,7 @@ close, a size limit and a server-side heartbeat.
 from __future__ import annotations
 
 import asyncio
+import ssl as _ssl
 import base64
 import contextlib
 import hashlib
@@ -293,7 +294,9 @@ async def _handshake(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
 
 
 async def serve(handler: Handler, host: str, port: int,
-                ping_interval: Optional[float] = 30.0, ping_timeout: float = 20.0) -> WSServer:
+                ping_interval: Optional[float] = 30.0, ping_timeout: float = 20.0,
+                ssl: Optional["_ssl.SSLContext"] = None) -> WSServer:
+    """``ssl``: serve wss:// (TLS) instead of plain ws://."""
     holder: dict = {}
 
     async def on_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -318,6 +321,6 @@ async def serve(handler: Handler, host: str, port: int,
             elif not writer.is_closing():
                 writer.close()
 
-    server = await asyncio.start_server(on_client, host, port, limit=MAX_HEADER_BYTES * 2)
+    server = await asyncio.start_server(on_client, host, port, limit=MAX_HEADER_BYTES * 2, ssl=ssl)
     holder["srv"] = WSServer(server)
     return holder["srv"]

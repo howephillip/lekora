@@ -28,7 +28,7 @@ final class AgentSwitchingTests: XCTestCase {
     }
 
     private func pairedGateway(_ store: InMemoryCredentialStore = InMemoryCredentialStore()) async -> GatewayClient {
-        let gateway = GatewayClient(keychain: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
         await gateway.pairAndConnect(pairingToken: host.validPairingToken, instanceId: host.instanceId,
                                      candidateEndpoints: [host.endpoint])
         return gateway
@@ -67,7 +67,7 @@ final class AgentSwitchingTests: XCTestCase {
         XCTAssertEqual(gateway.enabledProfiles.map(\.profile_id), ["work", "coder"], "host order, unknown ids dropped")
         XCTAssertEqual(gateway.activeProfileId, "work")
 
-        let relaunched = GatewayClient(keychain: store)
+        let relaunched = GatewayClient(keychain: store, requireTLS: false)
         await relaunched.resumeSavedSession()
         XCTAssertFalse(relaunched.needsProfileChoice, "no chooser on the next launch")
         XCTAssertEqual(relaunched.enabledProfiles.map(\.profile_id), ["work", "coder"])
@@ -120,7 +120,7 @@ final class AgentSwitchingTests: XCTestCase {
         gateway.chooseProfiles(["default", "work", "coder"])
         gateway.switchToProfile("coder")
 
-        let relaunched = GatewayClient(keychain: store)
+        let relaunched = GatewayClient(keychain: store, requireTLS: false)
         await relaunched.resumeSavedSession()
         XCTAssertEqual(relaunched.activeProfileId, "coder")
     }

@@ -3,6 +3,7 @@ import json
 import uuid
 
 import pytest
+from conftest import peer_fingerprint, pinned_client_ssl
 from websockets.asyncio.client import connect
 
 from lekora import plugin
@@ -73,7 +74,8 @@ async def test_end_to_end_through_service(tmp_path):
     port = await svc.start()
     try:
         token = svc.store.create_invite()
-        ws = await connect(f"ws://127.0.0.1:{port}")
+        ws = await connect(f"wss://127.0.0.1:{port}", ssl=pinned_client_ssl())
+        assert peer_fingerprint(ws) == svc.tls.fingerprint  # the pinned certificate
         await ws.send(env(svc.store, "pair.request", {
             "pairing_token": token, "device_name": "iPhone",
             "client_version": "1", "supported_proto_versions": [1]}))

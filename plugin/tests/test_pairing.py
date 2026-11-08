@@ -7,20 +7,21 @@ import pytest
 from lekora import pairing, qr
 from lekora.pairing import NoPortYet, create_invite, run_pair
 
-EPS = ["ws://192.168.1.120:49152", "ws://hermes-host.tailnet01.ts.net:49152", "ws://100.64.1.2:49152"]
+EPS = ["wss://192.168.1.120:49152", "wss://hermes-host.tailnet01.ts.net:49152", "wss://100.64.1.2:49152"]
 
 
 def eps_fn(port, hosts):
-    return [e.replace("49152", str(port)) for e in EPS] + [f"ws://{h}:{port}" for h in hosts]
+    return [e.replace("49152", str(port)) for e in EPS] + [f"wss://{h}:{port}" for h in hosts]
 
 
 def test_uri_roundtrips_the_way_the_ios_app_parses_it():
-    uri = pairing.build_invite_uri("tok-_Ab", "inst_1234", EPS)
+    uri = pairing.build_invite_uri("tok-_Ab", "inst_1234", EPS, "Ab-_cd12")
     u = urlparse(uri)
     assert (u.scheme, u.netloc, u.path) == ("lekora-pair", "pair", "")
     q = parse_qs(u.query)  # percent-decodes, like URLComponents.queryItems
     assert q["token"] == ["tok-_Ab"] and q["instance_id"] == ["inst_1234"]
     assert q["endpoints"][0].split(",") == EPS
+    assert q["fp"] == ["Ab-_cd12"]
 
 
 def test_no_port_yet_is_plain_language(store):
@@ -29,17 +30,25 @@ def test_no_port_yet_is_plain_language(store):
     assert "Start Hermes" in str(e.value)
 
 
-def test_invite_is_stored_hashed_single_use_and_expires(store):
+def test_invite_is_stored_hashed_single_use_and_expires(store, tls_identity):
     store.set_persisted_port(50000)
     inv = create_invite(store, ["h.example.com"], endpoints_fn=eps_fn)
-    assert inv.endpoints[0] == "ws://192.168.1.120:50000" and inv.endpoints[-1] == "ws://h.example.com:50000"
+    assert f"&fp={tls_identity.fingerprint}" in inv.uri
+    assert inv.endpoints[0] == "wss://192.168.1.120:50000" and inv.endpoints[-1] == "wss://h.example.com:50000"
     assert inv.instance_id == store.instance_id
     assert (inv.expires_at - store.now()).total_seconds() == 30 * 60
     assert inv.token not in open(store._db.execute("PRAGMA database_list").fetchone()[2], "rb").read().decode("latin1")
     store.consume_invite(inv.token)  # works once
 
 
-def test_run_pair_output_when_running(store):
+def test_invite_needs_the_certificate(store):
+    store.set_persisted_port(50000)
+    with pytest.raises(NoPortYet) as e:
+        create_invite(store, endpoints_fn=eps_fn)
+    assert "certificate" in str(e.value) and "hermes gateway restart" in str(e.value)
+
+
+def test_run_pair_output_when_running(store, tls_identity):
     store.set_persisted_port(50000)
     out = io.StringIO()
     code = run_pair(store, out, listening=lambda p: True)

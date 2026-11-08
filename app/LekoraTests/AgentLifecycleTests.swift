@@ -26,7 +26,7 @@ final class AgentLifecycleTests: XCTestCase {
 
     private func connectedGateway(choose: [String]? = ["default", "bruce"],
                                   store: InMemoryCredentialStore = InMemoryCredentialStore()) async -> GatewayClient {
-        let gateway = GatewayClient(keychain: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
         await gateway.pairAndConnect(pairingToken: host.validPairingToken, instanceId: host.instanceId,
                                      candidateEndpoints: [host.endpoint])
         if let choose { gateway.chooseProfiles(choose) }
@@ -99,7 +99,7 @@ final class AgentLifecycleTests: XCTestCase {
     }
 
     func testCreateWhenNotConnectedFails() async {
-        let gateway = GatewayClient(keychain: InMemoryCredentialStore())
+        let gateway = GatewayClient(keychain: InMemoryCredentialStore(), requireTLS: false)
         let error = await hostError { try await gateway.createProfile(name: "x") }
         XCTAssertEqual(error?.code, "DISCONNECTED")
     }

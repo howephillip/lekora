@@ -72,7 +72,10 @@ class Gateway:
         host: str = "0.0.0.0",
         auth_timeout: float = AUTH_TIMEOUT_SECONDS,
         profile_admin: Optional["ProfileAdmin"] = None,
+        ssl_context: Optional[Any] = None,
     ) -> None:
+        # wss:// when set (always, from LekoraService); plain ws:// only in low-level tests.
+        self._ssl = ssl_context
         self.store = store
         # Creates/deletes Hermes profiles (docs/agent-lifecycle.md); None = not offered.
         self._profile_admin = profile_admin
@@ -109,7 +112,7 @@ class Gateway:
     async def _serve(self, port: int):
         return await serve(
             self._handle, self.host, port,
-            ping_interval=HEARTBEAT_SECONDS, ping_timeout=20,
+            ping_interval=HEARTBEAT_SECONDS, ping_timeout=20, ssl=self._ssl,
         )
 
     async def stop(self) -> None:
