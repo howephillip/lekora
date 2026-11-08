@@ -14,6 +14,8 @@
 		888B003DBEEC83DAAD851C7B /* LekoraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA5EC2D74AA90CF7D81DF01 /* LekoraApp.swift */; };
 		8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */; };
 		AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D236D28311188A8777EEA28 /* RouteProber.swift */; };
+		CDAB304930A007C7009D7D27 /* ChatTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304830A007C7009D7D27 /* ChatTimeline.swift */; };
+		CDAB304B30A00811009D7D27 /* ChatTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304A30A00811009D7D27 /* ChatTimelineTests.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
 		E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */; };
 		F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */; };
@@ -39,6 +41,8 @@
 		7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolMessages.swift; sourceTree = "<group>"; };
 		8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolMessagesTests.swift; sourceTree = "<group>"; };
 		9D236D28311188A8777EEA28 /* RouteProber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProber.swift; sourceTree = "<group>"; };
+		CDAB304830A007C7009D7D27 /* ChatTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimeline.swift; sourceTree = "<group>"; };
+		CDAB304A30A00811009D7D27 /* ChatTimelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimelineTests.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -59,6 +63,7 @@
 			isa = PBXGroup;
 			children = (
 				7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */,
+				CDAB304830A007C7009D7D27 /* ChatTimeline.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -87,6 +92,7 @@
 			children = (
 				8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */,
 				F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */,
+				CDAB304A30A00811009D7D27 /* ChatTimelineTests.swift */,
 			);
 			path = LekoraTests;
 			sourceTree = "<group>";
@@ -213,6 +219,7 @@
 				D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */,
 				F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */,
 				AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */,
+				CDAB304930A007C7009D7D27 /* ChatTimeline.swift in Sources */,
 				85721F1A389C4C7C54E14060 /* SetupWizardView.swift in Sources */,
 				36E2264B53D152FEBB4E6FA5 /* WalkingSkeletonPingView.swift in Sources */,
 			);
@@ -223,6 +230,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */,
+				CDAB304B30A00811009D7D27 /* ChatTimelineTests.swift in Sources */,
 				79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

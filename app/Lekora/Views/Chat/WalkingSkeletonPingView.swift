@@ -1,9 +1,13 @@
 import SwiftUI
 
+/// The connected screen: a chat with the active profile.
 public struct WalkingSkeletonPingView: View {
     @ObservedObject public var gateway: GatewayClient
     public let instanceName: String
     public let profileName: String
+
+    @State private var draft: String = ""
+    @FocusState private var inputFocused: Bool
 
     public init(gateway: GatewayClient, instanceName: String, profileName: String) {
         self.gateway = gateway
@@ -11,104 +15,184 @@ public struct WalkingSkeletonPingView: View {
         self.profileName = profileName
     }
 
+    private var messages: [ChatEntry] {
+        gateway.timeline.entries(for: gateway.activeProfileId)
+    }
+
+    private var canSend: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var isConnected: Bool {
+        if case .connected = gateway.state { return true }
+        return false
+    }
+
     public var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                // Host Header
-                HStack(spacing: 12) {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 12, height: 12)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(instanceName)
-                            .font(.headline)
-                        Text("Active Agent: \(profileName)")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-
-                    Text("Seq #\(gateway.currentSeq)")
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.secondary.opacity(0.15))
-                        .cornerRadius(6)
-                }
-                .padding()
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(12)
-                .padding(.horizontal)
-
-                // Event / Message Log
-                List {
-                    Section(header: Text("Live Streamed Events")) {
-                        if gateway.receivedMessages.isEmpty {
-                            Text("No events received yet. Tap 'Send Ping' below to test live bidirectional round-trip.")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                                .padding(.vertical, 8)
-                        } else {
-                            ForEach(Array(gateway.receivedMessages.enumerated()), id: \.offset) { _, message in
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                                        .foregroundColor(.blue)
-                                        .padding(.top, 2)
-
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack {
-                                            Text(message.role.capitalized)
-                                                .font(.caption)
-                                                .fontWeight(.bold)
-                                                .foregroundColor(.secondary)
-                                            Spacer()
-                                            Text("Seq: \(message.seq)")
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-                                        }
-
-                                        Text(message.text)
-                                            .font(.body)
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
-                    }
-                }
-                #if os(iOS)
-                .listStyle(.insetGrouped)
-                #endif
-
-                // Action Area
-                VStack(spacing: 12) {
-                    Button(action: {
-                        Task {
-                            await gateway.sendPing()
-                        }
-                    }) {
-                        Label("Send Ping", systemImage: "paperplane.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                    }
-
-                    Button("Disconnect", role: .destructive) {
-                        gateway.disconnect()
-                    }
-                    .font(.footnote)
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 12)
+            VStack(spacing: 0) {
+                header
+                Divider()
+                messageList
             }
-            .navigationTitle("Walking Skeleton")
+            .safeAreaInset(edge: .bottom) {
+                inputBar
+            }
+            .navigationTitle(profileName)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Disconnect", role: .destructive) {
+                        gateway.disconnect()
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(isConnected ? Color.green : Color.orange)
+                .frame(width: 10, height: 10)
+                .accessibilityLabel(isConnected ? "Connected" : "Not connected")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(instanceName)
+                    .font(.headline)
+                Text("Active Agent: \(profileName)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+
+            Text("Seq #\(gateway.currentSeq)")
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.secondary.opacity(0.15))
+                .cornerRadius(6)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Messages
+
+    private var messageList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    if messages.isEmpty {
+                        Text("Send a message to \(profileName) to start the conversation.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 40)
+                            .padding(.horizontal, 32)
+                    }
+                    ForEach(messages) { entry in
+                        MessageBubble(entry: entry)
+                            .id(entry.id)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 12)
+            }
+            .defaultScrollAnchor(.bottom)
+            #if os(iOS)
+            .scrollDismissesKeyboard(.interactively)
+            #endif
+            .onChange(of: messages.last?.id) { _, newest in
+                scrollToNewest(newest, proxy: proxy)
+            }
+            .onChange(of: inputFocused) { _, focused in
+                // Keep the newest message visible when the keyboard slides up.
+                if focused { scrollToNewest(messages.last?.id, proxy: proxy) }
+            }
+        }
+    }
+
+    private func scrollToNewest(_ id: String?, proxy: ScrollViewProxy) {
+        guard let id else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+            proxy.scrollTo(id, anchor: .bottom)
+        }
+    }
+
+    // MARK: - Input
+
+    private var inputBar: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField("Message \(profileName)", text: $draft, axis: .vertical)
+                .lineLimit(1...5)
+                .focused($inputFocused)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.secondary.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+
+            Button(action: send) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 32))
+            }
+            .disabled(!canSend || !isConnected)
+            .accessibilityLabel("Send")
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private func send() {
+        guard canSend else { return }
+        let text = draft
+        draft = ""
+        Task {
+            await gateway.sendMessage(text)
+        }
+    }
+}
+
+/// A single chat bubble: the user's on the right, the agent's on the left.
+struct MessageBubble: View {
+    let entry: ChatEntry
+
+    private var isUser: Bool { entry.role == .user }
+
+    var body: some View {
+        HStack {
+            if isUser { Spacer(minLength: 48) }
+
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
+                Text(entry.text)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .foregroundColor(isUser ? .white : .primary)
+                    .background(isUser ? Color.blue : Color.secondary.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .opacity(entry.status == .sending ? 0.6 : 1)
+
+                switch entry.status {
+                case .sending:
+                    Text("Sending…")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                case .failed(let reason):
+                    Label("Not delivered: \(reason)", systemImage: "exclamationmark.circle")
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                case .sent:
+                    EmptyView()
+                }
+            }
+
+            if !isUser { Spacer(minLength: 48) }
         }
     }
 }

@@ -29,6 +29,13 @@ public struct Envelope<T: Codable>: Codable {
     }
 }
 
+/// Just enough of an envelope to decide how to decode the rest.
+public struct EnvelopeHeader: Codable {
+    public let type: String
+    public let id: String
+    public let profile_id: String?
+}
+
 // MARK: - Pairing Payloads
 public struct PairRequestData: Codable, Equatable {
     public let pairing_token: String

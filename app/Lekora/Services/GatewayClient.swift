@@ -14,8 +14,13 @@ public enum GatewayConnectionState: Equatable {
 public final class GatewayClient: ObservableObject {
     @Published public private(set) var state: GatewayConnectionState = .disconnected
     @Published public private(set) var currentSeq: Int = 0
-    @Published public private(set) var receivedMessages: [ChatMessageData] = []
+    @Published public private(set) var timeline = ChatTimeline()
     @Published public private(set) var profiles: [ProfileData] = []
+
+    /// The profile the chat screen talks to. Falls back to the protocol's default profile id.
+    public var activeProfileId: String {
+        profiles.first?.profile_id ?? "assistant"
+    }
 
     private var webSocketTask: URLSessionWebSocketTask?
     private let session: URLSession
@@ -219,29 +224,69 @@ public final class GatewayClient: ObservableObject {
         }
     }
 
-    // MARK: - Walking Skeleton Chat Transmission
-    public func sendPing() async {
-        guard case .connected = state,
+    // MARK: - Chat
+    public nonisolated static func makeChatSendEnvelope(text: String, instanceId: String, profileId: String) -> Envelope<ChatSendData> {
+        Envelope(
+            type: "chat.send",
+            instance_id: instanceId,
+            profile_id: profileId,
+            data: ChatSendData(text: text)
+        )
+    }
+
+    /// Sends `text` to the active profile. The message appears in the timeline straight
+    /// away; a failed send is marked on that bubble instead of dropping the connection.
+    public func sendMessage(_ text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              case .connected = state,
               let wsTask = webSocketTask,
               let instanceId = try? keychain.get(key: "instance_id") else {
             return
         }
 
-        let targetProfile = profiles.first?.profile_id ?? "assistant"
-        let pingEnvelope = Envelope(
-            type: "chat.send",
-            instance_id: instanceId,
-            profile_id: targetProfile,
-            data: ChatSendData(text: "Ping")
-        )
+        let envelope = Self.makeChatSendEnvelope(text: trimmed, instanceId: instanceId, profileId: activeProfileId)
+        timeline.addOutgoing(id: envelope.id, profileId: activeProfileId, text: trimmed)
 
         do {
-            let data = try JSONEncoder().encode(pingEnvelope)
-            if let string = String(data: data, encoding: .utf8) {
-                try await wsTask.send(.string(string))
+            let data = try JSONEncoder().encode(envelope)
+            guard let string = String(data: data, encoding: .utf8) else {
+                timeline.markFailed(id: envelope.id, reason: "Couldn't prepare the message.")
+                return
             }
+            try await wsTask.send(.string(string))
+            timeline.markSent(id: envelope.id)
         } catch {
-            state = .error("Failed to send ping: \(error.localizedDescription)")
+            timeline.markFailed(id: envelope.id, reason: error.localizedDescription)
+        }
+    }
+
+    /// Connection check used by the walking-skeleton tests.
+    public func sendPing() async {
+        await sendMessage("Ping")
+    }
+
+    /// Applies one host text frame to the timeline. Unknown types are ignored.
+    func handleIncoming(_ data: Data) {
+        let decoder = JSONDecoder()
+        guard let header = try? decoder.decode(EnvelopeHeader.self, from: data) else { return }
+
+        switch header.type {
+        case "chat.message":
+            guard let envelope = try? decoder.decode(Envelope<ChatMessageData>.self, from: data) else { return }
+            currentSeq = max(currentSeq, envelope.data.seq)
+            timeline.applyIncoming(
+                seq: envelope.data.seq,
+                profileId: envelope.profile_id ?? activeProfileId,
+                role: envelope.data.role,
+                text: envelope.data.text
+            )
+        case "error":
+            guard let envelope = try? decoder.decode(Envelope<ErrorData>.self, from: data) else { return }
+            // Errors about a chat.send reuse that message's id.
+            timeline.markFailed(id: envelope.id, reason: envelope.data.reason)
+        default:
+            break
         }
     }
 
@@ -255,13 +300,7 @@ public final class GatewayClient: ObservableObject {
 
                     if case .string(let text) = message,
                        let data = text.data(using: .utf8) {
-                        if let chatEnvelope = try? JSONDecoder().decode(Envelope<ChatMessageData>.self, from: data),
-                           chatEnvelope.type == "chat.message" {
-                            await MainActor.run {
-                                self.currentSeq = max(self.currentSeq, chatEnvelope.data.seq)
-                                self.receivedMessages.append(chatEnvelope.data)
-                            }
-                        }
+                        self.handleIncoming(data)
                     }
                 } catch {
                     await MainActor.run { [weak self] in
