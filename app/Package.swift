@@ -4,8 +4,8 @@ import PackageDescription
 let package = Package(
     name: "Lekora",
     platforms: [
-        .iOS(.v17),
-        .macOS(.v14)
+        .iOS("26.0"),
+        .macOS("26.0")
     ],
     products: [
         .library(

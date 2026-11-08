@@ -5,6 +5,9 @@ _Last updated: 2026-11-07_
 ## Where this is
 **Walking skeleton works end to end on real hardware.** On 2026-11-07 you installed the plugin from GitHub on your Hermes test machine, scanned its QR with your iPhone, paired, and got Ping → Pong. Real chat with your agent now works from the phone. The app now reconnects by itself after pairing once. 98 plugin tests and 33 app tests pass. Still open: the small follow-ups below.
 
+## Done: iOS 26 target + design system (spec: `docs/design-system.md`)
+✅ Approved by you on your iPhone 2026-11-07. App now requires iOS 26 (Xcode project and `Package.swift`). Liquid Glass for controls (message bar, buttons, badges), solid surfaces for content (bubbles, cards). Setup, Reconnecting and Chat restyled; checked in previews (light, dark, large text). 33 app tests pass. Your feedback applied (2026-11-07): iMessage blue instead of indigo; the unclear "● C" connection badge removed from the chat.
+
 ## Done: auto-reconnect (spec: `docs/auto-reconnect.md`)
 ✅ Confirmed on your iPhone on 2026-11-07: after pairing, closing and reopening Lekora goes straight to the chat with earlier messages restored from the host; coming back from the home screen keeps chat working; Forget Host returns to the setup screen. The "device revoked" and "host unreachable" paths are covered by automated tests against a fake host only (13 new tests, 29 total, stable over repeated runs).
 
@@ -32,8 +35,8 @@ The plugin had been installed here by mistake (Hermes runs on a separate Tailsca
 - ✅ Fix pushed to GitHub and reinstalled on your Hermes machine; re-paired successfully with the new QR (2026-11-07).
 - ✅ Chat view complete: text input bar, auto-scroll, message bubbles, and real agent replies verified on your iPhone (2026-11-07).
 - ✅ Auto-reconnect on app launch: app reuses saved credentials from Keychain, skips setup, and restores chat history. Confirmed on iPhone 2026-11-07.
-- ✅ `hermes lekora devices` lists paired phones; `--revoke <ID>` removes one. A phone revoked while connected is cut off at its next message. 13 new tests (95 plugin tests). ⏳ You: update the plugin on the Hermes machine, then revoke today's leftover devices (keep the one with the latest "Last seen").
-- ⏳ Forget Host now also removes the phone from the host (new `device.unpair` message); pairings get a descriptive name (model + iOS version) and `devices` shows when each was paired. Plugin: 98 tests; app: 33 tests (fake host). Waiting on: plugin update on the Hermes machine and a real-phone check.
+- ✅ `hermes lekora devices` lists paired phones; `--revoke <ID>` removes one. A phone revoked while connected is cut off at its next message. 13 new tests (95 plugin tests). Installed on your Hermes machine and used to revoke the leftovers (2026-11-08).
+- ✅ Forget Host removes the phone from the host (`device.unpair`); pairings get a descriptive name; `devices` shows when each was paired. Confirmed on your phone and Hermes machine 2026-11-08: after Forget Host and re-pairing, exactly one active device (`iPhone19,2 · iOS 27.0.1`); leftovers revoked. Plugin 98 tests, app 33.
 - ⏳ You: tap a `lekora-pair://` link on the phone to confirm a full pairing from a tapped link (only a bad link has been checked so far).
 - ✅ Signing team is now set in the project settings (your Personal Team), so it no longer gets lost when the project is regenerated. A command-line build for iPhone succeeds.
 

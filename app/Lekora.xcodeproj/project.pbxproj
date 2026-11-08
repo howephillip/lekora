@@ -7,20 +7,25 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1B51B78C457850705F4DEAFD /* ChatTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0CDF9E6E70F592D7D26D0F /* ChatTimeline.swift */; };
 		36E2264B53D152FEBB4E6FA5 /* WalkingSkeletonPingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */; };
+		3E26C6FC055625CF828F3902 /* DeviceName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FDA16D1A4B2EB8C693386E3 /* DeviceName.swift */; };
 		5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */; };
 		79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */; };
 		85721F1A389C4C7C54E14060 /* SetupWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */; };
+		8819CC96515C88BFED0FF717 /* SavedHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029415CB05BE8C4EC47DCBDE /* SavedHost.swift */; };
 		888B003DBEEC83DAAD851C7B /* LekoraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA5EC2D74AA90CF7D81DF01 /* LekoraApp.swift */; };
+		8A96BCD0023E5369B1FF002B /* AutoReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536416A3D691A83035A2FBAE /* AutoReconnectTests.swift */; };
 		8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */; };
+		9204696E33041E24602FA7C5 /* ReconnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F0CED43AE9F169638D5D29 /* ReconnectingView.swift */; };
 		AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D236D28311188A8777EEA28 /* RouteProber.swift */; };
-		CDAB304930A007C7009D7D27 /* ChatTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304830A007C7009D7D27 /* ChatTimeline.swift */; };
-		CDAB304B30A00811009D7D27 /* ChatTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304A30A00811009D7D27 /* ChatTimelineTests.swift */; };
-		CDAB304D30A00A82009D7D27 /* SavedHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304C30A00A82009D7D27 /* SavedHost.swift */; };
-		CDAB304F30A00AD4009D7D27 /* ReconnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304E30A00AD4009D7D27 /* ReconnectingView.swift */; };
-		CDAB305130A00B19009D7D27 /* FakeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305030A00B19009D7D27 /* FakeHost.swift */; };
-		CDAB305330A00B2E009D7D27 /* AutoReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305230A00B2E009D7D27 /* AutoReconnectTests.swift */; };
-		CDAB305530A011F6009D7D27 /* DeviceName.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305430A011F6009D7D27 /* DeviceName.swift */; };
+		B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19C424E99FE08F51187724FC /* FakeHost.swift */; };
+		C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */; };
+		CDAB305830A01650009D7D27 /* LKTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305730A01650009D7D27 /* LKTheme.swift */; };
+		CDAB305A30A01658009D7D27 /* LKSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305930A01658009D7D27 /* LKSurfaces.swift */; };
+		CDAB305C30A01664009D7D27 /* LKControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305B30A01664009D7D27 /* LKControls.swift */; };
+		CDAB305E30A0166E009D7D27 /* LKChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305D30A0166E009D7D27 /* LKChat.swift */; };
+		CDAB306030A016C9009D7D27 /* LKPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305F30A016C9009D7D27 /* LKPreviews.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
 		E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */; };
 		F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */; };
@@ -37,26 +42,31 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		00F0CED43AE9F169638D5D29 /* ReconnectingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectingView.swift; sourceTree = "<group>"; };
+		029415CB05BE8C4EC47DCBDE /* SavedHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedHost.swift; sourceTree = "<group>"; };
+		19C424E99FE08F51187724FC /* FakeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeHost.swift; sourceTree = "<group>"; };
 		2CD6AF1AA6582890921BFB14 /* LekoraTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LekoraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingSkeletonPingView.swift; sourceTree = "<group>"; };
 		3AA5EC2D74AA90CF7D81DF01 /* LekoraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LekoraApp.swift; sourceTree = "<group>"; };
+		5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimelineTests.swift; sourceTree = "<group>"; };
+		536416A3D691A83035A2FBAE /* AutoReconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoReconnectTests.swift; sourceTree = "<group>"; };
 		5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
 		67CFF004E89499109A1FC23C /* Lekora.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Lekora.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
 		7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolMessages.swift; sourceTree = "<group>"; };
+		7FDA16D1A4B2EB8C693386E3 /* DeviceName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceName.swift; sourceTree = "<group>"; };
 		8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolMessagesTests.swift; sourceTree = "<group>"; };
 		9D236D28311188A8777EEA28 /* RouteProber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProber.swift; sourceTree = "<group>"; };
-		CDAB304830A007C7009D7D27 /* ChatTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimeline.swift; sourceTree = "<group>"; };
-		CDAB304A30A00811009D7D27 /* ChatTimelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimelineTests.swift; sourceTree = "<group>"; };
-		CDAB304C30A00A82009D7D27 /* SavedHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedHost.swift; sourceTree = "<group>"; };
-		CDAB304E30A00AD4009D7D27 /* ReconnectingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectingView.swift; sourceTree = "<group>"; };
-		CDAB305030A00B19009D7D27 /* FakeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeHost.swift; sourceTree = "<group>"; };
-		CDAB305230A00B2E009D7D27 /* AutoReconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoReconnectTests.swift; sourceTree = "<group>"; };
-		CDAB305430A011F6009D7D27 /* DeviceName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceName.swift; sourceTree = "<group>"; };
+		CDAB305730A01650009D7D27 /* LKTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKTheme.swift; sourceTree = "<group>"; };
+		CDAB305930A01658009D7D27 /* LKSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKSurfaces.swift; sourceTree = "<group>"; };
+		CDAB305B30A01664009D7D27 /* LKControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKControls.swift; sourceTree = "<group>"; };
+		CDAB305D30A0166E009D7D27 /* LKChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKChat.swift; sourceTree = "<group>"; };
+		CDAB305F30A016C9009D7D27 /* LKPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKPreviews.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProberTests.swift; sourceTree = "<group>"; };
+		FD0CDF9E6E70F592D7D26D0F /* ChatTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimeline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -64,8 +74,8 @@
 			isa = PBXGroup;
 			children = (
 				DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */,
+				00F0CED43AE9F169638D5D29 /* ReconnectingView.swift */,
 				DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */,
-				CDAB304E30A00AD4009D7D27 /* ReconnectingView.swift */,
 			);
 			path = Setup;
 			sourceTree = "<group>";
@@ -73,8 +83,8 @@
 		1A59BCF1B37E3C88C315DE26 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				FD0CDF9E6E70F592D7D26D0F /* ChatTimeline.swift */,
 				7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */,
-				CDAB304830A007C7009D7D27 /* ChatTimeline.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -91,11 +101,11 @@
 		7FD5CAFEC3588A0DD9C186E3 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				7FDA16D1A4B2EB8C693386E3 /* DeviceName.swift */,
 				78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */,
 				5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */,
 				9D236D28311188A8777EEA28 /* RouteProber.swift */,
-				CDAB304C30A00A82009D7D27 /* SavedHost.swift */,
-				CDAB305430A011F6009D7D27 /* DeviceName.swift */,
+				029415CB05BE8C4EC47DCBDE /* SavedHost.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -103,11 +113,11 @@
 		9D9F5422A769D25309EC607F /* LekoraTests */ = {
 			isa = PBXGroup;
 			children = (
+				536416A3D691A83035A2FBAE /* AutoReconnectTests.swift */,
+				5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */,
+				19C424E99FE08F51187724FC /* FakeHost.swift */,
 				8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */,
 				F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */,
-				CDAB304A30A00811009D7D27 /* ChatTimelineTests.swift */,
-				CDAB305030A00B19009D7D27 /* FakeHost.swift */,
-				CDAB305230A00B2E009D7D27 /* AutoReconnectTests.swift */,
 			);
 			path = LekoraTests;
 			sourceTree = "<group>";
@@ -121,6 +131,18 @@
 			);
 			sourceTree = "<group>";
 		};
+		CDAB305630A01650009D7D27 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				CDAB305730A01650009D7D27 /* LKTheme.swift */,
+				CDAB305930A01658009D7D27 /* LKSurfaces.swift */,
+				CDAB305B30A01664009D7D27 /* LKControls.swift */,
+				CDAB305D30A0166E009D7D27 /* LKChat.swift */,
+				CDAB305F30A016C9009D7D27 /* LKPreviews.swift */,
+			);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
 		CE88A20EDD3F68316E5CAD45 /* Lekora */ = {
 			isa = PBXGroup;
 			children = (
@@ -129,6 +151,7 @@
 				1A59BCF1B37E3C88C315DE26 /* Models */,
 				7FD5CAFEC3588A0DD9C186E3 /* Services */,
 				E17703F65E5D53B9795F68C9 /* Views */,
+				CDAB305630A01650009D7D27 /* DesignSystem */,
 			);
 			path = Lekora;
 			sourceTree = "<group>";
@@ -228,18 +251,23 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1B51B78C457850705F4DEAFD /* ChatTimeline.swift in Sources */,
+				3E26C6FC055625CF828F3902 /* DeviceName.swift in Sources */,
 				E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */,
-				CDAB304D30A00A82009D7D27 /* SavedHost.swift in Sources */,
+				CDAB305C30A01664009D7D27 /* LKControls.swift in Sources */,
+				CDAB305830A01650009D7D27 /* LKTheme.swift in Sources */,
+				CDAB305A30A01658009D7D27 /* LKSurfaces.swift in Sources */,
 				5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */,
 				888B003DBEEC83DAAD851C7B /* LekoraApp.swift in Sources */,
 				D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */,
 				F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */,
+				9204696E33041E24602FA7C5 /* ReconnectingView.swift in Sources */,
 				AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */,
-				CDAB304F30A00AD4009D7D27 /* ReconnectingView.swift in Sources */,
-				CDAB305530A011F6009D7D27 /* DeviceName.swift in Sources */,
-				CDAB304930A007C7009D7D27 /* ChatTimeline.swift in Sources */,
+				8819CC96515C88BFED0FF717 /* SavedHost.swift in Sources */,
 				85721F1A389C4C7C54E14060 /* SetupWizardView.swift in Sources */,
+				CDAB305E30A0166E009D7D27 /* LKChat.swift in Sources */,
 				36E2264B53D152FEBB4E6FA5 /* WalkingSkeletonPingView.swift in Sources */,
+				CDAB306030A016C9009D7D27 /* LKPreviews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -247,10 +275,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8A96BCD0023E5369B1FF002B /* AutoReconnectTests.swift in Sources */,
+				C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */,
+				B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */,
 				8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */,
-				CDAB304B30A00811009D7D27 /* ChatTimelineTests.swift in Sources */,
-				CDAB305130A00B19009D7D27 /* FakeHost.swift in Sources */,
-				CDAB305330A00B2E009D7D27 /* AutoReconnectTests.swift in Sources */,
 				79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -282,7 +310,7 @@
 			buildSettings = {
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -337,7 +365,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 			};

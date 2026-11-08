@@ -34,51 +34,39 @@ public struct ReconnectingView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: LK.Spacing.xl) {
             Spacer()
 
-            Image(systemName: isWorking ? "antenna.radiowaves.left.and.right" : "wifi.exclamationmark")
-                .font(.system(size: 44))
-                .foregroundColor(isWorking ? .blue : .orange)
+            VStack(spacing: LK.Spacing.md) {
+                Image(systemName: isWorking ? "antenna.radiowaves.left.and.right" : "wifi.exclamationmark")
+                    .font(.system(size: LK.Size.heroIcon))
+                    .foregroundStyle(isWorking ? AnyShapeStyle(LK.Palette.accent.gradient) : AnyShapeStyle(LK.Palette.warning))
+                    .symbolEffect(.variableColor.iterative, isActive: isWorking)
 
-            Text(host.instanceName)
-                .font(.title2)
-                .fontWeight(.semibold)
+                Text(host.instanceName)
+                    .font(LK.Typography.title)
 
-            if isWorking {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Reconnecting…")
-                        .foregroundColor(.secondary)
-                }
-            } else if let problem {
-                Text(problem)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+                LKStatusBadge(isWorking ? .connecting : .offline,
+                              label: isWorking ? "Reconnecting" : "Not connected")
+            }
 
-                Button {
+            if !isWorking, let problem {
+                LKNotice(.warning, problem)
+
+                LKPrimaryButton("Try Again", systemImage: "arrow.clockwise") {
                     Task { await gateway.resumeSavedSession() }
-                } label: {
-                    Text("Try Again")
-                        .font(.headline)
-                        .frame(maxWidth: 240)
-                        .padding(.vertical, 12)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
                 }
             }
 
             Spacer()
 
-            Button("Forget Host", role: .destructive) {
+            LKSecondaryButton("Forget Host", systemImage: "xmark.circle", role: .destructive) {
                 confirmingForget = true
             }
-            .font(.footnote)
-            .padding(.bottom, 24)
         }
+        .padding(.horizontal, LK.Spacing.lg)
+        .padding(.bottom, LK.Spacing.lg)
+        .lkScreenBackground()
         .confirmationDialog(
             "Forget \(host.instanceName)?",
             isPresented: $confirmingForget,
@@ -92,25 +80,8 @@ public struct ReconnectingView: View {
         }
         .overlay {
             if gateway.isForgetting {
-                ForgettingOverlay()
+                LKBlockingProgress("Forgetting host…")
             }
-        }
-    }
-}
-
-/// Covers the screen while Forget Host asks the host to remove this phone.
-struct ForgettingOverlay: View {
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.25).ignoresSafeArea()
-            VStack(spacing: 12) {
-                ProgressView()
-                Text("Forgetting host…")
-                    .font(.subheadline)
-            }
-            .padding(24)
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
     }
 }
