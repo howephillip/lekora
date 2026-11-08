@@ -32,6 +32,10 @@ PROTO_VERSION = 1
 AUTH_TIMEOUT_SECONDS = 5.0
 HEARTBEAT_SECONDS = 30.0
 SEEN_IDS_LIMIT = 512
+# Chat history (docs/chat-history.md)
+RECENT_PER_PROFILE = 50   # a phone with no cache gets each agent's newest 50 messages
+MAX_CHANGES_REPLAY = 1000  # more changes than this waiting: send the recent ones instead
+PAGE_LIMIT = 100           # history.fetch page size cap
 
 Dispatch = Callable[[str, str, str], Awaitable[None]]
 ProfilesProvider = Callable[[], list[dict]]
@@ -46,7 +50,9 @@ def _now() -> str:
 class _Conn:
     ws: ServerConnection
     device_id: Optional[str] = None
-    sent_seq: int = 0
+    # Highest change number (rev) this phone already has; live messages at or below it
+    # were delivered by the replay and are not sent twice.
+    sent_rev: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     seen_ids: "OrderedDict[str, None]" = field(default_factory=OrderedDict)
 
@@ -143,12 +149,20 @@ class Gateway:
         async with conn.lock:
             await conn.ws.send(text)
 
-    def _message_json(self, seq: int, profile_id: str, role: str, text: str,
-                      draft_id: Optional[str] = None) -> str:
-        data: dict[str, Any] = {"seq": seq, "role": role, "text": text}
+    @staticmethod
+    def _message_data(seq: int, role: str, text: str, rev: int,
+                      client_id: Optional[str] = None, draft_id: Optional[str] = None) -> dict:
+        data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
+        if client_id:
+            data["client_id"] = client_id  # the chat.send id: the sender matches its own bubble
         if draft_id:
             data["draft_id"] = draft_id  # replaces the phone's live bubble with this message
-        return self._envelope("chat.message", data, profile_id=profile_id)
+        return data
+
+    def _event_json(self, ev) -> str:
+        return self._envelope("chat.message", self._message_data(
+            ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
+            ev.payload.get("client_id")), profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
 
@@ -157,7 +171,7 @@ class Gateway:
         """Record a message as an event and push it to every connected phone."""
         seq = self.store.append_event(
             profile_id, "chat.message", {"role": role, "text": text})
-        await self._broadcast(seq, profile_id, role, text, exclude=None, draft_id=draft_id)
+        await self._broadcast(self.store.get_event(seq), draft_id=draft_id)
         return seq
 
     async def update_message(self, seq: int, text: str) -> bool:
@@ -166,8 +180,7 @@ class Gateway:
         event = self.store.update_event_text(seq, text)
         if event is None:
             return False
-        await self._broadcast(seq, event.profile_id, event.payload.get("role", "assistant"), text,
-                              exclude=None, resend=True)
+        await self._broadcast(event)  # a new change number, so it's never skipped
         return True
 
     async def publish_draft(self, profile_id: str, draft_id: str, text: str) -> None:
@@ -189,12 +202,14 @@ class Gateway:
             with contextlib.suppress(ConnectionClosed):
                 await self._send(conn, payload)
 
-    async def _broadcast(self, seq: int, profile_id: str, role: str, text: str,
-                         exclude: Optional[_Conn], draft_id: Optional[str] = None,
-                         resend: bool = False) -> None:
-        payload = self._message_json(seq, profile_id, role, text, draft_id)
+    async def _broadcast(self, ev, draft_id: Optional[str] = None) -> None:
+        if ev is None:
+            return
+        payload = self._envelope("chat.message", self._message_data(
+            ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
+            ev.payload.get("client_id"), draft_id), profile_id=ev.profile_id)
         for conn in list(self._conns):
-            if conn is exclude or not conn.authed:
+            if not conn.authed:
                 continue
             try:
                 if not self.store.is_device_active(conn.device_id):
@@ -202,10 +217,10 @@ class Gateway:
                     await conn.ws.close(1008, "AUTH_FAILED")
                     continue
                 async with conn.lock:
-                    if seq <= conn.sent_seq and not resend:
-                        continue  # already delivered by replay
+                    if ev.rev <= conn.sent_rev:
+                        continue  # already delivered by the replay
                     await conn.ws.send(payload)
-                    conn.sent_seq = max(conn.sent_seq, seq)
+                    conn.sent_rev = ev.rev
             except ConnectionClosed:
                 pass
 
@@ -275,6 +290,10 @@ class Gateway:
                           False, True, msg_id)
         elif type_ == "chat.send":
             await self._chat_send(conn, msg_id, env.get("profile_id"), data)
+        elif type_ == "history.fetch":
+            await self._history_fetch(conn, msg_id, env.get("profile_id"), data)
+        elif type_ == "chat.read":
+            await self._chat_read(conn, env.get("profile_id"), data)
         elif type_ in ("profile.create", "profile.delete"):
             if self._profile_admin is None:
                 raise _Reject("PROFILE_ADMIN_UNAVAILABLE",
@@ -348,27 +367,43 @@ class Gateway:
                 and self.store.verify_device_token(device_id, token)):
             raise _Reject("AUTH_FAILED", "Invalid or revoked device token",
                           False, True, msg_id)
-        try:
-            last_seq = max(int(data.get("last_seq", 0)), 0)
-        except (TypeError, ValueError):
-            last_seq = 0
+        def number(key: str) -> Optional[int]:
+            try:
+                return max(int(data[key]), 0) if key in data else None
+            except (TypeError, ValueError):
+                return 0
+        last_seq, since_rev = number("last_seq") or 0, number("since_rev")
         conn.device_id = device_id
+        profiles = self._profiles()
+        ack: dict[str, Any] = {
+            "status": "ok",
+            "current_seq": self.store.current_seq(),
+            "instance_name": self.store.get_instance_name(),
+            "profiles": profiles,
+        }
+        # No await between reading the store and choosing what to send, so nothing saved
+        # meanwhile can slip between the replay and the live messages.
+        rev_now = self.store.current_rev()
+        if since_rev is None:  # an app from before chat history: everything after last_seq
+            replay = [e for e in self.store.fetch_events_since(last_seq)
+                      if e.event_type == "chat.message"]
+        else:
+            replay = []
+            if since_rev > 0:
+                replay = self.store.messages_changed_since(since_rev, MAX_CHANGES_REPLAY + 1)
+            if since_rev > 0 and len(replay) <= MAX_CHANGES_REPLAY:
+                ack["replay"] = "changes"
+            else:
+                ack["replay"] = "recent"
+                replay = self.store.recent_messages(RECENT_PER_PROFILE)
+            ack["rev"] = rev_now
+            ack["read"] = {p["profile_id"]: self.store.read_marker(p["profile_id"]) for p in profiles}
         # Hold the connection lock so live broadcasts queue behind the replay.
         async with conn.lock:
-            conn.sent_seq = last_seq
-            await conn.ws.send(self._envelope("hello.ack", {
-                "status": "ok",
-                "current_seq": self.store.current_seq(),
-                "instance_name": self.store.get_instance_name(),
-                "profiles": self._profiles(),
-            }, msg_id=msg_id))
-            for ev in self.store.fetch_events_since(last_seq):
-                if ev.event_type != "chat.message":
-                    continue
-                await conn.ws.send(self._message_json(
-                    ev.seq, ev.profile_id, ev.payload.get("role", "assistant"),
-                    ev.payload.get("text", "")))
-                conn.sent_seq = ev.seq
+            conn.sent_rev = max([rev_now] + [e.rev for e in replay])
+            await conn.ws.send(self._envelope("hello.ack", ack, msg_id=msg_id))
+            for ev in replay:
+                await conn.ws.send(self._event_json(ev))
 
     async def _chat_send(self, conn: _Conn, msg_id: Optional[str],
                          profile_id: Any, data: dict) -> None:
@@ -385,13 +420,57 @@ class Gateway:
             conn.seen_ids[msg_id] = None
             while len(conn.seen_ids) > SEEN_IDS_LIMIT:
                 conn.seen_ids.popitem(last=False)
-        seq = self.store.append_event(
-            profile_id, "chat.message", {"role": "user", "text": text})
-        # The sender already shows its own message; other phones get it.
-        await self._broadcast(seq, profile_id, "user", text, exclude=conn)
+        payload = {"role": "user", "text": text}
+        if msg_id:
+            payload["client_id"] = msg_id
+        seq = self.store.append_event(profile_id, "chat.message", payload)
+        # Every phone gets it, the sender too: client_id tells it which bubble now has this seq.
+        await self._broadcast(self.store.get_event(seq))
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    def _known_profile(self, profile_id: Any, msg_id: Optional[str]) -> str:
+        known = {p["profile_id"] for p in self._profiles()}
+        if not isinstance(profile_id, str) or profile_id not in known:
+            raise _Reject("UNKNOWN_PROFILE", "Unknown profile", True, False, msg_id)
+        return profile_id
+
+    async def _history_fetch(self, conn: _Conn, msg_id: Optional[str],
+                             profile_id: Any, data: dict) -> None:
+        """A page of one agent's older messages (the phone scrolled up)."""
+        profile_id = self._known_profile(profile_id, msg_id)
+        try:
+            before = data.get("before_seq")
+            before = int(before) if before is not None else None
+            limit = min(max(int(data.get("limit", PAGE_LIMIT)), 1), PAGE_LIMIT)
+        except (TypeError, ValueError):
+            raise _Reject("INVALID_MESSAGE", "history.fetch needs numbers", True, False, msg_id)
+        events, has_more = self.store.messages_before(profile_id, before, limit)
+        messages = [self._message_data(e.seq, e.payload.get("role", "assistant"),
+                                       e.payload.get("text", ""), e.rev, e.payload.get("client_id"))
+                    for e in events]
+        await self._send(conn, self._envelope(
+            "history.page", {"messages": messages, "has_more": has_more},
+            msg_id=msg_id, profile_id=profile_id))
+
+    async def _chat_read(self, conn: _Conn, profile_id: Any, data: dict) -> None:
+        """A phone read an agent's chat up to ``seq``: remember it, tell the other phones."""
+        if not isinstance(profile_id, str):
+            return
+        try:
+            seq = int(data.get("seq"))
+        except (TypeError, ValueError):
+            return
+        if not self.store.mark_read(profile_id, seq):
+            return
+        payload = self._envelope("chat.read", {"seq": self.store.read_marker(profile_id)},
+                                 profile_id=profile_id)
+        for other in list(self._conns):
+            if other is conn or not other.authed or not self.store.is_device_active(other.device_id):
+                continue
+            with contextlib.suppress(ConnectionClosed):
+                await self._send(other, payload)
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)

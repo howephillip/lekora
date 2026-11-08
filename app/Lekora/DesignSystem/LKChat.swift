@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// One chat bubble. The user's sit on the right in the accent colour; the agent's on the
 /// left on an inset surface. Bubbles are content, so they are solid, not glass.
@@ -240,5 +243,30 @@ public struct LKSystemNotice: View {
             .padding(.horizontal, LK.Spacing.xl)
             .padding(.vertical, LK.Spacing.xs)
             .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Unread dot (docs/chat-history.md)
+
+/// The blue "new messages" dot, as in Messages.
+public struct LKUnreadDot: View {
+    public init() {}
+
+    public var body: some View {
+        Circle()
+            .fill(LK.Palette.accent)
+            .frame(width: 8, height: 8)
+    }
+
+    /// The dot for menu rows. Menus draw SF Symbols in the text colour, so the image is
+    /// pre-coloured to stay blue.
+    public static var menuIcon: Image {
+        #if canImport(UIKit)
+        if let dot = UIImage(systemName: "circle.fill")?
+            .withTintColor(.systemBlue, renderingMode: .alwaysOriginal) {
+            return Image(uiImage: dot)
+        }
+        #endif
+        return Image(systemName: "circle.fill")
     }
 }

@@ -25,7 +25,20 @@ public struct HostError: Error, LocalizedError, Equatable {
 public final class GatewayClient: ObservableObject {
     @Published public private(set) var state: GatewayConnectionState = .disconnected
     @Published public private(set) var currentSeq: Int = 0
-    @Published public private(set) var timeline = ChatTimeline()
+    @Published public private(set) var timeline = ChatTimeline() {
+        didSet { if timeline != oldValue { cacheChanged() } }
+    }
+    /// Highest change number seen (docs/chat-history.md); the next `hello` asks for what
+    /// changed after it.
+    private var currentRev: Int = 0
+    /// Each agent's read marker (highest seq read, on any of the user's phones).
+    @Published public private(set) var readMarkers: [String: Int] = [:]
+    /// False with hosts from before read markers: then no unread dots are shown.
+    @Published public private(set) var hostTracksRead = false
+    /// Agents whose older messages are being fetched right now.
+    @Published public private(set) var loadingOlder: Set<String> = []
+    /// True while the chat is on screen with the app in front: new messages count as read.
+    private var chatVisible = false
     @Published public private(set) var profiles: [ProfileData] = []
     /// The paired host, if any. While set, the app reconnects instead of showing the setup wizard.
     @Published public private(set) var savedHost: SavedHost?
@@ -68,15 +81,20 @@ public final class GatewayClient: ObservableObject {
     private var activeURL: URL?
     /// Requests awaiting a reply with the same envelope id (agent create/delete).
     private var pendingReplies: [String: CheckedContinuation<Data, Error>] = [:]
+    /// Where chats are kept between launches; nil = memory only (most tests).
+    private let cacheStore: ChatCacheStore?
+    private var cacheSaveTask: Task<Void, Never>?
 
     public init(
         keychain: CredentialStore = KeychainManager.shared,
         requireTLS: Bool = true,
-        sessionFactory: @escaping (String?) -> URLSession = { PinnedSession.make(pin: $0) }
+        sessionFactory: @escaping (String?) -> URLSession = { PinnedSession.make(pin: $0) },
+        cacheStore: ChatCacheStore? = nil
     ) {
         self.keychain = keychain
         self.requireTLS = requireTLS
         self.sessionFactory = sessionFactory
+        self.cacheStore = cacheStore
         let saved = SavedHost.load(from: keychain)
         if requireTLS, let saved, saved.certPin == nil {
             // Paired before connections were encrypted: that pairing can't be used any more.
@@ -85,7 +103,133 @@ public final class GatewayClient: ObservableObject {
             self.state = .error("Lekora now encrypts the connection to \(saved.instanceName), so this iPhone needs to pair again. On your Hermes computer, run hermes lekora pair and scan the new code.")
         } else {
             self.savedHost = saved
+            if let saved { loadCache(for: saved) }
         }
+    }
+
+    // MARK: - Cache (docs/chat-history.md)
+
+    /// Shows the last known chats straight away, before the host answers.
+    private func loadCache(for host: SavedHost) {
+        guard let cache = cacheStore?.load(instanceId: host.instanceId) else { return }
+        timeline = ChatTimeline(entries: cache.entries, completeProfiles: Set(cache.completeProfiles))
+        currentRev = cache.rev
+        currentSeq = cache.lastSeq
+        readMarkers = cache.read
+        hostTracksRead = cache.hostTracksRead
+        profiles = cache.profiles
+        activeProfileId = host.activeProfileId ?? cache.profiles.first?.profile_id ?? "default"
+    }
+
+    /// Saves soon (at most about once a second while things change).
+    private func cacheChanged() {
+        guard cacheStore != nil, cacheSaveTask == nil else { return }
+        cacheSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            self?.cacheSaveTask = nil
+            self?.saveCacheNow()
+        }
+    }
+
+    /// Writes the cache now (also called when the app goes to the background).
+    public func saveCacheNow() {
+        guard let cacheStore, let host = savedHost else { return }
+        let kept = timeline.cacheSnapshot(perProfile: ChatCache.messagesPerAgent)
+        cacheStore.save(ChatCache(
+            instanceId: host.instanceId, rev: currentRev, lastSeq: currentSeq,
+            entries: kept.entries, completeProfiles: Array(kept.completeProfiles).sorted(),
+            read: readMarkers, hostTracksRead: hostTracksRead, profiles: profiles))
+    }
+
+    /// True when a host is paired and some of its chats are known (shown while reconnecting).
+    public var hasCachedChats: Bool {
+        savedHost != nil && !profiles.isEmpty && !(savedHost?.enabledProfileIds ?? []).isEmpty
+    }
+
+    // MARK: - Unread (docs/chat-history.md)
+
+    /// An agent has replies newer than its read marker.
+    public func hasUnread(_ profileId: String) -> Bool {
+        guard hostTracksRead else { return false }
+        let marker = readMarkers[profileId] ?? 0
+        return timeline.entries.contains { $0.profileId == profileId && $0.role == .agent && ($0.seq ?? 0) > marker }
+    }
+
+    /// Another agent this phone uses has unread replies (the dot by the title).
+    public var otherAgentsHaveUnread: Bool {
+        enabledProfiles.contains { $0.profile_id != activeProfileId && hasUnread($0.profile_id) }
+    }
+
+    /// The chat screen tells the client when it's on screen with the app in front.
+    public func setChatVisible(_ visible: Bool) {
+        chatVisible = visible
+        if visible { markActiveChatRead() }
+    }
+
+    /// Marks the open chat read up to its newest message, here and on the host (which tells
+    /// the user's other phones). Remembered offline and sent after reconnecting.
+    private func markActiveChatRead() {
+        guard chatVisible, let newest = timeline.newestSeq(for: activeProfileId),
+              newest > readMarkers[activeProfileId] ?? 0 else { return }
+        readMarkers[activeProfileId] = newest
+        cacheChanged()
+        sendRead(profileId: activeProfileId, seq: newest)
+    }
+
+    private func sendRead(profileId: String, seq: Int) {
+        guard case .connected = state, hostTracksRead, let wsTask = webSocketTask,
+              let instanceId = savedHost?.instanceId else { return }
+        let envelope = Envelope(type: "chat.read", instance_id: instanceId, profile_id: profileId,
+                                data: ChatReadData(seq: seq))
+        Task { [weak self] in try? await self?.send(envelope, on: wsTask) }
+    }
+
+    /// The host's markers after `hello`: keep the furthest of the host's and this phone's,
+    /// and send any reading done here while offline.
+    private func mergeReadMarkers(_ host: [String: Int]?) {
+        guard let host else {
+            hostTracksRead = false
+            return
+        }
+        hostTracksRead = true
+        var merged = host
+        for (profileId, local) in readMarkers where host[profileId] != nil {
+            if local > host[profileId]! {
+                merged[profileId] = local
+                sendRead(profileId: profileId, seq: local)
+            }
+        }
+        readMarkers = merged
+    }
+
+    // MARK: - Older messages (docs/chat-history.md)
+
+    /// Whether scrolling to the top of an agent's chat can load more from the host.
+    public func canLoadOlder(_ profileId: String) -> Bool {
+        guard case .connected = state else { return false }
+        return !timeline.completeProfiles.contains(profileId)
+    }
+
+    /// Fetches and shows the page of messages before the oldest one shown.
+    public func loadOlderMessages(_ profileId: String) async {
+        guard let page = await fetchOlderPage(profileId) else { return }
+        applyOlderPage(page, for: profileId)
+    }
+
+    /// Fetches the page before the oldest message shown, without showing it yet (the chat
+    /// screen waits until the reader's finger is off the screen). Nil if that failed.
+    public func fetchOlderPage(_ profileId: String) async -> HistoryPageData? {
+        guard canLoadOlder(profileId), !loadingOlder.contains(profileId) else { return nil }
+        loadingOlder.insert(profileId)
+        defer { loadingOlder.remove(profileId) }
+        return try? await request(
+            type: "history.fetch", profileId: profileId,
+            data: HistoryFetchData(before_seq: timeline.oldestSeq(for: profileId), limit: 100),
+            reply: HistoryPageData.self, timeout: 20)
+    }
+
+    public func applyOlderPage(_ page: HistoryPageData, for profileId: String) {
+        timeline.applyPage(profileId: profileId, messages: page.messages, hasMore: page.has_more)
     }
 
     /// A fresh session for the next connection, pinned to `pin`; the previous one is released.
@@ -141,8 +285,11 @@ public final class GatewayClient: ObservableObject {
     // MARK: - Pairing & Connection Flow
     public func pairAndConnect(pairingToken: String, instanceId: String, candidateEndpoints: [String],
                                certPin: String? = nil) async {
-        // A new pairing replaces whatever this phone was connected to before.
+        // A new pairing replaces whatever this phone was connected to before, and starts
+        // from the host's copy of the chats.
         closeSocket()
+        if let old = savedHost { cacheStore?.delete(instanceId: old.instanceId) }
+        cacheStore?.delete(instanceId: instanceId)
         resetSessionData()
         state = .probing
         do {
@@ -227,6 +374,7 @@ public final class GatewayClient: ObservableObject {
                     device_id: host.deviceId,
                     device_token: host.deviceToken,
                     last_seq: currentSeq,
+                    since_rev: currentRev,
                     client_version: "1.0.0",
                     proto_version: 1
                 )
@@ -244,12 +392,24 @@ public final class GatewayClient: ObservableObject {
             reconcileProfileChoice()
             // Live bubbles from before the reconnect are previews; the replay is the truth.
             timeline.dropUnfinishedReplies()
+            // Agents deleted while this phone was away.
+            let current = Set(ack.profiles.map(\.profile_id))
+            for gone in Set(timeline.entries.map(\.profileId)).subtracting(current) {
+                timeline.removeEntries(for: gone)
+            }
+            if ack.replay == "recent" {
+                timeline.replaceSavedWithRecent()  // each agent's newest messages follow
+            }
+            if let rev = ack.rev { currentRev = max(currentRev, rev) }
+            mergeReadMarkers(ack.read)
             agentActivity = [:]
             let activeName = activeProfile?.name ?? ack.profiles.first?.name ?? "Hermes Agent"
             state = .connected(instanceName: ack.instance_name, profileName: activeName)
 
             startHeartbeat()
             startReceiveLoop(wsTask: wsTask)
+            markActiveChatRead()
+            cacheChanged()  // the agent list and change number may be new
         } catch let hostError as HostError where hostError.meansCredentialsInvalid {
             // The host no longer knows this phone: forget it so the wizard shows.
             forgetLocally()
@@ -339,6 +499,7 @@ public final class GatewayClient: ObservableObject {
     /// Clears the saved host and everything shown for it, without contacting the host.
     private func forgetLocally() {
         closeSocket()
+        if let host = savedHost { cacheStore?.delete(instanceId: host.instanceId) }
         SavedHost.clear(from: keychain)
         savedHost = nil
         resetSessionData()
@@ -365,10 +526,15 @@ public final class GatewayClient: ObservableObject {
     }
 
     private func resetSessionData() {
+        cacheSaveTask?.cancel()
+        cacheSaveTask = nil
         agentActivity = [:]
         timeline = ChatTimeline()
         profiles = []
         currentSeq = 0
+        currentRev = 0
+        readMarkers = [:]
+        hostTracksRead = false
         activeProfileId = "default"
     }
 
@@ -417,13 +583,17 @@ public final class GatewayClient: ObservableObject {
         activeProfileId = id
         host.activeProfileId = id
         persistProfileChoice(host)
+        markActiveChatRead()
     }
 
     /// New agent list from the host (another phone created or deleted one).
     private func applyProfiles(_ newProfiles: [ProfileData]) {
         let removed = Set(profiles.map(\.profile_id)).subtracting(newProfiles.map(\.profile_id))
         profiles = newProfiles
-        for id in removed { timeline.removeEntries(for: id) }
+        for id in removed {
+            timeline.removeEntries(for: id)
+            readMarkers[id] = nil
+        }
         reconcileProfileChoice()
     }
 
@@ -459,11 +629,12 @@ public final class GatewayClient: ObservableObject {
         return ack.backup
     }
 
-    private func request<T: Codable, R: Codable>(type: String, data: T, reply: R.Type, timeout: Double) async throws -> R {
+    private func request<T: Codable, R: Codable>(type: String, profileId: String? = nil, data: T,
+                                                 reply: R.Type, timeout: Double) async throws -> R {
         guard case .connected = state, let wsTask = webSocketTask, let instanceId = savedHost?.instanceId else {
             throw HostError(code: "DISCONNECTED", reason: "Not connected to the host.")
         }
-        let envelope = Envelope(type: type, instance_id: instanceId, data: data)
+        let envelope = Envelope(type: type, instance_id: instanceId, profile_id: profileId, data: data)
         let raw: Data = try await withCheckedThrowingContinuation { continuation in
             pendingReplies[envelope.id] = continuation
             Task { [weak self] in
@@ -579,13 +750,25 @@ public final class GatewayClient: ObservableObject {
         case "chat.message":
             guard let envelope = try? decoder.decode(Envelope<ChatMessageData>.self, from: data) else { return }
             currentSeq = max(currentSeq, envelope.data.seq)
+            if let rev = envelope.data.rev { currentRev = max(currentRev, rev) }
+            let profileId = envelope.profile_id ?? activeProfileId
             timeline.applyIncoming(
                 seq: envelope.data.seq,
-                profileId: envelope.profile_id ?? activeProfileId,
+                profileId: profileId,
                 role: envelope.data.role,
                 text: envelope.data.text,
-                draftId: envelope.data.draft_id
+                draftId: envelope.data.draft_id,
+                clientId: envelope.data.client_id
             )
+            if profileId == activeProfileId { markActiveChatRead() }
+        case "chat.read":
+            // Read on another phone.
+            guard let envelope = try? decoder.decode(Envelope<ChatReadData>.self, from: data),
+                  let profileId = envelope.profile_id else { return }
+            if envelope.data.seq > readMarkers[profileId] ?? 0 {
+                readMarkers[profileId] = envelope.data.seq
+                cacheChanged()
+            }
         case "chat.draft":
             guard let envelope = try? decoder.decode(Envelope<ChatDraftData>.self, from: data) else { return }
             timeline.applyDraft(draftId: envelope.data.draft_id,

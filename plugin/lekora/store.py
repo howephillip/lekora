@@ -50,7 +50,20 @@ CREATE TABLE IF NOT EXISTS events (
     profile_id   TEXT NOT NULL,
     event_type   TEXT NOT NULL,
     payload_json TEXT NOT NULL,
-    created_at   TEXT
+    created_at   TEXT,
+    rev          INTEGER
+);
+CREATE INDEX IF NOT EXISTS events_profile_seq ON events (instance_id, profile_id, seq);
+"""
+
+# Read markers (docs/chat-history.md): per agent, "read up to seq N", shared by all phones.
+READ_MARKERS = """
+CREATE TABLE IF NOT EXISTS read_markers (
+    instance_id   TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    last_read_seq INTEGER NOT NULL,
+    updated_at    TEXT,
+    PRIMARY KEY (instance_id, profile_id)
 );
 """
 
@@ -85,6 +98,7 @@ class Event:
     event_type: str
     payload: dict
     created_at: str
+    rev: int = 0
 
 
 def default_db_path() -> Path:
@@ -117,11 +131,38 @@ class Store:
         self._db = sqlite3.connect(str(db_path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         with self._lock:
+            self._migrate_events()
             self._db.executescript(SCHEMA)
             self._db.commit()
         # Ensure identity + salt exist up front.
         self.instance_id = self.get_or_create_instance_id()
         self._salt = self._get_or_create_salt()
+        with self._lock:
+            self._create_read_markers()
+
+    def _migrate_events(self) -> None:
+        """Databases from before chat history: add change numbers (``rev = seq``)."""
+        exists = self._db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone()
+        if not exists:
+            return
+        columns = {r["name"] for r in self._db.execute("PRAGMA table_info(events)")}
+        if "rev" not in columns:
+            self._db.execute("ALTER TABLE events ADD COLUMN rev INTEGER")
+        self._db.execute("UPDATE events SET rev = seq WHERE rev IS NULL")
+
+    def _create_read_markers(self) -> None:
+        existed = self._db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='read_markers'").fetchone()
+        self._db.executescript(READ_MARKERS)
+        self._db.execute("CREATE INDEX IF NOT EXISTS events_rev ON events (instance_id, rev)")
+        if not existed and self._meta_get("read_baseline") is None:
+            # Everything stored before read markers existed counts as read.
+            self._meta_set("read_baseline", str(self.current_seq()))
+        if self._meta_get("rev_counter") is None:
+            row = self._db.execute("SELECT COALESCE(MAX(rev), 0) AS r FROM events").fetchone()
+            self._meta_set("rev_counter", str(max(int(row["r"]), self.current_seq())))
+        self._db.commit()
 
     def now(self) -> datetime:
         return self._clock()
@@ -301,15 +342,30 @@ class Store:
 
     # ---- events ------------------------------------------------------------
 
+    def _next_rev(self) -> int:
+        """The next change number (docs/chat-history.md). Only ever goes up, never reused."""
+        rev = int(self._meta_get("rev_counter") or 0) + 1
+        self._meta_set("rev_counter", str(rev))
+        return rev
+
+    def current_rev(self) -> int:
+        with self._lock:
+            return int(self._meta_get("rev_counter") or 0)
+
+    @staticmethod
+    def _event(r: sqlite3.Row) -> Event:
+        return Event(r["seq"], r["instance_id"], r["profile_id"], r["event_type"],
+                     json.loads(r["payload_json"]), r["created_at"], int(r["rev"] or r["seq"]))
+
     def append_event(
         self, profile_id: str, event_type: str, payload: dict[str, Any]
     ) -> int:
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO events (instance_id, profile_id, event_type, "
-                "payload_json, created_at) VALUES (?,?,?,?,?)",
+                "payload_json, created_at, rev) VALUES (?,?,?,?,?,?)",
                 (self.instance_id, profile_id, event_type,
-                 json.dumps(payload), _iso(self._clock())),
+                 json.dumps(payload), _iso(self._clock()), self._next_rev()),
             )
             self._db.commit()
             return int(cur.lastrowid)
@@ -331,14 +387,55 @@ class Store:
                 "SELECT * FROM events WHERE instance_id = ? AND seq > ? ORDER BY seq",
                 (self.instance_id, int(last_seq)),
             ).fetchall()
-        return [
-            Event(r["seq"], r["instance_id"], r["profile_id"], r["event_type"],
-                  json.loads(r["payload_json"]), r["created_at"])
-            for r in rows
-        ]
+        return [self._event(r) for r in rows]
+
+    def get_event(self, seq: int) -> Optional[Event]:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM events WHERE instance_id = ? AND seq = ?",
+                (self.instance_id, int(seq))).fetchone()
+        return self._event(row) if row else None
+
+    def messages_changed_since(self, rev: int, limit: int) -> list[Event]:
+        """Chat messages added or changed after change number ``rev``, oldest change
+        first; at most ``limit`` (callers ask for one more to see if there are too many)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM events WHERE instance_id = ? AND rev > ? "
+                "AND event_type = 'chat.message' ORDER BY rev LIMIT ?",
+                (self.instance_id, int(rev), int(limit)),
+            ).fetchall()
+        return [self._event(r) for r in rows]
+
+    def recent_messages(self, per_profile: int) -> list[Event]:
+        """The newest ``per_profile`` chat messages of every agent, in seq order."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM (SELECT *, ROW_NUMBER() OVER "
+                "(PARTITION BY profile_id ORDER BY seq DESC) AS n FROM events "
+                "WHERE instance_id = ? AND event_type = 'chat.message') "
+                "WHERE n <= ? ORDER BY seq",
+                (self.instance_id, int(per_profile)),
+            ).fetchall()
+        return [self._event(r) for r in rows]
+
+    def messages_before(self, profile_id: str, before_seq: Optional[int],
+                        limit: int) -> tuple[list[Event], bool]:
+        """One agent's newest ``limit`` messages older than ``before_seq`` (oldest first),
+        and whether there are older ones still."""
+        bound = int(before_seq) if before_seq is not None else 2**62
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM events WHERE instance_id = ? AND profile_id = ? AND seq < ? "
+                "AND event_type = 'chat.message' ORDER BY seq DESC LIMIT ?",
+                (self.instance_id, profile_id, bound, int(limit) + 1),
+            ).fetchall()
+        has_more = len(rows) > limit
+        return [self._event(r) for r in reversed(rows[:limit])], has_more
 
     def update_event_text(self, seq: int, text: str) -> Optional[Event]:
-        """Replace a saved chat message's text in place (an agent's later correction)."""
+        """Replace a saved chat message's text in place (an agent's later correction).
+        It gets a new change number, so phones that were away still receive it."""
         with self._lock:
             row = self._db.execute(
                 "SELECT * FROM events WHERE instance_id = ? AND seq = ?",
@@ -347,22 +444,57 @@ class Store:
                 return None
             payload = json.loads(row["payload_json"])
             payload["text"] = text
-            self._db.execute("UPDATE events SET payload_json = ? WHERE seq = ?",
-                             (json.dumps(payload), int(seq)))
+            rev = self._next_rev()
+            self._db.execute("UPDATE events SET payload_json = ?, rev = ? WHERE seq = ?",
+                             (json.dumps(payload), rev, int(seq)))
             self._db.commit()
         return Event(row["seq"], row["instance_id"], row["profile_id"], row["event_type"],
-                     payload, row["created_at"])
+                     payload, row["created_at"], rev)
 
     def events_for_profile(self, profile_id: str) -> list[Event]:
         """One agent's events in order (for the backup taken before deleting it)."""
-        return [e for e in self.fetch_events_since(0) if e.profile_id == profile_id]
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM events WHERE instance_id = ? AND profile_id = ? ORDER BY seq",
+                (self.instance_id, profile_id)).fetchall()
+        return [self._event(r) for r in rows]
 
     def delete_profile_events(self, profile_id: str) -> int:
-        """Remove a deleted agent's events, so a new agent with the same name starts clean."""
+        """Remove a deleted agent's events and read marker, so a new agent with the same
+        name starts clean."""
         with self._lock:
             cur = self._db.execute(
                 "DELETE FROM events WHERE instance_id = ? AND profile_id = ?",
                 (self.instance_id, profile_id),
             )
+            self._db.execute(
+                "DELETE FROM read_markers WHERE instance_id = ? AND profile_id = ?",
+                (self.instance_id, profile_id))
             self._db.commit()
             return cur.rowcount
+
+    # ---- read markers --------------------------------------------------------
+
+    def read_marker(self, profile_id: str) -> int:
+        """Highest seq read in this agent's chat (any of the user's phones)."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT last_read_seq FROM read_markers WHERE instance_id = ? AND profile_id = ?",
+                (self.instance_id, profile_id)).fetchone()
+            if row is not None:
+                return int(row["last_read_seq"])
+            return int(self._meta_get("read_baseline") or 0)
+
+    def mark_read(self, profile_id: str, seq: int) -> bool:
+        """Move the marker forward to ``seq``; never backwards. True if it moved."""
+        seq = min(int(seq), self.current_seq())
+        with self._lock:
+            if seq <= self.read_marker(profile_id):
+                return False
+            self._db.execute(
+                "INSERT INTO read_markers (instance_id, profile_id, last_read_seq, updated_at) "
+                "VALUES (?,?,?,?) ON CONFLICT(instance_id, profile_id) DO UPDATE SET "
+                "last_read_seq = excluded.last_read_seq, updated_at = excluded.updated_at",
+                (self.instance_id, profile_id, seq, _iso(self._clock())))
+            self._db.commit()
+            return True

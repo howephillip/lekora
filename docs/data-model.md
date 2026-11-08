@@ -12,4 +12,4 @@ Every record is keyed by `instance_id` + `profile_id`.
 - **Usage**: per message/model tokens and cost, for analytics.
 
 ## Where it lives
-Plugin store (SQLite in Hermes's data directory) is the source of truth. The app keeps a local cache and secrets (Keychain). Re-pairing a new phone restores everything from the plugin. Chat history is read from Hermes sessions; the plugin stores only what Hermes does not.
+Plugin store (SQLite in Hermes's data directory) is the source of truth. The app keeps a local cache and secrets (Keychain). Re-pairing a new phone restores everything from the plugin. Chat messages are stored by the plugin as numbered events (`lekora.db`), with read markers per agent; the phone caches them (see `chat-history.md`).

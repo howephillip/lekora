@@ -64,6 +64,11 @@ public actor RouteProber {
                 }
             }
 
+            // A pinned session knows whether it actually refused a certificate; error codes
+            // alone can't tell that apart from a host that is down or a cancelled attempt.
+            if let pinned = session.delegate as? PinnedTLSDelegate {
+                certificateRejected = pinned.didRejectCertificate
+            }
             throw certificateRejected ? RouteProberError.certificateMismatch : RouteProberError.allEndpointsFailed
         }
     }

@@ -1,15 +1,15 @@
 import Foundation
 
 /// One bubble in the chat: either something this phone sent, or a message from the host.
-public struct ChatEntry: Identifiable, Equatable {
-    public enum Role: Equatable {
+public struct ChatEntry: Identifiable, Equatable, Codable {
+    public enum Role: Equatable, Codable {
         case user
         case agent
         /// Hermes' own notices ("Gateway online…", "Background task finished…").
         case system
     }
 
-    public enum Status: Equatable {
+    public enum Status: Equatable, Codable {
         case sending
         case sent
         case failed(String)
@@ -36,16 +36,66 @@ public struct ChatEntry: Identifiable, Equatable {
     }
 }
 
-/// Chronological chat history across all profiles.
+/// Chat history across all profiles, in host order (`seq`); messages not saved by the host
+/// yet (sending, live replies) come after.
 ///
-/// The host never echoes a `chat.send` back to the phone that sent it, so outgoing
-/// messages are added locally. After a reconnect the host may replay that same
-/// message (with its seq); `applyIncoming` matches it to the local copy instead of
-/// showing it twice, and ignores any seq it has already seen.
+/// Outgoing messages are added locally straight away. The host sends each one back with its
+/// seq and `client_id` (the `chat.send` id); `applyIncoming` matches it to the local copy
+/// instead of showing it twice, and updates any seq it has already seen.
 public struct ChatTimeline: Equatable {
     public private(set) var entries: [ChatEntry] = []
+    /// Agents whose whole history is here (no older page left on the host).
+    public private(set) var completeProfiles: Set<String> = []
 
     public init() {}
+
+    public init(entries: [ChatEntry], completeProfiles: Set<String> = []) {
+        self.entries = entries
+        self.completeProfiles = completeProfiles
+    }
+
+    /// The oldest saved message of an agent held here.
+    public func oldestSeq(for profileId: String) -> Int? {
+        entries.lazy.filter { $0.profileId == profileId }.compactMap(\.seq).first
+    }
+
+    public func newestSeq(for profileId: String) -> Int? {
+        entries.reversed().lazy.filter { $0.profileId == profileId }.compactMap(\.seq).first
+    }
+
+    /// The host sent each agent's newest messages instead of what changed: drop the saved
+    /// messages held here (unsent ones and live replies stay).
+    public mutating func replaceSavedWithRecent() {
+        entries.removeAll { $0.seq != nil }
+        completeProfiles = []
+    }
+
+    /// A page of older messages from the host (scrolling up).
+    public mutating func applyPage(profileId: String, messages: [ChatMessageData], hasMore: Bool) {
+        for message in messages {
+            applyIncoming(seq: message.seq, profileId: profileId, role: message.role,
+                          text: message.text, clientId: message.client_id, isPage: true)
+        }
+        if !hasMore { completeProfiles.insert(profileId) }
+    }
+
+    /// What the phone keeps between launches: saved messages only, the newest `perProfile`
+    /// of each agent. An agent trimmed here is no longer complete.
+    public func cacheSnapshot(perProfile: Int) -> ChatTimeline {
+        var kept: [ChatEntry] = []
+        var counts: [String: Int] = [:]
+        var trimmed: Set<String> = []
+        for entry in entries.reversed() where entry.seq != nil && entry.status == .sent {
+            let count = counts[entry.profileId, default: 0]
+            if count >= perProfile {
+                trimmed.insert(entry.profileId)
+                continue
+            }
+            counts[entry.profileId] = count + 1
+            kept.append(entry)
+        }
+        return ChatTimeline(entries: kept.reversed(), completeProfiles: completeProfiles.subtracting(trimmed))
+    }
 
     public func entries(for profileId: String) -> [ChatEntry] {
         entries.filter { $0.profileId == profileId }
@@ -54,6 +104,7 @@ public struct ChatTimeline: Equatable {
     /// Drops a deleted agent's messages (the host keeps them in its backup).
     public mutating func removeEntries(for profileId: String) {
         entries.removeAll { $0.profileId == profileId }
+        completeProfiles.remove(profileId)
     }
 
     /// Live text of a reply being written. Empty text drops the bubble.
@@ -94,8 +145,10 @@ public struct ChatTimeline: Equatable {
         return true
     }
 
+    /// - Parameter isPage: from a page of older messages, which may come before what's here.
     public mutating func applyIncoming(seq: Int, profileId: String, role: String, text: String,
-                                       draftId: String? = nil) {
+                                       draftId: String? = nil, clientId: String? = nil,
+                                       isPage: Bool = false) {
         if let index = entries.firstIndex(where: { $0.seq == seq }) {
             // Seen before (replay) — or a correction the agent made after saving it.
             if entries[index].text != text { entries[index].text = text }
@@ -107,24 +160,50 @@ public struct ChatTimeline: Equatable {
             entries[index].seq = seq
             entries[index].text = text
             entries[index].status = .sent
+            settle(at: index)
             return
         }
 
+        // Our own message coming back with its seq: by its chat.send id, else by text.
         if role == "user",
-           let index = entries.firstIndex(where: {
+           let index = entries.firstIndex(where: { clientId != nil && $0.id == clientId && $0.seq == nil })
+            ?? entries.firstIndex(where: {
                $0.role == .user && $0.seq == nil && $0.profileId == profileId && $0.text == text
            }) {
             entries[index].seq = seq
-            entries[index].status = .sent
+            if entries[index].status != .sent { entries[index].status = .sent }
+            settle(at: index)
             return
         }
 
-        entries.append(ChatEntry(
+        // A correction to a message older than what's held for an agent whose earlier
+        // history isn't loaded: skip it rather than leave a gap (its page will carry it).
+        if !isPage, !completeProfiles.contains(profileId),
+           let oldest = oldestSeq(for: profileId), seq < oldest {
+            return
+        }
+
+        let entry = ChatEntry(
             id: "seq-\(seq)",
             profileId: profileId,
             role: role == "user" ? .user : (role == "system" ? .system : .agent),
             text: text,
             seq: seq
-        ))
+        )
+        entries.insert(entry, at: insertionIndex(for: seq))
+    }
+
+    /// Where a saved message goes: before the first saved message with a higher seq;
+    /// otherwise at the end.
+    private func insertionIndex(for seq: Int) -> Int {
+        entries.firstIndex(where: { ($0.seq ?? Int.min) > seq }) ?? entries.count
+    }
+
+    /// A message that just got its seq moves into host order if it's out of place
+    /// (e.g. sent while another agent's reply was already being saved).
+    private mutating func settle(at index: Int) {
+        guard let seq = entries[index].seq else { return }
+        let entry = entries.remove(at: index)
+        entries.insert(entry, at: insertionIndex(for: seq))
     }
 }

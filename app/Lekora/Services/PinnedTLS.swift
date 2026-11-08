@@ -31,6 +31,15 @@ public enum CertificatePin {
 /// Accepts the server only if its certificate matches the pin; everything else is cancelled.
 final class PinnedTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, @unchecked Sendable {
     private let pin: String
+    private let lock = NSLock()
+    private var rejected = false
+
+    /// True once a server answered with a certificate that isn't the pinned one. Only this
+    /// counts as "a different computer"; a host that's simply down never sets it.
+    var didRejectCertificate: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return rejected
+    }
 
     init(pin: String) {
         self.pin = pin
@@ -56,6 +65,7 @@ final class PinnedTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDeleg
         if CertificatePin.matches(trust, pin: pin) {
             completionHandler(.useCredential, URLCredential(trust: trust))
         } else {
+            lock.lock(); rejected = true; lock.unlock()
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
     }

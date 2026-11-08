@@ -4,7 +4,7 @@ import SwiftUI
 @main
 #endif
 public struct LekoraApp: App {
-    @StateObject private var gateway = GatewayClient()
+    @StateObject private var gateway = GatewayClient(cacheStore: .standard)
     @Environment(\.scenePhase) private var scenePhase
 
     public init() {}
@@ -24,6 +24,8 @@ public struct LekoraApp: App {
                     // resumeSavedSession does nothing if already connected or connecting.
                     if newPhase == .active {
                         Task { await gateway.resumeSavedSession() }
+                    } else if newPhase == .background {
+                        gateway.saveCacheNow()
                     }
                 }
         }
@@ -53,6 +55,19 @@ public struct ContentView: View {
                     instanceName: instanceName,
                     profileName: profileName
                 )
+            }
+        case .disconnected, .probing, .connecting:
+            if gateway.hasCachedChats {
+                // The last known chats, while reconnecting (docs/chat-history.md).
+                WalkingSkeletonPingView(
+                    gateway: gateway,
+                    instanceName: gateway.savedHost?.instanceName ?? "",
+                    profileName: gateway.activeProfile?.name ?? ""
+                )
+            } else if let host = gateway.savedHost {
+                ReconnectingView(gateway: gateway, host: host)
+            } else {
+                SetupWizardView(gateway: gateway)
             }
         default:
             if let host = gateway.savedHost {

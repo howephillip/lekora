@@ -88,6 +88,8 @@ async def test_end_to_end_through_service(tmp_path):
         ack = json.loads(await ws.recv())
         assert ack["data"]["profiles"] == cfg.profiles
         await ws.send(env(svc.store, "chat.send", {"text": "Ping"}, profile_id="coder"))
+        echo = json.loads(await asyncio.wait_for(ws.recv(), 2))
+        assert echo["data"]["role"] == "user" and echo["data"]["text"] == "Ping"
         msg = json.loads(await asyncio.wait_for(ws.recv(), 2))
         assert msg["data"]["text"] == "Pong from Hermes" and msg["profile_id"] == "coder"
         assert hermes.received[0][:2] == ("coder", "Ping")

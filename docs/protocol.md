@@ -218,8 +218,37 @@ Auth-related errors (`TOKEN_*`, `AUTH_FAILED`, `INCOMPATIBLE_VERSION`) close the
 
 ## 4. Gateway behaviour notes (Phase 1)
 - A successful `pair.request` also authenticates that socket; the app may send `hello` on the same socket straight afterwards.
-- `chat.send` is stored as an event (`role: "user"`) and pushed to the sender's *other* devices only; replies (`role: "assistant"`) go to every connected device. Replay after `hello.ack` includes both roles.
+- `chat.send` is stored as an event (`role: "user"`) and pushed to every connected device, the sender included, carrying `client_id` (the `chat.send` id) so the sender learns its `seq` (changed in Phase 2, see §5). Replies (`role: "assistant"`) go to every connected device. Replay after `hello.ack` includes both roles.
 - A repeated `chat.send` `id` on one connection is ignored (idempotent).
 - `device.unpair` is accepted before authentication (like `hello`).
 - Revocation is checked on every message from an authenticated socket and before every broadcast. A device revoked while connected (e.g. by `hermes lekora devices --revoke` in another process) gets `error` `AUTH_FAILED` for its next message and the socket closes (1008); it receives no further broadcasts.
 
+
+## 5. Chat history and read state (Phase 2; spec: `chat-history.md`)
+All additions are optional fields or new types; protocol version stays 1.
+
+### `hello` adds `since_rev`
+`{ ..., "last_seq": 142, "since_rev": 377 }`. `since_rev` is the highest `rev` the phone has seen (0 = no cache). Without it, the host replays everything after `last_seq` as before.
+
+### `hello.ack` adds `rev`, `replay`, `read`
+```json
+{ "status": "ok", "current_seq": 150, "instance_name": "Primary Hermes", "profiles": [ ... ],
+  "rev": 380, "replay": "changes", "read": { "default": 148, "bruce": 120 } }
+```
+- `replay: "changes"`: the `chat.message`s that follow are every message changed after `since_rev`, in `rev` order (new ones and corrections).
+- `replay: "recent"`: the newest 50 messages of each agent follow, in `seq` order. The phone drops its cached saved messages first (its unsent ones stay).
+- `read`: each listed agent's read marker (highest `seq` read).
+
+### `chat.message` adds `rev` and `client_id`
+`{ "seq": 151, "role": "user", "text": "Hi", "rev": 381, "client_id": "<the chat.send id>" }`. `client_id` only on user messages sent from a phone. A message with a `seq` the phone already has replaces its text (corrections carry a new `rev`).
+
+### `history.fetch` (Client -> Host) / `history.page` (Host -> Client)
+```json
+{ "type": "history.fetch", "profile_id": "bruce", "data": { "before_seq": 120, "limit": 100 } }
+{ "type": "history.page", "id": "<same id>", "profile_id": "bruce",
+  "data": { "messages": [ { "seq": 80, "role": "assistant", "text": "...", "rev": 80 } ], "has_more": true } }
+```
+`messages` are that agent's newest messages older than `before_seq` (all, when omitted), oldest first; `limit` is capped at 100. Unknown agent: `error` `UNKNOWN_PROFILE`.
+
+### `chat.read` (both directions)
+`{ "type": "chat.read", "profile_id": "bruce", "data": { "seq": 151 } }`. From a phone: the host moves the agent's marker to `seq` (never backwards) and sends the same `chat.read` to the user's other connected phones. No reply.

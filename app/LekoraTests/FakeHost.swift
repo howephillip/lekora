@@ -17,6 +17,44 @@ final class FakeHost: @unchecked Sendable {
         (2, "assistant", "Hi! Welcome back.", "assistant"),
     ]
 
+    /// Chat history (docs/chat-history.md). A message's change number is 10 × its seq until
+    /// corrected; a correction takes the next number.
+    var corrections: [Int: Int] = [:]
+    /// Read markers per agent, as the plugin keeps them.
+    var readMarkers: [String: Int] = [:]
+    /// Each agent's newest N messages for a phone with no cache ("recent" replay).
+    var recentLimit = 50
+    /// Answer `hello` like a host from before chat history (no rev / replay / read).
+    var legacyHello = false
+
+    func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+    var currentRev: Int { history.map { rev(of: $0.seq) }.max() ?? 0 }
+
+    private func messageData(_ event: (seq: Int, role: String, text: String, profile: String)) -> [String: Any] {
+        ["seq": event.seq, "role": event.role, "text": event.text, "rev": rev(of: event.seq)]
+    }
+
+    /// An agent corrects a saved message (e.g. while the phone is away).
+    func correct(seq: Int, text: String) {
+        guard let index = history.firstIndex(where: { $0.seq == seq }) else { return }
+        let newRev = currentRev + 1
+        history[index].text = text
+        corrections[seq] = newRev
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open {
+            send(type: "chat.message", data: messageData(history[index]), profileId: history[index].profile, on: connection)
+        }
+    }
+
+    /// Another phone read an agent's chat.
+    func readElsewhere(profile: String, seq: Int) {
+        readMarkers[profile] = seq
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open {
+            send(type: "chat.read", data: ["seq": seq], profileId: profile, on: connection)
+        }
+    }
+
     private let listener: NWListener
     private let queue = DispatchQueue(label: "app.lekora.tests.fakehost")
     private let lock = NSLock()
@@ -51,7 +89,8 @@ final class FakeHost: @unchecked Sendable {
         let seq = (history.last?.seq ?? 0) + 1
         history.append((seq, "assistant", text, profile))
         for connection in open {
-            send(type: "chat.message", data: ["seq": seq, "role": "assistant", "text": text, "draft_id": draftId],
+            send(type: "chat.message", data: ["seq": seq, "role": "assistant", "text": text, "draft_id": draftId,
+                                              "rev": rev(of: seq)],
                  profileId: profile, on: connection)
             send(type: "chat.typing", data: ["active": false], profileId: profile, on: connection)
         }
@@ -156,14 +195,43 @@ final class FakeHost: @unchecked Sendable {
                 return
             }
             let lastSeq = data["last_seq"] as? Int ?? 0
-            send(type: "hello.ack", id: id, data: [
+            var ack: [String: Any] = [
                 "status": "ok", "current_seq": history.last?.seq ?? 0, "instance_name": instanceName,
                 "profiles": profiles,
-            ], on: connection)
-            for event in history where event.seq > lastSeq {
-                send(type: "chat.message", data: ["seq": event.seq, "role": event.role, "text": event.text],
+            ]
+            var replay = history.filter { $0.seq > lastSeq }
+            if !legacyHello, let sinceRev = data["since_rev"] as? Int {
+                if sinceRev > 0 {
+                    ack["replay"] = "changes"
+                    replay = history.filter { rev(of: $0.seq) > sinceRev }.sorted { rev(of: $0.seq) < rev(of: $1.seq) }
+                } else {
+                    ack["replay"] = "recent"
+                    let ids = Set(history.map(\.profile))
+                    let keep = Set(ids.flatMap { id in history.filter { $0.profile == id }.suffix(recentLimit).map(\.seq) })
+                    replay = history.filter { keep.contains($0.seq) }
+                }
+                ack["rev"] = currentRev
+                ack["read"] = Dictionary(uniqueKeysWithValues: profiles.compactMap { $0["profile_id"] }.map { ($0, readMarkers[$0] ?? 0) })
+            }
+            send(type: "hello.ack", id: id, data: ack, on: connection)
+            for event in replay {
+                send(type: "chat.message", data: legacyHello ? ["seq": event.seq, "role": event.role, "text": event.text] : messageData(event),
                      profileId: event.profile, on: connection)
             }
+
+        case "history.fetch":
+            let profile = message["profile_id"] as? String ?? ""
+            let before = data["before_seq"] as? Int ?? Int.max
+            let limit = data["limit"] as? Int ?? 100
+            let older = history.filter { $0.profile == profile && $0.seq < before }
+            let page = older.suffix(limit)
+            send(type: "history.page", id: id, data: [
+                "messages": page.map { messageData($0) }, "has_more": older.count > page.count,
+            ], profileId: profile, on: connection)
+
+        case "chat.read":
+            let profile = message["profile_id"] as? String ?? ""
+            if let seq = data["seq"] as? Int, seq > readMarkers[profile] ?? 0 { readMarkers[profile] = seq }
 
         case "device.unpair":
             guard data["device_token"] as? String == acceptedDeviceToken, !unpaired else {
@@ -225,7 +293,11 @@ final class FakeHost: @unchecked Sendable {
             let seq = (history.last?.seq ?? 0) + 1
             history.append((seq, "user", text, profile))
             history.append((seq + 1, "assistant", reply, profile))
-            send(type: "chat.message", data: ["seq": seq + 1, "role": "assistant", "text": reply],
+            // Like the plugin: the sender gets its own message back with its seq and client_id.
+            var echo = messageData(history[history.count - 2])
+            if let id { echo["client_id"] = id }
+            send(type: "chat.message", data: echo, profileId: profile, on: connection)
+            send(type: "chat.message", data: messageData(history[history.count - 1]),
                  profileId: profile, on: connection)
 
         default:

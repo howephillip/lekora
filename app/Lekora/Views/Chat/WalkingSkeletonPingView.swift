@@ -17,6 +17,14 @@ public struct WalkingSkeletonPingView: View {
     @State private var choosingAgents = false
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
+    @State private var isOnScreen = false
+    /// Whether the user is scrolling (dragging or coasting), as opposed to layout or code
+    /// moving the list: only the user's scrolling loads older messages.
+    @State private var userIsScrolling = false
+    /// Set while a page of older messages loads and the list settles: no further loads,
+    /// or the next page would start before this one is back in place.
+    @State private var pageInFlight = false
+    @Environment(\.scenePhase) private var scenePhase
 
     public init(gateway: GatewayClient, instanceName: String, profileName: String) {
         self.gateway = gateway
@@ -59,6 +67,14 @@ public struct WalkingSkeletonPingView: View {
         return false
     }
 
+    private var isDisconnected: Bool { gateway.state == .disconnected }
+
+    /// The host's name, or what's happening while the last known chats are shown offline.
+    private var subtitle: String {
+        if isConnected { return instanceName }
+        return isDisconnected ? "Not connected" : "Connecting…"
+    }
+
     public var body: some View {
         NavigationStack {
             messageList
@@ -68,7 +84,15 @@ public struct WalkingSkeletonPingView: View {
                                focus: $inputFocused, onSend: send)
                 }
                 .navigationTitle(profileName)
-                .navigationSubtitle(instanceName)
+                .navigationSubtitle(subtitle)
+                // A blue dot when another agent has replies waiting (docs/chat-history.md).
+                #if os(iOS)
+                .toolbar {
+                    ToolbarItem(placement: .title) {
+                        titleView
+                    }
+                }
+                #endif
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
@@ -80,6 +104,11 @@ public struct WalkingSkeletonPingView: View {
                         } label: {
                             if profile.profile_id == gateway.activeProfileId {
                                 Label(profile.name, systemImage: "checkmark")
+                            } else if gateway.hasUnread(profile.profile_id) {
+                                // Title, subtitle and icon: the menu row layout.
+                                Text(profile.name)
+                                Text("New messages")
+                                LKUnreadDot.menuIcon
                             } else {
                                 Text(profile.name)
                             }
@@ -123,6 +152,37 @@ public struct WalkingSkeletonPingView: View {
                     }
                 }
         }
+        // New messages count as read only while the chat is on screen with the app in front.
+        .onAppear { isOnScreen = true; updateVisibility() }
+        .onDisappear { isOnScreen = false; updateVisibility() }
+        .onChange(of: scenePhase) { _, _ in updateVisibility() }
+        // Shown offline with the last known chats: try to reconnect after a dropped connection.
+        .task(id: isDisconnected) {
+            guard isDisconnected else { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            // Its own task: this one is cancelled as soon as the state changes to
+            // "connecting", which must not cancel the connection attempt itself.
+            Task { await gateway.resumeSavedSession() }
+        }
+    }
+
+    private func updateVisibility() {
+        gateway.setChatVisible(isOnScreen && scenePhase == .active)
+    }
+
+    /// The agent's name, with a blue dot when another agent has unread replies. The system
+    /// adds the subtitle and the menu chevron; tapping it opens the agent menu.
+    private var titleView: some View {
+        HStack(spacing: 6) {
+            Text(profileName)
+                .font(.headline)
+                .lineLimit(1)
+            if gateway.otherAgentsHaveUnread {
+                LKUnreadDot()
+                    .accessibilityLabel("Another agent has new messages")
+            }
+        }
     }
 
     // MARK: - Messages
@@ -130,7 +190,13 @@ public struct WalkingSkeletonPingView: View {
     private var messageList: some View {
         ScrollView {
             LazyVStack(spacing: LK.Spacing.sm) {
-                if messages.isEmpty {
+                if gateway.canLoadOlder(gateway.activeProfileId) {
+                    // Older messages are on the host; they load when scrolling up near here.
+                    ProgressView()
+                        .opacity(gateway.loadingOlder.contains(gateway.activeProfileId) ? 1 : 0)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, LK.Spacing.sm)
+                } else if messages.isEmpty {
                     emptyState
                 }
                 ForEach(messages) { entry in
@@ -152,6 +218,9 @@ public struct WalkingSkeletonPingView: View {
             .padding(.horizontal, LK.Spacing.lg)
             .padding(.vertical, LK.Spacing.md)
         }
+        .onScrollPhaseChange { _, phase in
+            userIsScrolling = phase == .interacting || phase == .decelerating
+        }
         // Follow the bottom EDGE, not a message id: the list measures bubbles lazily and
         // they change height while streaming, so scrolling to an id could stop short
         // (new reply out of view) or leave a gap above the message bar.
@@ -164,6 +233,16 @@ public struct WalkingSkeletonPingView: View {
             geometry.visibleRect.maxY >= geometry.contentSize.height - Self.bottomSlack
         } action: { _, atBottom in
             isAtBottom = atBottom
+        }
+        .onScrollGeometryChange(for: TopEdge.self) { geometry in
+            TopEdge(distance: geometry.visibleRect.minY,
+                    fits: geometry.contentSize.height <= geometry.containerSize.height)
+        } action: { old, new in
+            // Scrolling up to the top, or a chat too short to scroll: fetch the page before.
+            let reachedTop = userIsScrolling && new.distance < Self.loadOlderZone && new.distance < old.distance
+            if reachedTop || new.fits {
+                loadOlder()
+            }
         }
         // A fresh list per agent, so switching opens that agent's chat at its newest message.
         .id(gateway.activeProfileId)
@@ -189,10 +268,58 @@ public struct WalkingSkeletonPingView: View {
     /// How far from the end still counts as "at the bottom".
     private static let bottomSlack: CGFloat = 80
 
-    /// Changes whenever the bottom of the chat changes.
-    private var contentSignature: [Int] {
-        [messages.count, messages.last?.text.count ?? 0, showsTypingIndicator ? 1 : 0,
-         (statusText ?? "").count]
+    /// Changes whenever the bottom of the chat changes (not when older messages load above).
+    private var contentSignature: String {
+        "\(messages.last?.id ?? "")|\(messages.last?.text.count ?? 0)|\(showsTypingIndicator)|\((statusText ?? "").count)"
+    }
+
+    /// Where the top of the visible area is, and whether the whole chat fits on screen.
+    private struct TopEdge: Equatable {
+        var distance: CGFloat
+        var fits: Bool
+    }
+
+    /// How close to the top scrolling up starts loading older messages.
+    private static let loadOlderZone: CGFloat = 60
+
+    /// Loads the page before the oldest message shown. The reader is at the top, so that
+    /// message is put back at the top afterwards (the list would otherwise keep its distance
+    /// from the top and jump to the new, older messages).
+    private func loadOlder() {
+        let profileId = gateway.activeProfileId
+        guard !pageInFlight, gateway.canLoadOlder(profileId),
+              !gateway.loadingOlder.contains(profileId) else { return }
+        pageInFlight = true
+        Task {
+            guard let page = await gateway.fetchOlderPage(profileId) else {
+                pageInFlight = false
+                return
+            }
+            // iOS ignores moving the list while a finger is on it: add the page once the
+            // drag (and any coasting) has ended.
+            while userIsScrolling {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            guard profileId == gateway.activeProfileId else {
+                pageInFlight = false
+                return
+            }
+            let anchor = messages.first?.id
+            let keepPlace = !isAtBottom
+            gateway.applyOlderPage(page, for: profileId)
+            DispatchQueue.main.async {
+                if keepPlace, let anchor {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    // Through the list's own position, so it isn't later reset to the
+                    // "at the top" it held while the reader was scrolling.
+                    withTransaction(transaction) {
+                        scrollPosition.scrollTo(id: anchor, anchor: .top)
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { pageInFlight = false }
+            }
+        }
     }
 
     private func scrollToBottom(animated: Bool) {

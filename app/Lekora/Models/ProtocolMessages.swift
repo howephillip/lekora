@@ -86,6 +86,9 @@ public struct HelloData: Codable, Equatable {
     public let device_id: String
     public let device_token: String
     public let last_seq: Int
+    /// Highest change number this phone has (0 = no cache); the host replays changes since
+    /// it (docs/chat-history.md). Absent from apps before chat history.
+    public let since_rev: Int?
     public let client_version: String
     public let proto_version: Int
 
@@ -93,12 +96,14 @@ public struct HelloData: Codable, Equatable {
         device_id: String,
         device_token: String,
         last_seq: Int = 0,
+        since_rev: Int? = nil,
         client_version: String = "1.0.0",
         proto_version: Int = 1
     ) {
         self.device_id = device_id
         self.device_token = device_token
         self.last_seq = last_seq
+        self.since_rev = since_rev
         self.client_version = client_version
         self.proto_version = proto_version
     }
@@ -125,17 +130,30 @@ public struct HelloAckData: Codable, Equatable {
     public let current_seq: Int
     public let instance_name: String
     public let profiles: [ProfileData]
+    /// The host's current change number (hosts with chat history).
+    public let rev: Int?
+    /// "changes" (only what changed since `since_rev` follows) or "recent" (each agent's
+    /// newest messages follow; drop cached ones). Absent from older hosts.
+    public let replay: String?
+    /// Each agent's read marker: highest seq read on any of the user's phones.
+    public let read: [String: Int]?
 
     public init(
         status: String = "ok",
         current_seq: Int,
         instance_name: String,
-        profiles: [ProfileData]
+        profiles: [ProfileData],
+        rev: Int? = nil,
+        replay: String? = nil,
+        read: [String: Int]? = nil
     ) {
         self.status = status
         self.current_seq = current_seq
         self.instance_name = instance_name
         self.profiles = profiles
+        self.rev = rev
+        self.replay = replay
+        self.read = read
     }
 }
 
@@ -154,13 +172,37 @@ public struct ChatMessageData: Codable, Equatable {
     public let text: String
     /// Set when this saved message replaces a live reply (`chat.draft`) on the phone.
     public let draft_id: String?
+    /// Change number: new when saved, new again when corrected (docs/chat-history.md).
+    public let rev: Int?
+    /// On user messages: the `chat.send` id, so the sending phone matches its own bubble.
+    public let client_id: String?
 
-    public init(seq: Int, role: String, text: String, draft_id: String? = nil) {
+    public init(seq: Int, role: String, text: String, draft_id: String? = nil,
+                rev: Int? = nil, client_id: String? = nil) {
         self.seq = seq
         self.role = role
         self.text = text
         self.draft_id = draft_id
+        self.rev = rev
+        self.client_id = client_id
     }
+}
+
+// MARK: - Chat history and read state (docs/chat-history.md)
+/// A page of one agent's messages older than `before_seq` (all, when nil).
+public struct HistoryFetchData: Codable, Equatable {
+    public let before_seq: Int?
+    public let limit: Int
+}
+
+public struct HistoryPageData: Codable, Equatable {
+    public let messages: [ChatMessageData]
+    public let has_more: Bool
+}
+
+/// Both directions: "read up to `seq`" for the envelope's agent.
+public struct ChatReadData: Codable, Equatable {
+    public let seq: Int
 }
 
 // MARK: - Streaming (docs/streaming.md); neither is stored or replayed by the host

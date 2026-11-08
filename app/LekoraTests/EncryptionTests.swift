@@ -125,4 +125,17 @@ final class EncryptionTests: XCTestCase {
         XCTAssertTrue(host.received.isEmpty)
         XCTAssertNil(gateway.savedHost)
     }
+
+    func testHostThatIsDownIsNotReportedAsADifferentComputer() async throws {
+        let session = PinnedSession.make(pin: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await RouteProber(session: session).probeFastest(endpoints: ["wss://127.0.0.1:9"], timeoutSeconds: 2)
+            XCTFail("nothing listens on port 9")
+        } catch RouteProberError.certificateMismatch {
+            XCTFail("a host that is down must not be called a different computer")
+        } catch {
+            // expected: unreachable
+        }
+    }
 }

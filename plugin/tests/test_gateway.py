@@ -49,6 +49,14 @@ async def recv(ws, timeout=2):
     return json.loads(await asyncio.wait_for(ws.recv(), timeout))
 
 
+async def recv_reply(ws, timeout=2):
+    """The next frame that isn't the echo of this phone's own chat.send."""
+    while True:
+        msg = await recv(ws, timeout)
+        if not (msg["type"] == "chat.message" and msg["data"].get("role") == "user"):
+            return msg
+
+
 async def pair(gw, store):
     token = store.create_invite()
     ws = await open_ws(gw)
@@ -157,7 +165,9 @@ async def test_ping_pong(gw, store):
     device_id, tok = store.register_device()
     ws = await hello(gw, store, device_id, tok)
     await recv(ws)  # hello.ack
-    await ws.send(env(store, "chat.send", {"text": "Ping"}, profile_id="assistant"))
+    await ws.send(env(store, "chat.send", {"text": "Ping"}, profile_id="assistant", msg_id="c-1"))
+    echo = await recv(ws)  # its own message comes back with its seq, matched by client_id
+    assert echo["data"] == {"seq": 1, "role": "user", "text": "Ping", "rev": 1, "client_id": "c-1"}
     msg = await recv(ws)
     assert msg["type"] == "chat.message" and msg["profile_id"] == "assistant"
     assert msg["data"]["text"] == "Pong from Hermes"
@@ -178,8 +188,8 @@ async def test_chat_goes_to_other_devices_too(gw, store):
     await a.send(env(store, "chat.send", {"text": "Ping"}, profile_id="coder"))
     got_b = [await recv(b), await recv(b)]
     assert [m["data"]["role"] for m in got_b] == ["user", "assistant"]
-    got_a = await recv(a)
-    assert got_a["data"]["role"] == "assistant"  # sender is not echoed its own text
+    got_a = [await recv(a), await recv(a)]
+    assert [m["data"]["role"] for m in got_a] == ["user", "assistant"]  # sender gets its echo too
     await a.close(); await b.close()
 
 
@@ -204,7 +214,7 @@ async def test_unknown_profile_and_empty_text(gw, store):
     await ws.send(env(store, "chat.send", {"text": "  "}, profile_id="assistant"))
     assert (await recv(ws))["data"]["code"] == "INVALID_MESSAGE"
     await ws.send(env(store, "chat.send", {"text": "Ping"}, profile_id="assistant"))
-    assert (await recv(ws))["data"]["text"] == "Pong from Hermes"  # still usable
+    assert (await recv_reply(ws))["data"]["text"] == "Pong from Hermes"  # still usable
     await ws.close()
 
 
@@ -213,7 +223,7 @@ async def test_agent_failure_reports_error(gw, store):
     ws = await hello(gw, store, device_id, tok)
     await recv(ws)
     await ws.send(env(store, "chat.send", {"text": "Boom"}, profile_id="assistant"))
-    err = await recv(ws)
+    err = await recv_reply(ws)
     assert err["data"]["code"] == "AGENT_ERROR" and err["data"]["recoverable"] is True
     await ws.close()
 
@@ -291,7 +301,7 @@ async def test_revoked_device_gets_no_more_broadcasts(gw, store):
     await recv(a); await recv(b)
     store.revoke_device(b_id)
     await a.send(env(store, "chat.send", {"text": "Ping"}, profile_id="assistant"))
-    assert (await recv(a))["data"]["text"] == "Pong from Hermes"
+    assert (await recv_reply(a))["data"]["text"] == "Pong from Hermes"
     with pytest.raises(ConnectionClosed):
         await asyncio.wait_for(b.recv(), 2)  # closed without receiving the chat
     await a.close()
@@ -443,7 +453,8 @@ async def test_saved_reply_carries_its_draft_id(gw, store):
     ws = await connected(gw, store)
     seq = await gw.publish_message("bruce", "Hello there.", draft_id="live-1")
     msg = await recv(ws)
-    assert msg["data"] == {"seq": seq, "role": "assistant", "text": "Hello there.", "draft_id": "live-1"}
+    assert msg["data"] == {"seq": seq, "role": "assistant", "text": "Hello there.", "rev": seq,
+                           "draft_id": "live-1"}
     await ws.close()
 
 
