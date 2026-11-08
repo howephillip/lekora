@@ -17,7 +17,7 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from gateway.config import Platform
+from gateway.config import HomeChannel, Platform
 from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
@@ -41,6 +41,23 @@ class LekoraAdapter(BasePlatformAdapter):
         super().__init__(config=config, platform=Platform(PLATFORM_NAME))
         self._cfg = LekoraConfig.from_extra(getattr(config, "extra", {}) or {})
         self._service: Optional[LekoraService] = None
+        self._set_in_memory_home_channel(config)
+
+    def _set_in_memory_home_channel(self, config) -> None:
+        """Stop Hermes' "no home channel is set" notice on the first message.
+
+        Kept in memory only: nothing is written to the user's Hermes config.
+        Scheduled-job output with no explicit target goes to the first profile.
+        """
+        try:
+            if getattr(config, "home_channel", None) or not self._cfg.profiles:
+                return
+            first = self._cfg.profiles[0]
+            config.home_channel = HomeChannel(
+                platform=Platform(PLATFORM_NAME),
+                chat_id=first["profile_id"], name=first["name"])
+        except Exception as exc:  # never block startup over a cosmetic notice
+            logger.debug("Lekora: could not set in-memory home channel: %s", exc)
 
     @property
     def name(self) -> str:

@@ -271,7 +271,13 @@ def make_qr(text: str) -> list[list[bool]]:
 
 def render_ansi(matrix: list[list[bool]], quiet: int = 4) -> str:
     """Two modules per character cell via half blocks. Explicit black/white colours
-    make it scannable on both dark and light terminal themes."""
+    make it scannable on both dark and light terminal themes.
+
+    Dark modules are only ever drawn as cell *background*, never as a glyph.
+    Terminals always fill the background across the whole cell, but some (macOS
+    Terminal) draw the half-block glyph slightly below the top of the line. When
+    dark was drawn as a glyph, that gap put white seams through the finder
+    squares and phones could only read the code from far away."""
     n = len(matrix)
     size = n + 2 * quiet
 
@@ -284,8 +290,9 @@ def render_ansi(matrix: list[list[bool]], quiet: int = 4) -> str:
         row = []
         for x in range(size):
             top, bottom = dark(x, y), dark(x, y + 1)
-            fg = "30" if top else "97"
-            bg = "40" if bottom else "107"
-            row.append(f"\x1b[{fg};{bg}m▀")
+            if top == bottom:
+                row.append("\x1b[40m " if top else "\x1b[107m ")
+            else:  # light half as a white glyph on a black cell
+                row.append("\x1b[97;40m" + ("▄" if top else "▀"))
         lines.append("".join(row) + "\x1b[0m")
     return "\n".join(lines)

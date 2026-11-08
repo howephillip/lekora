@@ -34,6 +34,7 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 4PV6H53QBH
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
   LekoraTests:

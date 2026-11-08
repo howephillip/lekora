@@ -92,9 +92,34 @@ public struct SetupWizardView: View {
             }
             .navigationTitle("Setup")
             .sheet(isPresented: $showingScanner) {
-                QRScannerView { scannedCode in
-                    self.pairingCodeInput = scannedCode
-                    self.handlePairingPayload(scannedCode)
+                ZStack {
+                    QRScannerView { scannedCode in
+                        self.pairingCodeInput = scannedCode
+                        self.handlePairingPayload(scannedCode)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea()
+
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button(action: { showingScanner = false }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .padding()
+                            }
+                        }
+                        Spacer()
+                        Text("Point camera at the QR code on your host")
+                            .font(.footnote)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.6))
+                            .clipShape(Capsule())
+                            .padding(.bottom, 30)
+                    }
                 }
             }
         }

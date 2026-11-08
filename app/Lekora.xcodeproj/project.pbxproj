@@ -177,6 +177,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					FDB685BF8194DC2A623F48A2 = {
+						DevelopmentTeam = 4PV6H53QBH;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -277,6 +278,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4PV6H53QBH;
 				INFOPLIST_FILE = Lekora/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -292,6 +294,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4PV6H53QBH;
 				INFOPLIST_FILE = Lekora/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

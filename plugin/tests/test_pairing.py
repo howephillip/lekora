@@ -1,4 +1,5 @@
 import io
+import re
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -79,3 +80,30 @@ def test_render_dimensions():
     m = qr.make_qr("HELLO")
     lines = qr.render_ansi(m, quiet=4).split("\n")
     assert len(lines) == (21 + 8 + 1) // 2
+
+
+def test_render_never_draws_dark_as_a_glyph():
+    # Terminals may offset glyphs vertically; backgrounds always fill the cell.
+    # Every cell must be a coloured space or a WHITE half block on BLACK.
+    m = qr.make_qr("lekora-pair://pair?token=abc&instance_id=inst_1&endpoints=ws://h:1")
+    cells = re.findall(r"\x1b\[([\d;]+)m(.)", qr.render_ansi(m, quiet=4))
+    assert cells and all(
+        (ch == " " and codes in ("40", "107")) or (ch in "▀▄" and codes == "97;40")
+        for codes, ch in cells)
+
+
+def test_render_matches_matrix():
+    m = qr.make_qr("HELLO")
+    quiet = 4
+    size = len(m) + 2 * quiet
+
+    def dark(x, y):
+        return 0 <= x - quiet < len(m) and 0 <= y - quiet < len(m) and m[y - quiet][x - quiet]
+
+    for line_no, line in enumerate(qr.render_ansi(m, quiet=quiet).split("\n")):
+        cells = re.findall(r"\x1b\[([\d;]+)m(.)", line)
+        assert len(cells) == size
+        for x, (codes, ch) in enumerate(cells):
+            drawn_top = codes == "40" if ch == " " else ch == "▄"
+            drawn_bottom = codes == "40" if ch == " " else ch == "▀"
+            assert (drawn_top, drawn_bottom) == (dark(x, 2 * line_no), dark(x, 2 * line_no + 1))
