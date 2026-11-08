@@ -10,12 +10,25 @@ public enum GatewayConnectionState: Equatable {
     case error(String)
 }
 
+/// An `error` envelope from the host, surfaced as a Swift error.
+public struct HostError: Error, LocalizedError, Equatable {
+    public let code: String
+    public let reason: String
+
+    public var errorDescription: String? { reason }
+
+    /// The host no longer accepts this phone's device token (revoked, or the host's data was reset).
+    public var meansCredentialsInvalid: Bool { code == "AUTH_FAILED" }
+}
+
 @MainActor
 public final class GatewayClient: ObservableObject {
     @Published public private(set) var state: GatewayConnectionState = .disconnected
     @Published public private(set) var currentSeq: Int = 0
     @Published public private(set) var timeline = ChatTimeline()
     @Published public private(set) var profiles: [ProfileData] = []
+    /// The paired host, if any. While set, the app reconnects instead of showing the setup wizard.
+    @Published public private(set) var savedHost: SavedHost?
 
     /// The profile the chat screen talks to. Falls back to the protocol's default profile id.
     public var activeProfileId: String {
@@ -24,19 +37,29 @@ public final class GatewayClient: ObservableObject {
 
     private var webSocketTask: URLSessionWebSocketTask?
     private let session: URLSession
-    private let keychain: KeychainManager
+    private let keychain: CredentialStore
     private let prober: RouteProber
     private var heartbeatTimer: Timer?
     private var activeURL: URL?
 
     public init(
         session: URLSession = .shared,
-        keychain: KeychainManager = .shared,
+        keychain: CredentialStore = KeychainManager.shared,
         prober: RouteProber = RouteProber()
     ) {
         self.session = session
         self.keychain = keychain
         self.prober = prober
+        self.savedHost = SavedHost.load(from: keychain)
+    }
+
+    private var isBusy: Bool {
+        switch state {
+        case .probing, .pairing, .connecting, .connected:
+            return true
+        default:
+            return false
+        }
     }
 
     public func handlePairingPayload(_ payload: String) {
@@ -78,17 +101,17 @@ public final class GatewayClient: ObservableObject {
 
     // MARK: - Pairing & Connection Flow
     public func pairAndConnect(pairingToken: String, instanceId: String, candidateEndpoints: [String]) async {
+        // A new pairing replaces whatever this phone was connected to before.
+        closeSocket()
+        resetSessionData()
         state = .probing
         do {
             let probeResult = try await prober.probeFastest(endpoints: candidateEndpoints)
             self.activeURL = probeResult.winningURL
 
             state = .pairing
-            let wsTask = session.webSocketTask(with: probeResult.winningURL)
-            self.webSocketTask = wsTask
-            wsTask.resume()
+            let wsTask = openSocket(to: probeResult.winningURL)
 
-            // Construct pair.request
             let pairReq = Envelope(
                 type: "pair.request",
                 instance_id: instanceId,
@@ -98,130 +121,136 @@ public final class GatewayClient: ObservableObject {
                     client_version: "1.0.0"
                 )
             )
+            try await send(pairReq, on: wsTask)
 
-            let encoder = JSONEncoder()
-            let reqData = try encoder.encode(pairReq)
-            guard let reqString = String(data: reqData, encoding: .utf8) else {
-                state = .error("Failed to serialize pair request.")
+            let response = try await receiveReply(PairResponseData.self, on: wsTask)
+            guard response.status == "ok" else {
+                state = .error("Pairing rejected by host.")
                 return
             }
 
-            try await wsTask.send(.string(reqString))
+            let host = SavedHost(
+                instanceId: instanceId,
+                instanceName: response.instance_name,
+                deviceId: response.device_id,
+                deviceToken: response.device_token,
+                endpoints: SavedHost.orderedEndpoints(
+                    preferred: probeResult.winningURL, response.endpoints, candidateEndpoints)
+            )
+            try host.save(to: keychain)
+            savedHost = host
 
-            // Wait for pair.response
-            let message = try await wsTask.receive()
-            switch message {
-            case .string(let text):
-                guard let data = text.data(using: .utf8) else {
-                    state = .error("Invalid text payload from host.")
-                    return
-                }
-
-                let responseEnvelope = try JSONDecoder().decode(Envelope<PairResponseData>.self, from: data)
-                if responseEnvelope.data.status == "ok" {
-                    // Save credentials in Keychain
-                    try keychain.save(key: "device_token", value: responseEnvelope.data.device_token)
-                    try keychain.save(key: "device_id", value: responseEnvelope.data.device_id)
-                    try keychain.save(key: "instance_id", value: instanceId)
-                    try keychain.save(key: "instance_name", value: responseEnvelope.data.instance_name)
-
-                    // Transition to hello handshake
-                    await completeSessionHandshake(
-                        wsTask: wsTask,
-                        instanceId: instanceId,
-                        deviceId: responseEnvelope.data.device_id,
-                        deviceToken: responseEnvelope.data.device_token
-                    )
-                } else {
-                    state = .error("Pairing rejected by host.")
-                }
-            case .data:
-                state = .error("Unexpected binary message during pairing.")
-            @unknown default:
-                state = .error("Unknown message type.")
-            }
+            await completeSessionHandshake(wsTask: wsTask, host: host)
         } catch {
+            closeSocket()
             state = .error(error.localizedDescription)
         }
     }
 
-    public func reconnect(candidateEndpoints: [String]) async {
-        guard let deviceToken = try? keychain.get(key: "device_token"),
-              let deviceId = try? keychain.get(key: "device_id"),
-              let instanceId = try? keychain.get(key: "instance_id") else {
-            state = .error("No saved device credentials found in Keychain.")
-            return
-        }
+    /// Reconnects to the saved host, if there is one. Safe to call repeatedly: does
+    /// nothing while a connection attempt is running or already connected.
+    public func resumeSavedSession() async {
+        guard let host = savedHost else { return }
+        guard !isBusy else { return }
 
         state = .probing
         do {
-            let probeResult = try await prober.probeFastest(endpoints: candidateEndpoints)
+            let probeResult = try await prober.probeFastest(endpoints: host.endpoints)
             self.activeURL = probeResult.winningURL
 
             state = .connecting
-            let wsTask = session.webSocketTask(with: probeResult.winningURL)
-            self.webSocketTask = wsTask
-            wsTask.resume()
-
-            await completeSessionHandshake(
-                wsTask: wsTask,
-                instanceId: instanceId,
-                deviceId: deviceId,
-                deviceToken: deviceToken
-            )
+            let wsTask = openSocket(to: probeResult.winningURL)
+            await completeSessionHandshake(wsTask: wsTask, host: host)
         } catch {
-            state = .error(error.localizedDescription)
+            closeSocket()
+            state = .error("Can't reach \(host.instanceName) right now. Check that the computer is on and that this phone is on the same network or Tailscale.")
         }
     }
 
-    private func completeSessionHandshake(
-        wsTask: URLSessionWebSocketTask,
-        instanceId: String,
-        deviceId: String,
-        deviceToken: String
-    ) async {
+    private func completeSessionHandshake(wsTask: URLSessionWebSocketTask, host: SavedHost) async {
         do {
+            // On a fresh launch currentSeq is 0, so the host replays the conversation;
+            // after a dropped connection it is the last seq seen, so only new messages come.
             let helloEnvelope = Envelope(
                 type: "hello",
-                instance_id: instanceId,
+                instance_id: host.instanceId,
                 data: HelloData(
-                    device_id: deviceId,
-                    device_token: deviceToken,
+                    device_id: host.deviceId,
+                    device_token: host.deviceToken,
                     last_seq: currentSeq,
                     client_version: "1.0.0",
                     proto_version: 1
                 )
             )
+            try await send(helloEnvelope, on: wsTask)
 
-            let helloData = try JSONEncoder().encode(helloEnvelope)
-            guard let helloString = String(data: helloData, encoding: .utf8) else {
-                state = .error("Serialization failure during handshake.")
+            let ack = try await receiveReply(HelloAckData.self, on: wsTask)
+            guard ack.status == "ok" else {
+                closeSocket()
+                state = .error("Handshake rejected by host.")
                 return
             }
 
-            try await wsTask.send(.string(helloString))
+            self.profiles = ack.profiles
+            let primaryProfileName = ack.profiles.first?.name ?? "Hermes Agent"
+            state = .connected(instanceName: ack.instance_name, profileName: primaryProfileName)
 
-            let message = try await wsTask.receive()
-            if case .string(let text) = message,
-               let data = text.data(using: .utf8) {
-                let ackEnvelope = try JSONDecoder().decode(Envelope<HelloAckData>.self, from: data)
-                if ackEnvelope.data.status == "ok" {
-                    self.currentSeq = ackEnvelope.data.current_seq
-                    self.profiles = ackEnvelope.data.profiles
-                    let primaryProfileName = ackEnvelope.data.profiles.first?.name ?? "Hermes Agent"
-                    state = .connected(instanceName: ackEnvelope.data.instance_name, profileName: primaryProfileName)
-
-                    startHeartbeat()
-                    startReceiveLoop(wsTask: wsTask)
-                } else {
-                    state = .error("Handshake rejected by host.")
-                }
-            } else {
-                state = .error("Invalid handshake response format.")
-            }
+            startHeartbeat()
+            startReceiveLoop(wsTask: wsTask)
+        } catch let hostError as HostError where hostError.meansCredentialsInvalid {
+            // The host no longer knows this phone: forget it so the wizard shows.
+            forgetHost()
+            state = .error("This phone is no longer paired with \(host.instanceName). Run the pair command on your Hermes machine and scan the new code.")
         } catch {
+            closeSocket()
             state = .error(error.localizedDescription)
         }
+    }
+
+    /// Clears the saved host and everything shown for it, and returns to the setup wizard.
+    /// The device stays registered on the host until it is revoked there.
+    public func forgetHost() {
+        closeSocket()
+        SavedHost.clear(from: keychain)
+        savedHost = nil
+        resetSessionData()
+        state = .disconnected
+    }
+
+    private func resetSessionData() {
+        timeline = ChatTimeline()
+        profiles = []
+        currentSeq = 0
+    }
+
+    // MARK: - Socket helpers
+    private func openSocket(to url: URL) -> URLSessionWebSocketTask {
+        let wsTask = session.webSocketTask(with: url)
+        webSocketTask = wsTask
+        wsTask.resume()
+        return wsTask
+    }
+
+    private func send<T: Codable>(_ envelope: Envelope<T>, on wsTask: URLSessionWebSocketTask) async throws {
+        let data = try JSONEncoder().encode(envelope)
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw HostError(code: "CLIENT", reason: "Couldn't prepare a message for the host.")
+        }
+        try await wsTask.send(.string(string))
+    }
+
+    /// Reads the next frame as `T`, turning a host `error` envelope into `HostError`.
+    private func receiveReply<T: Codable>(_ type: T.Type, on wsTask: URLSessionWebSocketTask) async throws -> T {
+        let message = try await wsTask.receive()
+        guard case .string(let text) = message, let data = text.data(using: .utf8) else {
+            throw HostError(code: "CLIENT", reason: "The host sent an unexpected reply.")
+        }
+        let decoder = JSONDecoder()
+        if let header = try? decoder.decode(EnvelopeHeader.self, from: data), header.type == "error",
+           let errorEnvelope = try? decoder.decode(Envelope<ErrorData>.self, from: data) {
+            throw HostError(code: errorEnvelope.data.code, reason: errorEnvelope.data.reason)
+        }
+        return try decoder.decode(Envelope<T>.self, from: data).data
     }
 
     // MARK: - Chat
@@ -241,7 +270,7 @@ public final class GatewayClient: ObservableObject {
         guard !trimmed.isEmpty,
               case .connected = state,
               let wsTask = webSocketTask,
-              let instanceId = try? keychain.get(key: "instance_id") else {
+              let instanceId = savedHost?.instanceId else {
             return
         }
 
@@ -249,12 +278,7 @@ public final class GatewayClient: ObservableObject {
         timeline.addOutgoing(id: envelope.id, profileId: activeProfileId, text: trimmed)
 
         do {
-            let data = try JSONEncoder().encode(envelope)
-            guard let string = String(data: data, encoding: .utf8) else {
-                timeline.markFailed(id: envelope.id, reason: "Couldn't prepare the message.")
-                return
-            }
-            try await wsTask.send(.string(string))
+            try await send(envelope, on: wsTask)
             timeline.markSent(id: envelope.id)
         } catch {
             timeline.markFailed(id: envelope.id, reason: error.localizedDescription)
@@ -303,8 +327,10 @@ public final class GatewayClient: ObservableObject {
                         self.handleIncoming(data)
                     }
                 } catch {
-                    await MainActor.run { [weak self] in
-                        self?.handleDisconnection()
+                    // Only the current socket may change state: an old socket that dies
+                    // after a reconnect must not knock the new connection offline.
+                    if let self, self.webSocketTask === wsTask {
+                        self.handleDisconnection()
                     }
                     break
                 }
@@ -323,13 +349,19 @@ public final class GatewayClient: ObservableObject {
 
     private func handleDisconnection() {
         heartbeatTimer?.invalidate()
+        webSocketTask = nil
         state = .disconnected
     }
 
-    public func disconnect() {
+    private func closeSocket() {
         heartbeatTimer?.invalidate()
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
+    }
+
+    /// Drops the connection but keeps the saved host, so the app can reconnect later.
+    public func disconnect() {
+        closeSocket()
         state = .disconnected
     }
 }

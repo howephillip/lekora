@@ -16,6 +16,10 @@
 		AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D236D28311188A8777EEA28 /* RouteProber.swift */; };
 		CDAB304930A007C7009D7D27 /* ChatTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304830A007C7009D7D27 /* ChatTimeline.swift */; };
 		CDAB304B30A00811009D7D27 /* ChatTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304A30A00811009D7D27 /* ChatTimelineTests.swift */; };
+		CDAB304D30A00A82009D7D27 /* SavedHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304C30A00A82009D7D27 /* SavedHost.swift */; };
+		CDAB304F30A00AD4009D7D27 /* ReconnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304E30A00AD4009D7D27 /* ReconnectingView.swift */; };
+		CDAB305130A00B19009D7D27 /* FakeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305030A00B19009D7D27 /* FakeHost.swift */; };
+		CDAB305330A00B2E009D7D27 /* AutoReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305230A00B2E009D7D27 /* AutoReconnectTests.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
 		E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */; };
 		F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */; };
@@ -43,6 +47,10 @@
 		9D236D28311188A8777EEA28 /* RouteProber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProber.swift; sourceTree = "<group>"; };
 		CDAB304830A007C7009D7D27 /* ChatTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimeline.swift; sourceTree = "<group>"; };
 		CDAB304A30A00811009D7D27 /* ChatTimelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimelineTests.swift; sourceTree = "<group>"; };
+		CDAB304C30A00A82009D7D27 /* SavedHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedHost.swift; sourceTree = "<group>"; };
+		CDAB304E30A00AD4009D7D27 /* ReconnectingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectingView.swift; sourceTree = "<group>"; };
+		CDAB305030A00B19009D7D27 /* FakeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeHost.swift; sourceTree = "<group>"; };
+		CDAB305230A00B2E009D7D27 /* AutoReconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoReconnectTests.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -55,6 +63,7 @@
 			children = (
 				DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */,
 				DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */,
+				CDAB304E30A00AD4009D7D27 /* ReconnectingView.swift */,
 			);
 			path = Setup;
 			sourceTree = "<group>";
@@ -83,6 +92,7 @@
 				78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */,
 				5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */,
 				9D236D28311188A8777EEA28 /* RouteProber.swift */,
+				CDAB304C30A00A82009D7D27 /* SavedHost.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -93,6 +103,8 @@
 				8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */,
 				F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */,
 				CDAB304A30A00811009D7D27 /* ChatTimelineTests.swift */,
+				CDAB305030A00B19009D7D27 /* FakeHost.swift */,
+				CDAB305230A00B2E009D7D27 /* AutoReconnectTests.swift */,
 			);
 			path = LekoraTests;
 			sourceTree = "<group>";
@@ -214,11 +226,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */,
+				CDAB304D30A00A82009D7D27 /* SavedHost.swift in Sources */,
 				5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */,
 				888B003DBEEC83DAAD851C7B /* LekoraApp.swift in Sources */,
 				D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */,
 				F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */,
 				AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */,
+				CDAB304F30A00AD4009D7D27 /* ReconnectingView.swift in Sources */,
 				CDAB304930A007C7009D7D27 /* ChatTimeline.swift in Sources */,
 				85721F1A389C4C7C54E14060 /* SetupWizardView.swift in Sources */,
 				36E2264B53D152FEBB4E6FA5 /* WalkingSkeletonPingView.swift in Sources */,
@@ -231,6 +245,8 @@
 			files = (
 				8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */,
 				CDAB304B30A00811009D7D27 /* ChatTimelineTests.swift in Sources */,
+				CDAB305130A00B19009D7D27 /* FakeHost.swift in Sources */,
+				CDAB305330A00B2E009D7D27 /* AutoReconnectTests.swift in Sources */,
 				79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

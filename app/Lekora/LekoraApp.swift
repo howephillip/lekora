@@ -15,9 +15,15 @@ public struct LekoraApp: App {
                 .onOpenURL { url in
                     handleIncomingURL(url)
                 }
+                .task {
+                    // Launch: go straight back to the paired host, skipping the wizard.
+                    await gateway.resumeSavedSession()
+                }
                 .onChange(of: scenePhase) { _, newPhase in
+                    // iOS drops the socket while the app is in the background.
+                    // resumeSavedSession does nothing if already connected or connecting.
                     if newPhase == .active {
-                        // Reconnect or verify connection upon returning to the foreground
+                        Task { await gateway.resumeSavedSession() }
                     }
                 }
         }
@@ -45,7 +51,11 @@ public struct ContentView: View {
                 profileName: profileName
             )
         default:
-            SetupWizardView(gateway: gateway)
+            if let host = gateway.savedHost {
+                ReconnectingView(gateway: gateway, host: host)
+            } else {
+                SetupWizardView(gateway: gateway)
+            }
         }
     }
 }

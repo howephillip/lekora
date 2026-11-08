@@ -8,6 +8,7 @@ public struct WalkingSkeletonPingView: View {
 
     @State private var draft: String = ""
     @FocusState private var inputFocused: Bool
+    @State private var confirmingForget = false
 
     public init(gateway: GatewayClient, instanceName: String, profileName: String) {
         self.gateway = gateway
@@ -44,10 +45,21 @@ public struct WalkingSkeletonPingView: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Disconnect", role: .destructive) {
-                        gateway.disconnect()
+                    Button("Forget Host", role: .destructive) {
+                        confirmingForget = true
                     }
                 }
+            }
+            .confirmationDialog(
+                "Forget \(instanceName)?",
+                isPresented: $confirmingForget,
+                titleVisibility: .visible
+            ) {
+                Button("Disconnect and Forget", role: .destructive) {
+                    gateway.forgetHost()
+                }
+            } message: {
+                Text("This phone will disconnect and stop reconnecting automatically. To connect again you'll need a new pairing code from the Hermes machine. Your chats stay on the host.")
             }
         }
     }
