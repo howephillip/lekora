@@ -64,6 +64,20 @@ class TokenExpired(Exception):
 
 
 @dataclass(frozen=True)
+class Device:
+    device_id: str
+    device_name: str
+    client_version: str
+    paired_at: Optional[str]
+    last_seen_at: Optional[str]
+    revoked_at: Optional[str]
+
+    @property
+    def active(self) -> bool:
+        return self.revoked_at is None
+
+
+@dataclass(frozen=True)
 class Event:
     seq: int
     instance_id: str
@@ -262,6 +276,27 @@ class Store:
             )
             self._db.commit()
             return cur.rowcount == 1
+
+    def is_device_active(self, device_id: str) -> bool:
+        """False once revoked, including by `hermes lekora devices --revoke` in another process."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT revoked_at FROM paired_devices WHERE device_id = ? AND instance_id = ?",
+                (device_id, self.instance_id),
+            ).fetchone()
+        return row is not None and row["revoked_at"] is None
+
+    def list_devices(self) -> list[Device]:
+        """All devices ever paired with this instance, oldest first (revoked ones included)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT device_id, device_name, client_version, paired_at, last_seen_at, "
+                "revoked_at FROM paired_devices WHERE instance_id = ? "
+                "ORDER BY paired_at, rowid",
+                (self.instance_id,),
+            ).fetchall()
+        return [Device(r["device_id"], r["device_name"] or "", r["client_version"] or "",
+                       r["paired_at"], r["last_seen_at"], r["revoked_at"]) for r in rows]
 
     # ---- events ------------------------------------------------------------
 

@@ -124,9 +124,10 @@ def check_requirements() -> bool:
 def register(ctx) -> None:
     from .pairing import handle_cli, setup_cli
     ctx.register_cli_command(
-        "lekora", help="Lekora iPhone app: pairing and status",
+        "lekora", help="Lekora iPhone app: pairing and paired devices",
         setup_fn=setup_cli, handler_fn=handle_cli,
-        description="Manage the Lekora iOS companion app (hermes lekora pair).")
+        description="Manage the Lekora iOS companion app "
+                    "(hermes lekora pair, hermes lekora devices).")
     ctx.register_platform(
         name=PLATFORM_NAME,
         label="Lekora",

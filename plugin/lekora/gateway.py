@@ -155,6 +155,10 @@ class Gateway:
             if conn is exclude or not conn.authed:
                 continue
             try:
+                if not self.store.is_device_active(conn.device_id):
+                    # Revoked from the CLI while connected: send nothing more, drop it.
+                    await conn.ws.close(1008, "AUTH_FAILED")
+                    continue
                 async with conn.lock:
                     if seq <= conn.sent_seq:
                         continue  # already delivered by replay
@@ -220,6 +224,10 @@ class Gateway:
             await self._hello(conn, msg_id, data)
         elif not conn.authed:
             raise _Reject("AUTH_FAILED", "Authenticate with pair.request or hello first",
+                          False, True, msg_id)
+        elif not self.store.is_device_active(conn.device_id):
+            # Revoked (e.g. `hermes lekora devices --revoke`) while this socket was open.
+            raise _Reject("AUTH_FAILED", "This device was removed from the host; pair again",
                           False, True, msg_id)
         elif type_ == "chat.send":
             await self._chat_send(conn, msg_id, env.get("profile_id"), data)

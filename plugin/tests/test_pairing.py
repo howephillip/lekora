@@ -107,3 +107,75 @@ def test_render_matches_matrix():
             drawn_top = codes == "40" if ch == " " else ch == "▄"
             drawn_bottom = codes == "40" if ch == " " else ch == "▀"
             assert (drawn_top, drawn_bottom) == (dark(x, 2 * line_no), dark(x, 2 * line_no + 1))
+
+
+# ---- `hermes lekora devices` -------------------------------------------------
+
+def test_devices_empty_list(store):
+    out = io.StringIO()
+    assert pairing.run_devices(store, out) == 0
+    assert "No devices are paired yet" in out.getvalue()
+
+
+def test_devices_table(store, clock):
+    active_id, _ = store.register_device("iPhone", "1.0.0")
+    clock.advance(minutes=30)
+    revoked_id, _ = store.register_device("Old iPhone", "1.0.0")
+    store.revoke_device(revoked_id)
+    out = io.StringIO()
+    assert pairing.run_devices(store, out) == 0
+    lines = out.getvalue().splitlines()
+    assert lines[0].split() == ["ID", "Name", "Status", "Last", "seen"]
+    active_row = next(line for line in lines if line.startswith(active_id))
+    revoked_row = next(line for line in lines if line.startswith(revoked_id))
+    assert "iPhone" in active_row and "active" in active_row and "2026-11-07 12:00 UTC" in active_row
+    assert "Old iPhone" in revoked_row and "revoked" in revoked_row and "12:30 UTC" in revoked_row
+    assert "1 active, 1 revoked" in out.getvalue()
+    # Columns line up: every Status value starts at the same position.
+    assert active_row.index("active") == revoked_row.index("revoked") == lines[0].index("Status")
+
+
+def test_devices_revoke(store):
+    device_id, token = store.register_device("iPhone")
+    out = io.StringIO()
+    assert pairing.run_devices(store, out, revoke=[device_id]) == 0
+    assert f"Revoked {device_id} (iPhone)" in out.getvalue()
+    assert not store.verify_device_token(device_id, token)
+    assert not store.list_devices()[0].active
+
+
+def test_devices_revoke_unknown_and_already_revoked(store):
+    device_id, _ = store.register_device()
+    store.revoke_device(device_id)
+    out = io.StringIO()
+    assert pairing.run_devices(store, out, revoke=[device_id, "dev_nope"]) == 1
+    text = out.getvalue()
+    assert f"{device_id} was already revoked" in text
+    assert "No device with ID dev_nope" in text
+
+
+def test_devices_revoke_several(store):
+    ids = [store.register_device(f"phone {i}")[0] for i in range(3)]
+    out = io.StringIO()
+    assert pairing.run_devices(store, out, revoke=ids[:2]) == 0
+    assert [d.active for d in store.list_devices()] == [False, False, True]
+
+
+def test_cli_wiring_for_devices(monkeypatch, tmp_path, capsys):
+    import argparse
+    monkeypatch.setenv("LEKORA_DB_PATH", str(tmp_path / "cli.db"))
+    from lekora.store import Store
+    setup = Store()
+    device_id, _ = setup.register_device("iPhone")
+    setup.close()
+
+    parser = argparse.ArgumentParser(prog="hermes lekora")
+    pairing.setup_cli(parser)
+    assert pairing.handle_cli(parser.parse_args(["devices"])) == 0
+    assert device_id in capsys.readouterr().out
+
+    assert pairing.handle_cli(parser.parse_args(["devices", "--revoke", device_id])) == 0
+    assert "Revoked" in capsys.readouterr().out
+    check = Store()
+    assert not check.is_device_active(device_id)
+    check.close()

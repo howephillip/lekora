@@ -188,4 +188,5 @@ Auth-related errors (`TOKEN_*`, `AUTH_FAILED`, `INCOMPATIBLE_VERSION`) close the
 - A successful `pair.request` also authenticates that socket; the app may send `hello` on the same socket straight afterwards.
 - `chat.send` is stored as an event (`role: "user"`) and pushed to the sender's *other* devices only; replies (`role: "assistant"`) go to every connected device. Replay after `hello.ack` includes both roles.
 - A repeated `chat.send` `id` on one connection is ignored (idempotent).
+- Revocation is checked on every message from an authenticated socket and before every broadcast. A device revoked while connected (e.g. by `hermes lekora devices --revoke` in another process) gets `error` `AUTH_FAILED` for its next message and the socket closes (1008); it receives no further broadcasts.
 

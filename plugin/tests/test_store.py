@@ -115,3 +115,52 @@ def test_db_path_env_override(monkeypatch, tmp_path):
     monkeypatch.delenv("LEKORA_DB_PATH")
     assert default_db_path().name == "lekora.db"
     assert default_db_path().parent.name == ".hermes"
+
+
+def test_list_devices_empty(store):
+    assert store.list_devices() == []
+
+
+def test_list_devices_fields_and_order(store, clock):
+    first_id, _ = store.register_device("iPhone", "1.0.0")
+    clock.advance(minutes=5)
+    second_id, _ = store.register_device("iPad", "1.1.0")
+    devices = store.list_devices()
+    assert [d.device_id for d in devices] == [first_id, second_id]  # oldest first
+    first = devices[0]
+    assert (first.device_name, first.client_version) == ("iPhone", "1.0.0")
+    assert first.paired_at == first.last_seen_at == "2026-11-07T12:00:00Z"
+    assert first.revoked_at is None and first.active
+
+
+def test_list_devices_shows_revoked_and_last_seen(store, clock):
+    device_id, token = store.register_device("iPhone")
+    clock.advance(hours=1)
+    assert store.verify_device_token(device_id, token)  # a reconnect updates last seen
+    clock.advance(minutes=1)
+    store.revoke_device(device_id)
+    (device,) = store.list_devices()
+    assert device.last_seen_at == "2026-11-07T13:00:00Z"
+    assert device.revoked_at == "2026-11-07T13:01:00Z"
+    assert not device.active
+
+
+def test_is_device_active(store):
+    device_id, _ = store.register_device()
+    assert store.is_device_active(device_id)
+    store.revoke_device(device_id)
+    assert not store.is_device_active(device_id)
+    assert not store.is_device_active("dev_unknown")
+
+
+def test_revoke_from_another_connection_is_seen(db_path, clock):
+    # `hermes lekora devices --revoke` runs in its own process with its own connection.
+    gateway_store = Store(db_path, clock=clock)
+    cli_store = Store(db_path, clock=clock)
+    try:
+        device_id, _ = gateway_store.register_device("iPhone")
+        assert cli_store.revoke_device(device_id)
+        assert not gateway_store.is_device_active(device_id)
+    finally:
+        gateway_store.close()
+        cli_store.close()

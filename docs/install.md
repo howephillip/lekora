@@ -26,6 +26,11 @@ If the repo is private, the machine needs Git access to it (for example a logged
 - In the Lekora app scan the QR code, or tap the link / use Paste Token.
 - Over SSH from a phone terminal (e.g. Termius), run `hermes lekora pair --no-qr` and tap the link.
 
+## Paired phones
+- `hermes lekora devices` lists every phone ever paired: ID, name, active or revoked, and when it last connected.
+- `hermes lekora devices --revoke <ID>` removes a phone (repeat `--revoke` for several). A connected phone is cut off at its next message; the app then forgets the host and shows its setup screen.
+- "Forget Host" in the app does not remove the phone here; revoke it with the command above.
+
 ## Where things live
 - Data: `~/.hermes/lekora.db` (override with `LEKORA_DB_PATH`). Safe to keep across re-installs.
 - The port is chosen once and saved in that database, so restarts keep the same address.

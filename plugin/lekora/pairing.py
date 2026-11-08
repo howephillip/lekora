@@ -1,4 +1,6 @@
-"""`hermes lekora pair`: create a one-time invite and show it as QR + link + token."""
+"""`hermes lekora pair`: create a one-time invite and show it as QR + link + token.
+
+`hermes lekora devices`: list paired phones and revoke old ones."""
 
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ from urllib.parse import quote
 
 from .qr import make_qr, render_ansi
 from .routes import resolve_candidate_endpoints
-from .store import INVITE_TTL, Store
+from .store import INVITE_TTL, Device, Store
 
 SCHEME = "lekora-pair://pair"
 
@@ -100,7 +102,56 @@ def run_pair(
     return 0
 
 
-# ---- Hermes CLI wiring (`hermes lekora pair`) --------------------------------
+# ---- `hermes lekora devices` -----------------------------------------------
+
+def _when(iso: Optional[str]) -> str:
+    """'2026-11-07T19:44:05Z' -> '2026-11-07 19:44 UTC'."""
+    if not iso:
+        return "never"
+    return iso.replace("T", " ")[:16] + " UTC"
+
+
+def format_device_table(devices: list[Device]) -> str:
+    if not devices:
+        return "No devices are paired yet. Run `hermes lekora pair` to pair the Lekora app."
+    header = ("ID", "Name", "Status", "Last seen")
+    rows = [(d.device_id, d.device_name or "(unnamed)",
+             "active" if d.active else "revoked", _when(d.last_seen_at)) for d in devices]
+    widths = [max(len(r[i]) for r in [header, *rows]) for i in range(len(header))]
+
+    def line(cells) -> str:
+        return "  ".join(c.ljust(w) for c, w in zip(cells, widths)).rstrip()
+
+    active = sum(d.active for d in devices)
+    return "\n".join([line(header), line("-" * w for w in widths), *map(line, rows), "",
+                      f"{active} active, {len(devices) - active} revoked. "
+                      "Revoke one with: hermes lekora devices --revoke <ID>"])
+
+
+def run_devices(store: Store, out: TextIO, revoke: Iterable[str] = ()) -> int:
+    """Lists devices, or revokes the given IDs. Returns a process exit code."""
+    to_revoke = list(revoke)
+    if not to_revoke:
+        print(format_device_table(store.list_devices()), file=out)
+        return 0
+
+    known = {d.device_id: d for d in store.list_devices()}
+    code = 0
+    for device_id in to_revoke:
+        device = known.get(device_id)
+        if device is None:
+            print(f"No device with ID {device_id}. Run `hermes lekora devices` to see the IDs.",
+                  file=out)
+            code = 1
+        elif store.revoke_device(device_id):
+            print(f"Revoked {device_id} ({device.device_name or 'unnamed'}). It is disconnected "
+                  "at its next message and must pair again to reconnect.", file=out)
+        else:
+            print(f"{device_id} was already revoked.", file=out)
+    return code
+
+
+# ---- Hermes CLI wiring (`hermes lekora pair|devices`) ------------------------
 
 def setup_cli(parser) -> None:
     sub = parser.add_subparsers(dest="lekora_command")
@@ -108,16 +159,22 @@ def setup_cli(parser) -> None:
     pair.add_argument("--no-qr", action="store_true", help="Show only the link and code")
     pair.add_argument("--host", action="append", default=[],
                       help="Extra host name or IP to advertise (repeatable)")
+    devices = sub.add_parser("devices", help="List paired phones, or revoke one")
+    devices.add_argument("--revoke", action="append", default=[], metavar="DEVICE_ID",
+                         help="Revoke this device so it can no longer connect (repeatable)")
     parser.set_defaults(lekora_parser=parser)
 
 
 def handle_cli(args) -> int:
     import sys
-    if getattr(args, "lekora_command", None) != "pair":
+    command = getattr(args, "lekora_command", None)
+    if command not in ("pair", "devices"):
         args.lekora_parser.print_help()
         return 0
     store = Store()
     try:
+        if command == "devices":
+            return run_devices(store, sys.stdout, args.revoke)
         return run_pair(store, sys.stdout, args.host, show_qr=not args.no_qr)
     finally:
         store.close()

@@ -265,3 +265,33 @@ async def test_busy_saved_port_falls_back_and_updates(store):
     port = await g.start()
     assert port != busy and store.get_persisted_port() == port
     await g.stop(); await blocker.stop()
+
+
+async def test_device_revoked_while_connected_is_cut_off(gw, store, db_path, clock):
+    from lekora.store import Store
+    device_id, tok = store.register_device()
+    ws = await hello(gw, store, device_id, tok)
+    await recv(ws)  # hello.ack
+    cli = Store(db_path, clock=clock)  # the CLI runs in another process
+    cli.revoke_device(device_id)
+    cli.close()
+    await ws.send(env(store, "chat.send", {"text": "Ping"}, profile_id="assistant", msg_id="c1"))
+    err = await recv(ws)
+    assert err["type"] == "error" and err["data"]["code"] == "AUTH_FAILED" and err["id"] == "c1"
+    with pytest.raises(ConnectionClosed):
+        await ws.recv()
+    assert store.fetch_events_since(0) == []  # the message was not accepted
+
+
+async def test_revoked_device_gets_no_more_broadcasts(gw, store):
+    a_id, a_tok = store.register_device("a")
+    b_id, b_tok = store.register_device("b")
+    a = await hello(gw, store, a_id, a_tok)
+    b = await hello(gw, store, b_id, b_tok)
+    await recv(a); await recv(b)
+    store.revoke_device(b_id)
+    await a.send(env(store, "chat.send", {"text": "Ping"}, profile_id="assistant"))
+    assert (await recv(a))["data"]["text"] == "Pong from Hermes"
+    with pytest.raises(ConnectionClosed):
+        await asyncio.wait_for(b.recv(), 2)  # closed without receiving the chat
+    await a.close()
