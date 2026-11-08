@@ -229,3 +229,36 @@ async def test_heartbeat_is_dropped_including_later_edits(live, gw):
     assert mid.startswith("heartbeat-")
     assert await live.edit("default", mid, "⏳ Working — 2 min — iteration 3/90", finalize=False)
     assert gw.calls == []
+
+
+# ---- feedback round 2: tool-activity bubbles and busy-input notices ---------------
+
+@pytest.mark.parametrize("text,kind", [
+    # Diane's bubble (her own display.tool_progress outranks Lekora's default)
+    ('⚙️ tool_search: "Searching tools · terminal execute co..."\n'
+     '⚙️ tool_search: "Searching tools · file read local fil..."', notices.TOOL_PROGRESS),
+    ('🧠 hindsight_retain: "Ashlyn seemed down last time"', notices.TOOL_PROGRESS),   # memory add-on tool
+    ("⚙️ browser_exec...", notices.TOOL_PROGRESS),
+    ('🔍 Searching the web for ramen\n⚙️ tool_search: "x"', notices.TOOL_PROGRESS),
+    ("💬 thinking about it\n⚙️ web_fetch...", notices.TOOL_PROGRESS),
+    # "Redirected" notice, with and without the emoji-style marker
+    ("↪ Redirected current run (4 min elapsed, iteration 16/90, running: terminal). "
+     "I'll adjust using your correction.", notices.NOTICE),
+    ("↪️ Redirected current run (4 min elapsed). I'll adjust using your correction.", notices.NOTICE),
+    ("⏩ Steered into current run. Your message arrives after the next tool call.", notices.NOTICE),
+    ("⏳ Queued for the next turn. I'll respond once the current task finishes.", notices.NOTICE),
+    # Never hidden: agent messages that merely look a bit like tool lines
+    ("✅ done...", None),
+    ('🎉 Great news: "it worked"', None),
+    ("🔍 Searching now, back soon", None),
+    ('⚙️ tool_search: "x"\nAnd here is what I found.', None),
+])
+def test_classify_round_two(text, kind):
+    assert notices.classify(text) == kind
+
+
+async def test_tool_activity_bubble_and_its_edits_are_dropped(live, gw):
+    mid = await live.send("diane", '⚙️ tool_search: "Searching tools"', expect_edits=False)
+    assert mid.startswith("tool_progress-")
+    assert await live.edit("diane", mid, '⚙️ tool_search: "Searching tools"\n⚙️ terminal...', finalize=False)
+    assert gw.calls == []

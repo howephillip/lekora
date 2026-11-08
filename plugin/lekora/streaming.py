@@ -15,8 +15,8 @@ turns those calls into Lekora's protocol:
 
 Ordinary sends (not ``expect_edits``) are saved straight away, as before, except
 Hermes' own notices (``notices.py``): lifecycle notices are saved with role
-"system" (shown as small system lines), and the "Working — N min" heartbeat is
-dropped (the phone's thinking line already shows the agent is working).
+"system" (shown as small system lines); the "Working — N min" heartbeat and
+tool-activity bubbles are dropped (the phone's thinking line already shows both).
 """
 
 from __future__ import annotations
@@ -61,8 +61,8 @@ class LiveReplies:
         """Returns the message id Hermes will use for later edits."""
         if not expect_edits:
             kind = notices.classify(content)
-            if kind == notices.HEARTBEAT:
-                dropped_id = f"heartbeat-{uuid.uuid4().hex[:12]}"
+            if kind in (notices.HEARTBEAT, notices.TOOL_PROGRESS):
+                dropped_id = f"{kind}-{uuid.uuid4().hex[:12]}"
                 if len(self._dropped) > 500:  # one per long turn; never needs to grow forever
                     self._dropped.clear()
                 self._dropped.add(dropped_id)
@@ -77,7 +77,7 @@ class LiveReplies:
 
     async def edit(self, chat_id: str, message_id: str, content: str, finalize: bool) -> bool:
         if message_id in self._dropped:
-            return True  # a later "Working — N min" update: still not shown
+            return True  # a later update of a heartbeat / tool-activity bubble: still not shown
         text = strip_cursor(content, self._cursor())
         live = self._live.get(message_id)
         if live is not None:

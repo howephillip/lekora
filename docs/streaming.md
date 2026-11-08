@@ -34,6 +34,11 @@ The adapter declares `SUPPORTS_MESSAGE_EDITING`, `REQUIRES_EDIT_FINALIZE`, `MAX_
 Hermes sends lifecycle and status notices through the same `send` as agent text. It marks them non-conversational only for Discord, so Lekora recognises them by Hermes' own message templates: read from its translation catalogue (`agent.i18n.t`, in the user's language), with English copies as fallback.
 - **Lifecycle notices** ("Hermes is restarting…", "Gateway online…", "Background task finished/failed/started", stuck/timeout warnings) are saved with role `system` and shown as a small centered grey line, not a bubble.
 - **The "⏳ Working — N min" heartbeat** (and Hermes' later edits of it) is dropped. The phone's thinking line already shows that the agent is working, and for how long.
+- **Busy-input replies** ("↪ Redirected current run…", "⏩ Steered…", "⏳ Queued…") are system lines. The emoji-style marker (U+FE0F) is ignored when matching.
+- **Tool-activity bubbles** ("⚙️ tool_search: \"…\"", "🧠 hindsight_retain: …") are dropped.
+  - Lekora registers `tool_progress: off`, but in Hermes an agent's own `display.tool_progress` outranks a platform default, so some agents still send them.
+  - A bubble counts as tool activity only if every line has one of Hermes' tool-line shapes, and at least one names a tool Hermes' registry knows.
+  - The thinking line already shows the same activity live, from Hermes' status text.
 
 ## Protocol (host → phone, not stored, not replayed)
 ```json
