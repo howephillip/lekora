@@ -34,6 +34,7 @@ The adapter declares `SUPPORTS_MESSAGE_EDITING`, `REQUIRES_EDIT_FINALIZE`, `MAX_
 Hermes sends lifecycle and status notices through the same `send` as agent text. It marks them non-conversational only for Discord, so Lekora recognises them by Hermes' own message templates: read from its translation catalogue (`agent.i18n.t`, in the user's language), with English copies as fallback.
 - **Lifecycle notices** ("Hermes is restarting…", "Gateway online…", "Background task finished/failed/started", stuck/timeout warnings) are saved with role `system` and shown as a small centered grey line, not a bubble.
 - **The "⏳ Working — N min" heartbeat** (and Hermes' later edits of it) is dropped. The phone's thinking line already shows that the agent is working, and for how long.
+- **Memory add-ons' recall line** ("👁️ Hindsight — recalled 181 memories", built by Hermes' memory manager, not the catalogue) is a system line.
 - **Busy-input replies** ("↪ Redirected current run…", "⏩ Steered…", "⏳ Queued…") are system lines. The emoji-style marker (U+FE0F) is ignored when matching.
 - **Tool-activity bubbles** ("⚙️ tool_search: \"…\"", "🧠 hindsight_retain: …") are dropped.
   - Lekora registers `tool_progress: off`, but in Hermes an agent's own `display.tool_progress` outranks a platform default, so some agents still send them.
@@ -50,6 +51,7 @@ Hermes sends lifecycle and status notices through the same `send` as agent text.
 - `chat.message` with a `seq` the phone already has replaces that message's text (an agent correction).
 
 ## Phone
+- **Bottom pinning:** the list stays pinned to the bottom when content shrinks (the thinking bubble disappears, or a live reply settles shorter), so no gap opens above the message bar.
 - **Live bubble:** grows with a cursor, and is replaced in place by the saved message (same bubble, no flicker). The view follows the newest words.
 - **Agent text** is trimmed of surrounding blank lines and rendered as Markdown (bold, italic, code, links; line breaks kept). The user's own text is shown exactly as typed.
 - **Thinking line:**

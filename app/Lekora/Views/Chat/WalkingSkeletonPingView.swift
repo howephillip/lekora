@@ -155,6 +155,9 @@ public struct WalkingSkeletonPingView: View {
                 .padding(.vertical, LK.Spacing.md)
             }
             .defaultScrollAnchor(.bottom)
+            // Stay pinned to the bottom when content shrinks (the thinking bubble goes away,
+            // or a live reply settles a little shorter), instead of leaving a gap.
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
             // A fresh list per agent, so switching opens that agent's chat at its newest message.
             .id(gateway.activeProfileId)
             #if os(iOS)
@@ -168,7 +171,7 @@ public struct WalkingSkeletonPingView: View {
                 scrollToNewest(showsTypingIndicator ? Self.typingRowID : messages.last?.id, proxy: proxy)
             }
             .onChange(of: showsTypingIndicator) { _, showing in
-                if showing { scrollToNewest(Self.typingRowID, proxy: proxy) }
+                scrollToNewest(showing ? Self.typingRowID : messages.last?.id, proxy: proxy)
             }
             .animation(.easeOut(duration: 0.2), value: showsTypingIndicator)
             .onChange(of: inputFocused) { _, focused in

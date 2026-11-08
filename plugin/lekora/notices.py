@@ -7,7 +7,8 @@ for Lekora they carry the same marker as genuine agent commentary. So notices ar
 recognised by Hermes' own message templates, read from its translation catalogue
 (in the user's language), with the English templates below as a fallback.
 
-- ``NOTICE``: saved, shown on the phone as a small system line (role "system").
+- ``NOTICE``: saved, shown on the phone as a small system line (role "system"). Also
+  memory add-ons' "👁️ Hindsight — recalled 181 memories" line.
 - ``HEARTBEAT``: the periodic "Working — N min" bubble; dropped, because the phone's
   thinking line already shows that the agent is working and for how long.
 - ``TOOL_PROGRESS``: tool-activity bubbles ("⚙️ tool_search: \"…\""). Lekora registers
@@ -68,6 +69,11 @@ _TOOL_FORMS = (
     re.compile(rf"^{_EMOJI}\s+({_TOOL})\.\.\.$"),      # ⚙️ terminal...
     re.compile(rf"^{_EMOJI}\s+({_TOOL})\(.*\)$"),      # ⚙️ terminal(command, cwd)   (verbose head)
 )
+# Memory add-ons' recall line, built by Hermes' MemoryManager.describe_recall (not in the
+# translation catalogue): "{glyph} {provider} — recalled N memories", several joined by "  ".
+_RECALL_SEGMENT = r"\S+\s+[^—\n]+? — recalled (?:\d+ memor(?:y|ies)|relevant memory)"
+_RECALL_LINE = re.compile(rf"^\s*{_RECALL_SEGMENT}(?:\s+{_RECALL_SEGMENT})*\s*$")
+
 _VERB_LINE = re.compile(rf"^{_EMOJI}\s+[A-Z][a-z]+ing\b.*$")   # 🔍 Searching the web for …
 _THINKING_LINE = re.compile(r"^💬 .+$")
 
@@ -151,6 +157,8 @@ def classify(text: str) -> Optional[str]:
     for kind, pattern in _patterns():
         if pattern.match(plain):
             return kind
+    if _RECALL_LINE.match(plain):
+        return NOTICE
     if _is_tool_progress(plain):
         return TOOL_PROGRESS
     return None

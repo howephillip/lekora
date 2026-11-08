@@ -262,3 +262,13 @@ async def test_tool_activity_bubble_and_its_edits_are_dropped(live, gw):
     assert mid.startswith("tool_progress-")
     assert await live.edit("diane", mid, '⚙️ tool_search: "Searching tools"\n⚙️ terminal...', finalize=False)
     assert gw.calls == []
+
+
+@pytest.mark.parametrize("text,kind", [
+    ("👁️ Hindsight — recalled 181 memories", notices.NOTICE),
+    ("🧠 Honcho — recalled 1 memory", notices.NOTICE),
+    ("🧠 Mem0 — recalled relevant memory  👁️ Hindsight — recalled 3 memories", notices.NOTICE),
+    ("I recalled 3 memories from our trip — want them?", None),
+])
+def test_memory_recall_line_is_a_system_notice(text, kind):
+    assert notices.classify(text) == kind
