@@ -7,10 +7,9 @@ verified in the real-Hermes pass before this feature counts as done.
 
 Mapping: each Lekora profile is a real Hermes profile, and one Hermes chat
 (``chat_id == profile_id == profile name``). One Hermes gateway serves every
-profile, so each message is stamped with its target profile
-(``source.profile``) and Hermes runs that turn as that profile; replies come
-back through ``send(chat_id=profile)``. No Hermes config is written. Every
-profile is equal. Paired devices are authenticated by Lekora itself, so
+profile; ``hermes_routes.ProfileRouter`` keeps an in-memory route per named
+profile so Hermes runs each chat as its profile, and replies come back through
+``send(chat_id=profile)``. No Hermes config is written. Every profile is equal. Paired devices are authenticated by Lekora itself, so
 the platform is registered ``trusted_inbound`` (no second allow-list/pairing).
 """
 
@@ -25,6 +24,7 @@ from gateway.config import HomeChannel, Platform
 from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
+from .hermes_routes import ProfileRouter, check_routed
 from .plugin import LekoraConfig, LekoraService, UnsupportedHermesVersion
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,13 @@ class LekoraAdapter(BasePlatformAdapter):
         super().__init__(config=config, platform=Platform(PLATFORM_NAME))
         self._cfg = LekoraConfig.from_extra(getattr(config, "extra", {}) or {})
         self._service: Optional[LekoraService] = None
+        self._router = ProfileRouter(lambda: self.gateway_runner, PLATFORM_NAME)
         self._set_in_memory_home_channel(config)
+
+    def offered_profiles(self) -> list[dict]:
+        """Profiles for the phone, refreshing the in-memory routes on every call (each
+        phone connect and message), so new or deleted Hermes profiles need no restart."""
+        return self._router.offered(self._cfg.current_profiles())
 
     def _set_in_memory_home_channel(self, config) -> None:
         """Stop Hermes' "no home channel is set" notice on the first message.
@@ -72,14 +78,12 @@ class LekoraAdapter(BasePlatformAdapter):
     async def deliver_to_agent(self, profile_id: str, text: str, message_id: str) -> None:
         if not self._message_handler:
             return
+        # Routes were refreshed when the gateway checked this profile (offered_profiles),
+        # so Hermes stamps the routed profile here. Never deliver to a different agent.
         source = self.build_source(
             chat_id=profile_id, chat_name=profile_id, chat_type="dm",
             user_id="lekora-owner", user_name="Lekora")
-        # Run this turn as the chosen profile. The gateway already rejected unknown
-        # profiles (UNKNOWN_PROFILE), so this never silently falls back to another agent.
-        # A configured gateway.profile_routes entry for this chat still takes precedence.
-        if not getattr(source, "profile", None):
-            source.profile = profile_id
+        check_routed(source, profile_id)
         await self.handle_message(MessageEvent(
             text=text, message_type=MessageType.TEXT, source=source,
             message_id=message_id, timestamp=datetime.datetime.now()))
@@ -87,7 +91,9 @@ class LekoraAdapter(BasePlatformAdapter):
     # -- lifecycle -----------------------------------------------------------
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         self._service = LekoraService(
-            self, config=self._cfg, hermes_version=_hermes_version())
+            self, config=self._cfg, hermes_version=_hermes_version(),
+            profiles_provider=self.offered_profiles)
+        self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()
         except UnsupportedHermesVersion as exc:

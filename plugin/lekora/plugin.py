@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional, Protocol
+from typing import Any, Callable, Mapping, Optional, Protocol
 
 from . import __version__
 from .gateway import Gateway
@@ -103,8 +103,11 @@ class LekoraService:
         hermes_version: Optional[str] = None,
         check_version: bool = True,
         auth_timeout: Optional[float] = None,
+        profiles_provider: Optional[Callable[[], list[dict]]] = None,
     ) -> None:
         self._bridge = bridge
+        # What the phone is offered; the Hermes adapter narrows it to routable profiles.
+        self._profiles_provider = profiles_provider
         self.config = config or LekoraConfig()
         self._hermes_version = hermes_version
         self._check_version = check_version
@@ -133,7 +136,7 @@ class LekoraService:
         self.gateway = Gateway(
             self._store,
             dispatch=self._bridge.deliver_to_agent,
-            profiles=self.config.current_profiles,
+            profiles=self._profiles_provider or self.config.current_profiles,
             endpoints=lambda port: resolve_candidate_endpoints(
                 port, self.config.extra_hosts),
             host=self.config.listen_host,
