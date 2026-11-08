@@ -13,11 +13,13 @@ class RecordingGateway:
 
     def __init__(self):
         self.calls = []
+        self.roles = []
         self._seq = 0
 
     async def publish_message(self, profile_id, text, role="assistant", draft_id=None):
         self._seq += 1
         self.calls.append(("message", profile_id, text, draft_id, self._seq))
+        self.roles.append(role)
         return self._seq
 
     async def publish_draft(self, profile_id, draft_id, text):
@@ -191,3 +193,39 @@ def test_falls_back_to_whole_replies(bad, caplog, monkeypatch):
 def test_cursor_of():
     assert hermes_streaming.cursor_of(runner(LekoraOnlyStreaming(FakeStreamingConfig(cursor=" |")))) == " |"
     assert hermes_streaming.cursor_of(None) is None
+
+
+# ---- Hermes' own notices ------------------------------------------------------------
+
+from lekora import notices
+
+
+@pytest.mark.parametrize("text,kind", [
+    ("⚠️ Hermes is restarting — your current task will be interrupted. Send any message after "
+     "the restart and I'll try to resume where you left off.", notices.NOTICE),
+    ("♻️ Gateway online — Hermes is back and ready.", notices.NOTICE),
+    ("✅ Background task finished — `cd /home/phillip/.hermes/cache/scratch && hermes -p carl -z "
+     "\"$(cat carl-ramen-c…` (7m 19s)", notices.NOTICE),
+    ("⏳ Working — 12 min — iteration 14/90, waiting for provider response (streaming)", notices.HEARTBEAT),
+    ("⏳ Working — 3 min", notices.HEARTBEAT),
+    ("Carl's on it — researching Cedar Park ramen now, back with the pick shortly.", None),
+    ("**Ramen512** — 1420 Cypress Creek Rd", None),
+    ("I'm working on it — give me a minute.", None),
+])
+def test_classify_matches_hermes_templates(text, kind):
+    assert notices.classify(text) == kind
+
+
+async def test_notices_are_saved_as_system_lines(live, gw):
+    await live.send("default", "♻️ Gateway online — Hermes is back and ready.", expect_edits=False)
+    assert gw.calls == [("message", "default", "♻️ Gateway online — Hermes is back and ready.", None, 1)]
+    assert gw.roles == ["system"]
+    await live.send("default", "Carl's on it.", expect_edits=False)
+    assert gw.roles == ["system", "assistant"]
+
+
+async def test_heartbeat_is_dropped_including_later_edits(live, gw):
+    mid = await live.send("default", "⏳ Working — 1 min", expect_edits=False)
+    assert mid.startswith("heartbeat-")
+    assert await live.edit("default", mid, "⏳ Working — 2 min — iteration 3/90", finalize=False)
+    assert gw.calls == []

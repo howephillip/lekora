@@ -13,7 +13,10 @@ turns those calls into Lekora's protocol:
 - when the turn ends, any live reply that was never sealed is saved as-is, so what
   the phone showed is never lost.
 
-Ordinary sends (not ``expect_edits``) are saved straight away, as before.
+Ordinary sends (not ``expect_edits``) are saved straight away, as before, except
+Hermes' own notices (``notices.py``): lifecycle notices are saved with role
+"system" (shown as small system lines), and the "Working — N min" heartbeat is
+dropped (the phone's thinking line already shows the agent is working).
 """
 
 from __future__ import annotations
@@ -21,6 +24,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
+
+from . import notices
 
 DEFAULT_CURSOR = " ▉"
 
@@ -44,6 +49,7 @@ class LiveReplies:
         self._gateway = gateway
         self._cursor = cursor
         self._live: dict[str, _Live] = {}
+        self._dropped: set[str] = set()  # heartbeat bubbles Hermes may still edit
 
     def _gw(self) -> Any:
         gw = self._gateway()
@@ -54,7 +60,15 @@ class LiveReplies:
     async def send(self, chat_id: str, content: str, expect_edits: bool) -> str:
         """Returns the message id Hermes will use for later edits."""
         if not expect_edits:
-            return str(await self._gw().publish_message(chat_id, content))
+            kind = notices.classify(content)
+            if kind == notices.HEARTBEAT:
+                dropped_id = f"heartbeat-{uuid.uuid4().hex[:12]}"
+                if len(self._dropped) > 500:  # one per long turn; never needs to grow forever
+                    self._dropped.clear()
+                self._dropped.add(dropped_id)
+                return dropped_id
+            role = "system" if kind == notices.NOTICE else "assistant"
+            return str(await self._gw().publish_message(chat_id, content, role=role))
         draft_id = f"live-{uuid.uuid4().hex[:12]}"
         text = strip_cursor(content, self._cursor())
         self._live[draft_id] = _Live(chat_id, text)
@@ -62,6 +76,8 @@ class LiveReplies:
         return draft_id
 
     async def edit(self, chat_id: str, message_id: str, content: str, finalize: bool) -> bool:
+        if message_id in self._dropped:
+            return True  # a later "Working — N min" update: still not shown
         text = strip_cursor(content, self._cursor())
         live = self._live.get(message_id)
         if live is not None:

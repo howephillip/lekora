@@ -30,6 +30,11 @@ Lekora also registers `tool_progress: off`, so tool activity shows in the workin
 
 The adapter declares `SUPPORTS_MESSAGE_EDITING`, `REQUIRES_EDIT_FINALIZE`, `MAX_MESSAGE_LENGTH = 100000` (long replies stay one bubble) and `supports_status_text`.
 
+## Hermes' own notices (`lekora/notices.py`)
+Hermes sends lifecycle and status notices through the same `send` as agent text. It marks them non-conversational only for Discord, so Lekora recognises them by Hermes' own message templates: read from its translation catalogue (`agent.i18n.t`, in the user's language), with English copies as fallback.
+- **Lifecycle notices** ("Hermes is restarting…", "Gateway online…", "Background task finished/failed/started", stuck/timeout warnings) are saved with role `system` and shown as a small centered grey line, not a bubble.
+- **The "⏳ Working — N min" heartbeat** (and Hermes' later edits of it) is dropped. The phone's thinking line already shows that the agent is working, and for how long.
+
 ## Protocol (host → phone, not stored, not replayed)
 ```json
 { "type": "chat.draft",  "profile_id": "bruce", "data": { "draft_id": "live-1a2b…", "text": "full text so far" } }
@@ -41,8 +46,9 @@ The adapter declares `SUPPORTS_MESSAGE_EDITING`, `REQUIRES_EDIT_FINALIZE`, `MAX_
 
 ## Phone
 - **Live bubble:** grows with a cursor, and is replaced in place by the saved message (same bubble, no flicker). The view follows the newest words.
+- **Agent text** is trimmed of surrounding blank lines and rendered as Markdown (bold, italic, code, links; line breaks kept). The user's own text is shown exactly as typed.
 - **Thinking line:**
-  - shows animated dots, plus the status when there is one;
+  - shows softly pulsing dots (a continuous wave redrawn every frame, like iMessage; still for Reduce Motion), plus the status with the agent's name ("Default is using browser_exec…") and the working time ("· 12 min");
   - is hidden while the reply itself is streaming, unless there's a status, such as a tool running between messages;
   - clears on `chat.typing` inactive, or after 6 s without a ping.
 - **Edge cases:**

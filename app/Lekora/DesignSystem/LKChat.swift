@@ -28,12 +28,30 @@ public struct LKMessageBubble: View {
 
     private var isUser: Bool { sender == .user }
 
+    /// Agents write Markdown: show **bold**, *italic*, `code` and links, keep line breaks,
+    /// and drop blank lines around the text. The user's own text is shown exactly as typed.
+    private var rendered: AttributedString {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = isUser ? AttributedString(trimmed) : Self.markdown(trimmed)
+        if delivery == .streaming {
+            result += AttributedString(" ▍")
+        }
+        return result
+    }
+
+    static func markdown(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible)
+        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
+
     public var body: some View {
         HStack {
             if isUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: LK.Spacing.xs) {
-                Text(delivery == .streaming ? "\(text) ▍" : text)
+                Text(rendered)
                     .font(LK.Typography.body)
                     .textSelection(.enabled)
                     .foregroundStyle(isUser ? LK.Palette.onAccent : .primary)
@@ -125,34 +143,28 @@ public struct LKAgentAvatar: View {
     }
 }
 
-/// Shown while an agent works: animated dots, plus what it's doing when Hermes says
-/// ("Searching the web…"). Sits where the agent's next bubble will appear.
+/// Shown while an agent works: softly pulsing dots (like iMessage), what it's doing when
+/// Hermes says ("Bruce is searching the web…"), and how long it has been at it.
 public struct LKTypingIndicator: View {
     private let status: String?
+    private let since: Date?
 
-    public init(status: String? = nil) {
+    public init(status: String? = nil, since: Date? = nil) {
         self.status = status
+        self.since = since
     }
 
     public var body: some View {
         HStack {
             HStack(spacing: LK.Spacing.sm) {
-                TimelineView(.animation(minimumInterval: 0.35)) { context in
-                    let phase = Int(context.date.timeIntervalSinceReferenceDate / 0.35) % 3
-                    HStack(spacing: 4) {
-                        ForEach(0..<3, id: \.self) { index in
-                            Circle()
-                                .frame(width: 7, height: 7)
-                                .opacity(index == phase ? 1 : 0.35)
-                        }
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                if let status, !status.isEmpty {
-                    Text(status)
+                LKTypingDots()
+                if let line = statusLine {
+                    Text(line)
                         .font(LK.Typography.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+                        .contentTransition(.opacity)
+                        .animation(.easeInOut(duration: 0.25), value: line)
                 }
             }
             .padding(.horizontal, LK.Spacing.md + LK.Spacing.xxs)
@@ -162,6 +174,71 @@ public struct LKTypingIndicator: View {
             Spacer(minLength: LK.Size.bubbleSideMargin)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(status.map { "Agent is working: \($0)" } ?? "Agent is typing")
+        .accessibilityLabel(statusLine.map { "Agent is working: \($0)" } ?? "Agent is typing")
+    }
+
+    /// "Searching the web · 3 min"; elapsed time from the first minute on.
+    private var statusLine: String? {
+        var parts: [String] = []
+        if let status, !status.isEmpty { parts.append(status) }
+        if let since {
+            let minutes = Int(Date().timeIntervalSince(since) / 60)
+            if minutes >= 1 { parts.append("\(minutes) min") }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// Three dots that fade and swell in a continuous wave, redrawn every frame.
+public struct LKTypingDots: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init() {}
+
+    public var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 5) {
+                ForEach(0..<3, id: \.self) { index in
+                    let level = reduceMotion ? 0.6 : Self.level(time: time, index: index)
+                    Circle()
+                        .frame(width: 8, height: 8)
+                        .scaleEffect(0.8 + 0.2 * level)
+                        .opacity(0.3 + 0.7 * level)
+                }
+            }
+            .foregroundStyle(.secondary)
+        }
+        .frame(height: 10)
+    }
+
+    /// 0…1: a smooth wave that passes from dot to dot every 1.3 s.
+    static func level(time: TimeInterval, index: Int) -> Double {
+        let period = 1.3
+        let phase = (time / period) * 2 * .pi - Double(index) * 0.75
+        let wave = (sin(phase) + 1) / 2
+        return wave * wave * (3 - 2 * wave)  // ease in and out at the peaks
+    }
+}
+
+/// Hermes' own notices ("Gateway online…"): a quiet centered line, not a chat bubble.
+public struct LKSystemNotice: View {
+    private let text: String
+
+    public init(_ text: String) {
+        self.text = text
+    }
+
+    public var body: some View {
+        Text(LKMessageBubble.markdown(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+            .font(LK.Typography.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .lineLimit(3)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+            .padding(.horizontal, LK.Spacing.xl)
+            .padding(.vertical, LK.Spacing.xs)
+            .frame(maxWidth: .infinity)
     }
 }

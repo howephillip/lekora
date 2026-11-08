@@ -141,3 +141,56 @@ final class StreamingClientTests: XCTestCase {
         XCTAssertTrue(gateway.agentActivity.isEmpty)
     }
 }
+
+/// Feedback round 1: notices, formatting, working time, smooth dots.
+final class StreamingPolishTests: XCTestCase {
+    func testHermesNoticesAreSystemLines() {
+        var timeline = ChatTimeline()
+        timeline.applyIncoming(seq: 1, profileId: "default", role: "system", text: "♻️ Gateway online — Hermes is back and ready.")
+        timeline.applyIncoming(seq: 2, profileId: "default", role: "assistant", text: "Hi")
+        XCTAssertEqual(timeline.entries.map(\.role), [.system, .agent])
+    }
+
+    func testAgentMarkdownIsRenderedAndKeepsLineBreaks() {
+        let rendered = LKMessageBubble.markdown("**Ramen512** is *great*\n- one\n- see [menu](https://example.com)")
+        let plain = String(rendered.characters)
+        XCTAssertEqual(plain, "Ramen512 is great\n- one\n- see menu")
+        XCTAssertTrue(rendered.runs.contains { $0.link == URL(string: "https://example.com") })
+        XCTAssertTrue(rendered.runs.contains { $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true })
+    }
+
+    func testUnfinishedMarkdownWhileStreamingDoesNotBreak() {
+        XCTAssertEqual(String(LKMessageBubble.markdown("**Ramen5").characters), "**Ramen5")
+    }
+
+    func testDotsWaveStaysInRangeAndMovesSmoothly() {
+        var previous = LKTypingDots.level(time: 0, index: 0)
+        for step in 1...600 {  // 10 s at 60 fps
+            let level = LKTypingDots.level(time: Double(step) / 60, index: 0)
+            XCTAssertTrue((0...1).contains(level))
+            XCTAssertLessThan(abs(level - previous), 0.1, "no jumps between frames")
+            previous = level
+        }
+        XCTAssertNotEqual(LKTypingDots.level(time: 0.3, index: 0), LKTypingDots.level(time: 0.3, index: 2),
+                         "the dots are out of phase, so the wave travels")
+    }
+}
+
+@MainActor
+final class ActivityTimingTests: XCTestCase {
+    func testWorkingSinceIsKeptAcrossPings() async throws {
+        let host = try FakeHost()
+        try await host.start()
+        defer { host.stop() }
+        let gateway = GatewayClient(keychain: InMemoryCredentialStore(), requireTLS: false)
+        await gateway.pairAndConnect(pairingToken: host.validPairingToken, instanceId: host.instanceId,
+                                     candidateEndpoints: [host.endpoint])
+        host.streamReply(profile: "assistant", words: ["a"], seal: false)
+        _ = await waitUntil { gateway.agentActivity["assistant"] != nil }
+        let first = try XCTUnwrap(gateway.agentActivity["assistant"]?.since)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        host.streamReply(profile: "assistant", words: ["a"], status: "Searching the web", seal: false)
+        _ = await waitUntil { gateway.agentActivity["assistant"]?.status == "Searching the web" }
+        XCTAssertEqual(gateway.agentActivity["assistant"]?.since, first)
+    }
+}

@@ -350,7 +350,9 @@ public final class GatewayClient: ObservableObject {
             agentActivity[profileId] = nil
             return
         }
-        let activity = AgentActivity(status: status, token: UUID())
+        // Keep when it started working, so the phone can show "· 12 min".
+        let since = agentActivity[profileId]?.since ?? Date()
+        let activity = AgentActivity(status: status, since: since, token: UUID())
         agentActivity[profileId] = activity
         let timeout = activityTimeout
         Task { [weak self] in
@@ -667,5 +669,7 @@ public final class GatewayClient: ObservableObject {
 public struct AgentActivity: Equatable {
     /// What it's doing, when Hermes says ("Searching the web…").
     public let status: String?
+    /// When it started working (kept across pings).
+    public let since: Date
     let token: UUID
 }

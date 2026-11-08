@@ -5,6 +5,8 @@ public struct ChatEntry: Identifiable, Equatable {
     public enum Role: Equatable {
         case user
         case agent
+        /// Hermes' own notices ("Gateway online…", "Background task finished…").
+        case system
     }
 
     public enum Status: Equatable {
@@ -120,7 +122,7 @@ public struct ChatTimeline: Equatable {
         entries.append(ChatEntry(
             id: "seq-\(seq)",
             profileId: profileId,
-            role: role == "user" ? .user : .agent,
+            role: role == "user" ? .user : (role == "system" ? .system : .agent),
             text: text,
             seq: seq
         ))

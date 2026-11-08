@@ -58,10 +58,12 @@ private final class PreviewCredentialStore: CredentialStore {
 #Preview("Streaming") {
     ScrollView {
         VStack(spacing: LK.Spacing.sm) {
-            LKMessageBubble("Can you find me a good ramen place nearby?", from: .user)
-            LKTypingIndicator(status: "Searching the web for ramen near you")
-            LKMessageBubble("I found three places within a ten-minute walk. The best reviewed is", from: .agent, delivery: .streaming)
-            LKTypingIndicator()
+            LKSystemNotice("♻️ Gateway online — Hermes is back and ready.")
+            LKMessageBubble("I need you to find me the best ramen place in Cedar Park and explain why it's the best", from: .user)
+            LKMessageBubble("\n\nCarl's on it — researching Cedar Park ramen now, back with the pick shortly.\n\n", from: .agent)
+            LKSystemNotice("✅ Background task finished — `cd /home/phillip/.hermes/cache/scratch && hermes -p carl -z \"$(cat carl-ramen-c…` (7m 19s)")
+            LKMessageBubble("**Ramen512** — 1420 Cypress Creek Rd Ste 300. 4.6 stars, the *highest* of the four.\n\nWhy it wins:\n- It's the only actual ramen shop in Cedar Park.\n- Everything's made downstairs — see [their menu](https://example.com).", from: .agent, delivery: .streaming)
+            LKTypingIndicator(status: "Default is using browser_exec…", since: Date().addingTimeInterval(-12 * 60))
         }
         .padding(LK.Spacing.lg)
     }

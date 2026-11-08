@@ -32,6 +32,16 @@ public struct WalkingSkeletonPingView: View {
         gateway.agentActivity[gateway.activeProfileId]
     }
 
+    /// Hermes' status phrases start with the verb ("is using browser_exec…"): put the
+    /// agent's name in front.
+    private var statusText: String? {
+        guard let status = activity?.status?.trimmingCharacters(in: .whitespaces), !status.isEmpty else { return nil }
+        if status.hasPrefix("is ") || status.hasPrefix("has ") {
+            return "\(profileName) \(status)"
+        }
+        return status
+    }
+
     /// Dots while the agent works. Hidden while its reply is already streaming in,
     /// unless Hermes says what it's doing (e.g. running a tool between messages).
     private var showsTypingIndicator: Bool {
@@ -125,12 +135,18 @@ public struct WalkingSkeletonPingView: View {
                         emptyState
                     }
                     ForEach(messages) { entry in
-                        LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
-                                        delivery: delivery(for: entry))
-                            .id(entry.id)
+                        Group {
+                            if entry.role == .system {
+                                LKSystemNotice(entry.text)
+                            } else {
+                                LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
+                                                delivery: delivery(for: entry))
+                            }
+                        }
+                        .id(entry.id)
                     }
                     if showsTypingIndicator {
-                        LKTypingIndicator(status: activity?.status)
+                        LKTypingIndicator(status: statusText, since: activity?.since)
                             .id(Self.typingRowID)
                             .transition(.opacity)
                     }
