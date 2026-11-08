@@ -52,6 +52,7 @@ Hermes sends lifecycle and status notices through the same `send` as agent text.
 
 ## Phone
 - **Bottom pinning:** the list stays pinned to the bottom when content shrinks (the thinking bubble disappears, or a live reply settles shorter), so no gap opens above the message bar.
+- **Following new content:** the list scrolls to its bottom *edge* (not to a message), because bubbles are measured lazily and change height while streaming; scrolling to a message could stop short (new reply out of view) or overshoot (gap above the bar, worst with the keyboard up). It follows new content only while you're at the bottom (within 80pt), so reading history is never interrupted; sending a message always jumps to the bottom.
 - **Live bubble:** grows with a cursor, and is replaced in place by the saved message (same bubble, no flicker). The view follows the newest words.
 - **Agent text** is trimmed of surrounding blank lines and rendered as Markdown (bold, italic, code, links; line breaks kept). The user's own text is shown exactly as typed.
 - **Thinking line:**

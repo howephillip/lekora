@@ -15,6 +15,8 @@ public struct WalkingSkeletonPingView: View {
     @FocusState private var inputFocused: Bool
     @State private var confirmingForget = false
     @State private var choosingAgents = false
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    @State private var isAtBottom = true
 
     public init(gateway: GatewayClient, instanceName: String, profileName: String) {
         self.gateway = gateway
@@ -25,8 +27,6 @@ public struct WalkingSkeletonPingView: View {
     private var messages: [ChatEntry] {
         gateway.timeline.entries(for: gateway.activeProfileId)
     }
-
-    private static let typingRowID = "agent-typing"
 
     private var activity: AgentActivity? {
         gateway.agentActivity[gateway.activeProfileId]
@@ -128,55 +128,80 @@ public struct WalkingSkeletonPingView: View {
     // MARK: - Messages
 
     private var messageList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: LK.Spacing.sm) {
-                    if messages.isEmpty {
-                        emptyState
-                    }
-                    ForEach(messages) { entry in
-                        Group {
-                            if entry.role == .system {
-                                LKSystemNotice(entry.text)
-                            } else {
-                                LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
-                                                delivery: delivery(for: entry))
-                            }
-                        }
-                        .id(entry.id)
-                    }
-                    if showsTypingIndicator {
-                        LKTypingIndicator(status: statusText, since: activity?.since)
-                            .id(Self.typingRowID)
-                            .transition(.opacity)
-                    }
+        ScrollView {
+            LazyVStack(spacing: LK.Spacing.sm) {
+                if messages.isEmpty {
+                    emptyState
                 }
-                .padding(.horizontal, LK.Spacing.lg)
-                .padding(.vertical, LK.Spacing.md)
+                ForEach(messages) { entry in
+                    Group {
+                        if entry.role == .system {
+                            LKSystemNotice(entry.text)
+                        } else {
+                            LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
+                                            delivery: delivery(for: entry))
+                        }
+                    }
+                    .id(entry.id)
+                }
+                if showsTypingIndicator {
+                    LKTypingIndicator(status: statusText, since: activity?.since)
+                        .transition(.opacity)
+                }
             }
-            .defaultScrollAnchor(.bottom)
-            // Stay pinned to the bottom when content shrinks (the thinking bubble goes away,
-            // or a live reply settles a little shorter), instead of leaving a gap.
-            .defaultScrollAnchor(.bottom, for: .sizeChanges)
-            // A fresh list per agent, so switching opens that agent's chat at its newest message.
-            .id(gateway.activeProfileId)
-            #if os(iOS)
-            .scrollDismissesKeyboard(.interactively)
-            #endif
-            .onChange(of: messages.last?.id) { _, newest in
-                scrollToNewest(newest, proxy: proxy)
-            }
-            .onChange(of: messages.last?.text) { _, _ in
-                // A live reply grows: keep its newest words in view.
-                scrollToNewest(showsTypingIndicator ? Self.typingRowID : messages.last?.id, proxy: proxy)
-            }
-            .onChange(of: showsTypingIndicator) { _, showing in
-                scrollToNewest(showing ? Self.typingRowID : messages.last?.id, proxy: proxy)
-            }
-            .animation(.easeOut(duration: 0.2), value: showsTypingIndicator)
-            .onChange(of: inputFocused) { _, focused in
-                // Keep the newest message visible when the keyboard slides up.
-                if focused { scrollToNewest(messages.last?.id, proxy: proxy) }
+            .padding(.horizontal, LK.Spacing.lg)
+            .padding(.vertical, LK.Spacing.md)
+        }
+        // Follow the bottom EDGE, not a message id: the list measures bubbles lazily and
+        // they change height while streaming, so scrolling to an id could stop short
+        // (new reply out of view) or leave a gap above the message bar.
+        .scrollPosition($scrollPosition)
+        .defaultScrollAnchor(.bottom)
+        .defaultScrollAnchor(.bottom, for: .sizeChanges)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            // "At the bottom" = the visible area reaches the end of the content
+            // (visibleRect already excludes the keyboard and message bar).
+            geometry.visibleRect.maxY >= geometry.contentSize.height - Self.bottomSlack
+        } action: { _, atBottom in
+            isAtBottom = atBottom
+        }
+        // A fresh list per agent, so switching opens that agent's chat at its newest message.
+        .id(gateway.activeProfileId)
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        #endif
+        .onChange(of: contentSignature) { _, _ in
+            // New message, growing live reply, thinking bubble on/off: follow along, but
+            // only if the reader is already at the bottom (never yank them out of history).
+            if isAtBottom { scrollToBottom(animated: true) }
+        }
+        .animation(.easeOut(duration: 0.2), value: showsTypingIndicator)
+        .onChange(of: inputFocused) { _, focused in
+            // The keyboard shrinks the visible area: keep the newest message in view.
+            if focused && isAtBottom { scrollToBottom(animated: true) }
+        }
+        .onChange(of: gateway.activeProfileId) { _, _ in
+            isAtBottom = true
+            scrollPosition = ScrollPosition(edge: .bottom)
+        }
+    }
+
+    /// How far from the end still counts as "at the bottom".
+    private static let bottomSlack: CGFloat = 80
+
+    /// Changes whenever the bottom of the chat changes.
+    private var contentSignature: [Int] {
+        [messages.count, messages.last?.text.count ?? 0, showsTypingIndicator ? 1 : 0,
+         (statusText ?? "").count]
+    }
+
+    private func scrollToBottom(animated: Bool) {
+        // Wait one layout pass so the new content is measured before scrolling to the edge.
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeOut(duration: 0.2)) { scrollPosition.scrollTo(edge: .bottom) }
+            } else {
+                scrollPosition.scrollTo(edge: .bottom)
             }
         }
     }
@@ -206,17 +231,13 @@ public struct WalkingSkeletonPingView: View {
         }
     }
 
-    private func scrollToNewest(_ id: String?, proxy: ScrollViewProxy) {
-        guard let id else { return }
-        withAnimation(.easeOut(duration: 0.2)) {
-            proxy.scrollTo(id, anchor: .bottom)
-        }
-    }
 
     private func send() {
         guard canSend else { return }
         let text = draft
         draft = ""
+        isAtBottom = true          // you just sent something: show it, and the reply
+        scrollToBottom(animated: true)
         Task {
             await gateway.sendMessage(text)
         }
