@@ -295,3 +295,45 @@ async def test_revoked_device_gets_no_more_broadcasts(gw, store):
     with pytest.raises(ConnectionClosed):
         await asyncio.wait_for(b.recv(), 2)  # closed without receiving the chat
     await a.close()
+
+
+def unpair_env(store, device_id, token, msg_id="u1"):
+    return env(store, "device.unpair", {"device_id": device_id, "device_token": token},
+               msg_id=msg_id)
+
+
+async def test_unpair_revokes_and_closes_all_device_sockets(gw, store):
+    device_id, tok = store.register_device("iPhone")
+    live = await hello(gw, store, device_id, tok)
+    await recv(live)  # hello.ack
+    ws = await open_ws(gw)  # fresh socket, no hello: unpair carries its own credentials
+    await ws.send(unpair_env(store, device_id, tok))
+    ack = await recv(ws)
+    assert ack["type"] == "device.unpair.ack" and ack["id"] == "u1"
+    assert ack["data"] == {"status": "ok", "device_id": device_id}
+    assert not store.is_device_active(device_id)
+    with pytest.raises(ConnectionClosed):
+        await ws.recv()
+    with pytest.raises(ConnectionClosed):
+        await asyncio.wait_for(live.recv(), 2)  # the chat socket is closed too
+
+
+async def test_unpair_with_bad_or_revoked_token(gw, store):
+    device_id, tok = store.register_device()
+    ws = await open_ws(gw)
+    await ws.send(unpair_env(store, device_id, tok + "x"))
+    assert (await recv(ws))["data"]["code"] == "AUTH_FAILED"
+    assert store.is_device_active(device_id)  # a wrong token can't revoke anything
+    store.revoke_device(device_id)
+    ws = await open_ws(gw)
+    await ws.send(unpair_env(store, device_id, tok))
+    assert (await recv(ws))["data"]["code"] == "AUTH_FAILED"
+
+
+async def test_unpair_does_not_touch_other_devices(gw, store):
+    a_id, a_tok = store.register_device("a")
+    b_id, _ = store.register_device("b")
+    ws = await open_ws(gw)
+    await ws.send(unpair_env(store, a_id, a_tok))
+    await recv(ws)
+    assert [d.active for d in store.list_devices()] == [False, True]

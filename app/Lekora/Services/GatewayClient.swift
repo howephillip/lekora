@@ -117,7 +117,7 @@ public final class GatewayClient: ObservableObject {
                 instance_id: instanceId,
                 data: PairRequestData(
                     pairing_token: pairingToken,
-                    device_name: "iPhone",
+                    device_name: DeviceName.current,
                     client_version: "1.0.0"
                 )
             )
@@ -151,7 +151,7 @@ public final class GatewayClient: ObservableObject {
     /// nothing while a connection attempt is running or already connected.
     public func resumeSavedSession() async {
         guard let host = savedHost else { return }
-        guard !isBusy else { return }
+        guard !isBusy, !isForgetting else { return }
 
         state = .probing
         do {
@@ -199,7 +199,7 @@ public final class GatewayClient: ObservableObject {
             startReceiveLoop(wsTask: wsTask)
         } catch let hostError as HostError where hostError.meansCredentialsInvalid {
             // The host no longer knows this phone: forget it so the wizard shows.
-            forgetHost()
+            forgetLocally()
             state = .error("This phone is no longer paired with \(host.instanceName). Run the pair command on your Hermes machine and scan the new code.")
         } catch {
             closeSocket()
@@ -207,9 +207,80 @@ public final class GatewayClient: ObservableObject {
         }
     }
 
-    /// Clears the saved host and everything shown for it, and returns to the setup wizard.
-    /// The device stays registered on the host until it is revoked there.
-    public func forgetHost() {
+    public enum ForgetOutcome: Equatable {
+        /// The host revoked this phone (or had already), so nothing is left behind.
+        case removedFromHost
+        /// Forgotten on the phone only; the host still lists it until revoked there.
+        case hostUnreachable
+    }
+
+    /// "Forget Host": asks the host to revoke this phone, then clears the saved host
+    /// and returns to the setup wizard. The phone forgets the host even when the host
+    /// can't be reached; the setup screen then says how to clean up on the host.
+    @discardableResult
+    public func forgetHost() async -> ForgetOutcome {
+        guard let host = savedHost, !isForgetting else { return .removedFromHost }
+        isForgetting = true
+        defer { isForgetting = false }
+
+        // Stop the chat socket first so nothing else arrives while forgetting.
+        closeSocket()
+        let preferred = activeURL.map { [$0.absoluteString] } ?? []
+        let outcome = await requestUnpair(host: host, endpoints: SavedHost.orderedEndpoints(preferred: nil, preferred, host.endpoints))
+
+        forgetLocally()
+        if outcome == .hostUnreachable {
+            state = .error("This phone forgot \(host.instanceName), but couldn't reach it to remove this phone from its list. On the Hermes machine, `hermes lekora devices` can revoke it.")
+        }
+        return outcome
+    }
+
+    /// True while Forget Host is talking to the host.
+    @Published public private(set) var isForgetting = false
+
+    /// Sends `device.unpair` on its own short-lived socket. Never throws: any failure
+    /// other than "already revoked" counts as unreachable.
+    private func requestUnpair(host: SavedHost, endpoints: [String]) async -> ForgetOutcome {
+        var unpairSocket: URLSessionWebSocketTask?
+        defer { unpairSocket?.cancel(with: .normalClosure, reason: nil) }
+        do {
+            let route = try await prober.probeFastest(endpoints: endpoints, timeoutSeconds: 2)
+            let wsTask = session.webSocketTask(with: route.winningURL)
+            unpairSocket = wsTask
+            wsTask.resume()
+
+            let request = Envelope(
+                type: "device.unpair",
+                instance_id: host.instanceId,
+                data: DeviceUnpairData(device_id: host.deviceId, device_token: host.deviceToken)
+            )
+            try await send(request, on: wsTask)
+            _ = try await withTimeout(seconds: 3) {
+                try await self.receiveReply(DeviceUnpairAckData.self, on: wsTask)
+            }
+            return .removedFromHost
+        } catch let hostError as HostError where hostError.meansCredentialsInvalid {
+            return .removedFromHost  // already revoked on the host
+        } catch {
+            return .hostUnreachable
+        }
+    }
+
+    private func withTimeout<T: Sendable>(seconds: Double, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw RouteProberError.timeout
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw RouteProberError.timeout }
+            return first
+        }
+    }
+
+    /// Clears the saved host and everything shown for it, without contacting the host.
+    private func forgetLocally() {
         closeSocket()
         SavedHost.clear(from: keychain)
         savedHost = nil

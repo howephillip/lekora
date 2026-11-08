@@ -85,10 +85,32 @@ public struct ReconnectingView: View {
             titleVisibility: .visible
         ) {
             Button("Forget Host", role: .destructive) {
-                gateway.forgetHost()
+                Task { await gateway.forgetHost() }
             }
         } message: {
-            Text("This phone will stop connecting to it. To connect again you'll need a new pairing code from the Hermes machine.")
+            Text("This phone will stop connecting to it and ask the host to remove it from its device list. To connect again you'll need a new pairing code from the Hermes machine.")
+        }
+        .overlay {
+            if gateway.isForgetting {
+                ForgettingOverlay()
+            }
+        }
+    }
+}
+
+/// Covers the screen while Forget Host asks the host to remove this phone.
+struct ForgettingOverlay: View {
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.25).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Forgetting host…")
+                    .font(.subheadline)
+            }
+            .padding(24)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
     }
 }

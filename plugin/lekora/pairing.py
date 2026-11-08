@@ -114,9 +114,9 @@ def _when(iso: Optional[str]) -> str:
 def format_device_table(devices: list[Device]) -> str:
     if not devices:
         return "No devices are paired yet. Run `hermes lekora pair` to pair the Lekora app."
-    header = ("ID", "Name", "Status", "Last seen")
-    rows = [(d.device_id, d.device_name or "(unnamed)",
-             "active" if d.active else "revoked", _when(d.last_seen_at)) for d in devices]
+    header = ("ID", "Name", "Status", "Paired", "Last seen")
+    rows = [(d.device_id, d.device_name or "(unnamed)", "active" if d.active else "revoked",
+             _when(d.paired_at), _when(d.last_seen_at)) for d in devices]
     widths = [max(len(r[i]) for r in [header, *rows]) for i in range(len(header))]
 
     def line(cells) -> str:

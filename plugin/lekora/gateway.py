@@ -222,6 +222,8 @@ class Gateway:
             await self._pair(conn, msg_id, data)
         elif type_ == "hello":
             await self._hello(conn, msg_id, data)
+        elif type_ == "device.unpair":
+            await self._unpair(conn, msg_id, data)
         elif not conn.authed:
             raise _Reject("AUTH_FAILED", "Authenticate with pair.request or hello first",
                           False, True, msg_id)
@@ -265,6 +267,27 @@ class Gateway:
             "instance_name": self.store.get_instance_name(),
             "endpoints": self._endpoints(self.port or 0),
         }, msg_id=msg_id))
+
+    async def _unpair(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
+        """The app's "Forget Host": revoke this device, then close its sockets.
+
+        Carries its own credentials (like ``hello``) so the app can send it on a fresh
+        socket without a replay, whether or not it is currently connected."""
+        device_id, token = data.get("device_id"), data.get("device_token")
+        if not (isinstance(device_id, str) and isinstance(token, str)
+                and self.store.verify_device_token(device_id, token)):
+            raise _Reject("AUTH_FAILED", "Invalid or revoked device token",
+                          False, True, msg_id)
+        self.store.revoke_device(device_id)
+        await self._send(conn, self._envelope(
+            "device.unpair.ack", {"status": "ok", "device_id": device_id}, msg_id=msg_id))
+        for other in list(self._conns):
+            if other is not conn and other.device_id == device_id:
+                try:
+                    await other.ws.close(1000, "device unpaired")
+                except ConnectionClosed:
+                    pass
+        await conn.ws.close(1000, "device unpaired")
 
     async def _hello(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
         if data.get("proto_version", PROTO_VERSION) != PROTO_VERSION:

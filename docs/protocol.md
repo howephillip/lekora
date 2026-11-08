@@ -119,6 +119,25 @@ Immediately following `hello.ack`, the plugin replays all events with `seq > las
 
 ---
 
+### Step 6: `device.unpair` (Client -> Host) — the app's "Forget Host"
+Sent on a fresh socket, **without** `hello` (no replay): it carries its own credentials.
+```json
+{
+  "v": 1,
+  "id": "c3d4e5f6-0000-4000-8000-000000000001",
+  "type": "device.unpair",
+  "instance_id": "<instance_id>",
+  "ts": "2026-11-07T21:05:00Z",
+  "data": { "device_id": "dev_8f7e6d5c", "device_token": "sec_..." }
+}
+```
+The host verifies the token, revokes the device, replies `device.unpair.ack` with the same `id`, then closes this socket and any other open socket of that device (code 1000):
+```json
+{ "v": 1, "id": "<same id>", "type": "device.unpair.ack", "instance_id": "<instance_id>",
+  "ts": "2026-11-07T21:05:00Z", "data": { "status": "ok", "device_id": "dev_8f7e6d5c" } }
+```
+A wrong or already-revoked token gets `error` `AUTH_FAILED` (the app treats "already revoked" as done). If the host can't be reached the app forgets locally anyway and points the user to `hermes lekora devices`.
+
 ## 2. `chat.*` (Walking Skeleton Ping/Pong)
 
 In Phase 1 (Walking Skeleton), chat messages confirm bidirectional end-to-end communication between the mobile app and the Hermes agent via the native platform hook.
@@ -188,5 +207,6 @@ Auth-related errors (`TOKEN_*`, `AUTH_FAILED`, `INCOMPATIBLE_VERSION`) close the
 - A successful `pair.request` also authenticates that socket; the app may send `hello` on the same socket straight afterwards.
 - `chat.send` is stored as an event (`role: "user"`) and pushed to the sender's *other* devices only; replies (`role: "assistant"`) go to every connected device. Replay after `hello.ack` includes both roles.
 - A repeated `chat.send` `id` on one connection is ignored (idempotent).
+- `device.unpair` is accepted before authentication (like `hello`).
 - Revocation is checked on every message from an authenticated socket and before every broadcast. A device revoked while connected (e.g. by `hermes lekora devices --revoke` in another process) gets `error` `AUTH_FAILED` for its next message and the socket closes (1008); it receives no further broadcasts.
 

@@ -56,10 +56,15 @@ public struct WalkingSkeletonPingView: View {
                 titleVisibility: .visible
             ) {
                 Button("Disconnect and Forget", role: .destructive) {
-                    gateway.forgetHost()
+                    Task { await gateway.forgetHost() }
                 }
             } message: {
-                Text("This phone will disconnect and stop reconnecting automatically. To connect again you'll need a new pairing code from the Hermes machine. Your chats stay on the host.")
+                Text("This phone will disconnect and be removed from the host's device list. To connect again you'll need a new pairing code from the Hermes machine. Your chats stay on the host.")
+            }
+            .overlay {
+                if gateway.isForgetting {
+                    ForgettingOverlay()
+                }
             }
         }
     }

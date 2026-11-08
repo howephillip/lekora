@@ -177,12 +177,64 @@ final class AutoReconnectTests: XCTestCase {
         await gateway.resumeSavedSession()
         _ = await waitUntil { gateway.timeline.entries.count == 2 }
 
-        gateway.forgetHost()
+        let outcome = await gateway.forgetHost()
 
+        XCTAssertEqual(outcome, .removedFromHost)
+        XCTAssertTrue(host.unpaired, "the host was asked to revoke this phone")
+        let unpair = try XCTUnwrap(host.received(type: "device.unpair").first?["data"] as? [String: Any])
+        XCTAssertEqual(unpair["device_id"] as? String, "dev_1")
+        XCTAssertEqual(unpair["device_token"] as? String, host.acceptedDeviceToken)
+        XCTAssertFalse(gateway.isForgetting)
         XCTAssertEqual(gateway.state, .disconnected)
         XCTAssertNil(gateway.savedHost)
         XCTAssertTrue(store.values.isEmpty)
         XCTAssertTrue(gateway.timeline.entries.isEmpty)
         XCTAssertNil(GatewayClient(keychain: store).savedHost, "next launch shows the setup wizard")
+    }
+
+    func testForgetWhileNotConnectedStillRemovesFromHost() async throws {
+        // E.g. Forget Host on the Reconnecting screen: no chat socket is open.
+        let store = try savedStore()
+        let gateway = GatewayClient(keychain: store)
+
+        let outcome = await gateway.forgetHost()
+
+        XCTAssertEqual(outcome, .removedFromHost)
+        XCTAssertTrue(host.unpaired)
+        XCTAssertTrue(host.received(type: "hello").isEmpty, "unpair needs no hello, so no history replay")
+        XCTAssertTrue(store.values.isEmpty)
+    }
+
+    func testForgetWhenHostUnreachableForgetsLocallyAndExplains() async throws {
+        let store = try savedStore(endpoints: ["ws://127.0.0.1:1"])
+        let gateway = GatewayClient(keychain: store)
+
+        let outcome = await gateway.forgetHost()
+
+        XCTAssertEqual(outcome, .hostUnreachable)
+        XCTAssertNil(gateway.savedHost)
+        XCTAssertTrue(store.values.isEmpty, "the phone forgets the host anyway")
+        guard case .error(let message) = gateway.state else {
+            return XCTFail("expected an explanation, got \(gateway.state)")
+        }
+        XCTAssertTrue(message.contains("hermes lekora devices"))
+    }
+
+    func testForgetWhenAlreadyRevokedCountsAsRemoved() async throws {
+        host.unpaired = true
+        let gateway = GatewayClient(keychain: try savedStore())
+        let outcome = await gateway.forgetHost()
+        XCTAssertEqual(outcome, .removedFromHost)
+        XCTAssertEqual(gateway.state, .disconnected)
+    }
+
+    func testPairingSendsDescriptiveDeviceName() async throws {
+        let gateway = GatewayClient(keychain: InMemoryCredentialStore())
+        await gateway.pairAndConnect(pairingToken: host.validPairingToken, instanceId: host.instanceId,
+                                     candidateEndpoints: [host.endpoint])
+        let request = try XCTUnwrap(host.received(type: "pair.request").first?["data"] as? [String: Any])
+        let name = try XCTUnwrap(request["device_name"] as? String)
+        XCTAssertEqual(name, DeviceName.current)
+        XCTAssertTrue(name.contains(" · "), "model and OS version, e.g. iPhone19,2 · iOS 27.0.1")
     }
 }

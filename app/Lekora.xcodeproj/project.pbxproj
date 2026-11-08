@@ -20,6 +20,7 @@
 		CDAB304F30A00AD4009D7D27 /* ReconnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB304E30A00AD4009D7D27 /* ReconnectingView.swift */; };
 		CDAB305130A00B19009D7D27 /* FakeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305030A00B19009D7D27 /* FakeHost.swift */; };
 		CDAB305330A00B2E009D7D27 /* AutoReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305230A00B2E009D7D27 /* AutoReconnectTests.swift */; };
+		CDAB305530A011F6009D7D27 /* DeviceName.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDAB305430A011F6009D7D27 /* DeviceName.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
 		E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */; };
 		F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */; };
@@ -51,6 +52,7 @@
 		CDAB304E30A00AD4009D7D27 /* ReconnectingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectingView.swift; sourceTree = "<group>"; };
 		CDAB305030A00B19009D7D27 /* FakeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeHost.swift; sourceTree = "<group>"; };
 		CDAB305230A00B2E009D7D27 /* AutoReconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoReconnectTests.swift; sourceTree = "<group>"; };
+		CDAB305430A011F6009D7D27 /* DeviceName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceName.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -93,6 +95,7 @@
 				5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */,
 				9D236D28311188A8777EEA28 /* RouteProber.swift */,
 				CDAB304C30A00A82009D7D27 /* SavedHost.swift */,
+				CDAB305430A011F6009D7D27 /* DeviceName.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -233,6 +236,7 @@
 				F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */,
 				AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */,
 				CDAB304F30A00AD4009D7D27 /* ReconnectingView.swift in Sources */,
+				CDAB305530A011F6009D7D27 /* DeviceName.swift in Sources */,
 				CDAB304930A007C7009D7D27 /* ChatTimeline.swift in Sources */,
 				85721F1A389C4C7C54E14060 /* SetupWizardView.swift in Sources */,
 				36E2264B53D152FEBB4E6FA5 /* WalkingSkeletonPingView.swift in Sources */,

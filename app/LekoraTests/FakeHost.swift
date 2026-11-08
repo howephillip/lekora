@@ -21,6 +21,8 @@ final class FakeHost: @unchecked Sendable {
     private var connections: [NWConnection] = []
     private var _received: [[String: Any]] = []
     private(set) var port: UInt16 = 0
+    /// Set once the app's Forget Host revoked the device; later unpairs are rejected.
+    var unpaired = false
 
     var endpoint: String { "ws://127.0.0.1:\(port)" }
 
@@ -121,6 +123,16 @@ final class FakeHost: @unchecked Sendable {
                 send(type: "chat.message", data: ["seq": event.seq, "role": event.role, "text": event.text],
                      profileId: "assistant", on: connection)
             }
+
+        case "device.unpair":
+            guard data["device_token"] as? String == acceptedDeviceToken, !unpaired else {
+                send(error: "AUTH_FAILED", reason: "Invalid or revoked device token", id: id, on: connection, close: true)
+                return
+            }
+            unpaired = true
+            send(type: "device.unpair.ack", id: id,
+                 data: ["status": "ok", "device_id": data["device_id"] as? String ?? ""], on: connection)
+            queue.asyncAfter(deadline: .now() + 0.1) { connection.cancel() }
 
         case "chat.send":
             let seq = (history.last?.seq ?? 0) + 1

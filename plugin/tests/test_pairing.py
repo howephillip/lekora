@@ -125,11 +125,12 @@ def test_devices_table(store, clock):
     out = io.StringIO()
     assert pairing.run_devices(store, out) == 0
     lines = out.getvalue().splitlines()
-    assert lines[0].split() == ["ID", "Name", "Status", "Last", "seen"]
+    assert lines[0].split() == ["ID", "Name", "Status", "Paired", "Last", "seen"]
     active_row = next(line for line in lines if line.startswith(active_id))
     revoked_row = next(line for line in lines if line.startswith(revoked_id))
     assert "iPhone" in active_row and "active" in active_row and "2026-11-07 12:00 UTC" in active_row
-    assert "Old iPhone" in revoked_row and "revoked" in revoked_row and "12:30 UTC" in revoked_row
+    assert "Old iPhone" in revoked_row and "revoked" in revoked_row
+    assert revoked_row.count("2026-11-07 12:30 UTC") == 2  # paired and last seen
     assert "1 active, 1 revoked" in out.getvalue()
     # Columns line up: every Status value starts at the same position.
     assert active_row.index("active") == revoked_row.index("revoked") == lines[0].index("Status")

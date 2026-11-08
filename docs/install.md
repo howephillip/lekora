@@ -29,7 +29,7 @@ If the repo is private, the machine needs Git access to it (for example a logged
 ## Paired phones
 - `hermes lekora devices` lists every phone ever paired: ID, name, active or revoked, and when it last connected.
 - `hermes lekora devices --revoke <ID>` removes a phone (repeat `--revoke` for several). A connected phone is cut off at its next message; the app then forgets the host and shows its setup screen.
-- "Forget Host" in the app does not remove the phone here; revoke it with the command above.
+- "Forget Host" in the app also removes the phone here. If the host was unreachable at the time, the app says so; revoke it with the command above.
 
 ## Where things live
 - Data: `~/.hermes/lekora.db` (override with `LEKORA_DB_PATH`). Safe to keep across re-installs.

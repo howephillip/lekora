@@ -157,6 +157,23 @@ public struct ChatMessageData: Codable, Equatable {
     }
 }
 
+// MARK: - Unpairing ("Forget Host")
+/// Sent on a fresh socket without `hello`: carries its own credentials.
+public struct DeviceUnpairData: Codable, Equatable {
+    public let device_id: String
+    public let device_token: String
+
+    public init(device_id: String, device_token: String) {
+        self.device_id = device_id
+        self.device_token = device_token
+    }
+}
+
+public struct DeviceUnpairAckData: Codable, Equatable {
+    public let status: String
+    public let device_id: String
+}
+
 // MARK: - Standard Error Envelope Payload
 public struct ErrorData: Codable, Equatable {
     public let code: String
