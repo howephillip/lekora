@@ -519,9 +519,10 @@ class Gateway:
             card_id, status = await self.prompts.respond(profile_id, data)
         except PromptError as exc:
             raise _Reject(exc.code, exc.reason, True, False, msg_id)
-        await self._send(conn, self._envelope(
-            "prompt.respond.ack", {"card_id": card_id, "status": status},
-            msg_id=msg_id, profile_id=profile_id))
+        ack: dict[str, Any] = {"card_id": card_id, "status": status}
+        if status == "needs_confirmation" and self.prompts.last_warning:
+            ack["message"] = self.prompts.last_warning  # e.g. why a model is flagged as expensive
+        await self._send(conn, self._envelope("prompt.respond.ack", ack, msg_id=msg_id, profile_id=profile_id))
 
     async def _chat_read(self, conn: _Conn, profile_id: Any, data: dict) -> None:
         """A phone read an agent's chat up to ``seq``: remember it, tell the other phones."""

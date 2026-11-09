@@ -262,9 +262,23 @@ public final class GatewayClient: ObservableObject {
 
     // MARK: - Approval and question cards (docs/prompts.md)
 
-    /// The newest card still waiting for an answer in an agent's chat.
+    /// The newest card in an agent's chat that the agent is waiting on you to answer.
     public func openPrompt(for profileId: String, now: Date = Date()) -> PromptCard? {
-        timeline.entries(for: profileId).last { $0.card?.isOpen(now: now) == true }?.card
+        timeline.entries(for: profileId).last { $0.card?.isOpen(now: now) == true && $0.card?.needsAttention == true }?.card
+    }
+
+    /// Switches the model from a model-picker card. `needs_confirmation` comes back with
+    /// Hermes' reason (e.g. an expensive model); call again with `confirmed` to go ahead.
+    public func pickModel(_ card: PromptCard, in profileId: String, model: String, provider: String,
+                          confirmed: Bool = false) async throws -> (status: String, message: String?) {
+        let ack = try await respondAck(profileId: profileId, PromptRespondData(
+            card_id: card.id, model: model, provider: provider, confirmed: confirmed ? true : nil))
+        return (ack.status, ack.message)
+    }
+
+    /// Opens Hermes' model picker in this chat (the same as typing /model).
+    public func openModelPicker() async {
+        await sendMessage("/model")
     }
 
     /// Answers an approval card: `once`, `session`, `always` or `deny` (with an optional reason).
@@ -282,10 +296,17 @@ public final class GatewayClient: ObservableObject {
     }
 
     private func respond(profileId: String, _ data: PromptRespondData) async throws -> String {
+        try await respondAck(profileId: profileId, data).status
+    }
+
+    private func respondAck(profileId: String, _ data: PromptRespondData) async throws -> PromptRespondAckData {
+        // Switching models can take a while (Hermes checks the provider).
         let ack = try await request(type: "prompt.respond", profileId: profileId, data: data,
-                                    reply: PromptRespondAckData.self, timeout: 20)
-        timeline.setCardStatus(cardId: ack.card_id, status: ack.status)
-        return ack.status
+                                    reply: PromptRespondAckData.self, timeout: 60)
+        if ack.status != "needs_confirmation" {
+            timeline.setCardStatus(cardId: ack.card_id, status: ack.status)
+        }
+        return ack
     }
 
     // MARK: - Older messages (docs/chat-history.md)

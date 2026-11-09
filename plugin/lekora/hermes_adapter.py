@@ -69,8 +69,14 @@ def _hermes_resolvers() -> Resolvers:
         from tools.clarify_gateway import get_pending
         return get_pending(clarify_id or "") is not None
 
+    def model_warning(model: str, provider: str) -> Optional[str]:
+        # The same check Hermes' own Telegram/Discord pickers run before switching.
+        from hermes_cli.model_selection_guards import combined_selection_warning
+        warning = combined_selection_warning(model, provider=provider)
+        return warning.message if warning is not None else None
+
     return Resolvers(approve=approve, answer=answer, approval_timeout=approval_timeout,
-                     waiting=waiting, confirm=confirm)
+                     waiting=waiting, confirm=confirm, model_warning=model_warning)
 
 
 def _hermes_version() -> Optional[str]:
@@ -261,6 +267,30 @@ class LekoraAdapter(BasePlatformAdapter):
         try:
             message_id = await self._service.prompts.ask_confirm(
                 str(chat_id), str(session_key), title, message, str(confirm_id))
+        except Exception as exc:
+            return SendResult(success=False, error=str(exc))
+        return SendResult(success=True, message_id=message_id)
+
+    async def send_model_picker(self, chat_id: str, providers: list, current_model: str, current_provider: str,
+                                session_key: str, on_model_selected, metadata=None) -> SendResult:
+        """Hermes' /model picker hook: a card listing the models this agent can switch to."""
+        if self._service is None or not providers:
+            return SendResult(success=False, error="Lekora is not running" if self._service is None else "No models")
+        try:
+            message_id = await self._service.prompts.ask_model(
+                str(chat_id), str(session_key), list(providers), current_model, current_provider, on_model_selected)
+        except Exception as exc:
+            return SendResult(success=False, error=str(exc))
+        return SendResult(success=True, message_id=message_id)
+
+    async def send_choice_picker(self, chat_id: str, title: str, choices: list, session_key: str,
+                                 on_choice_selected, metadata=None) -> SendResult:
+        """Hermes' choice picker hook (/reasoning, /fast, …): a card with one button per option."""
+        if self._service is None:
+            return SendResult(success=False, error="Lekora is not running")
+        try:
+            message_id = await self._service.prompts.ask_choice(
+                str(chat_id), str(session_key), title, list(choices), on_choice_selected)
         except Exception as exc:
             return SendResult(success=False, error=str(exc))
         return SendResult(success=True, message_id=message_id)

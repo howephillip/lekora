@@ -391,3 +391,119 @@ async def test_any_typed_message_rechecks_a_confirmation(gw, store, prompts, her
     cards = [m["data"]["card"] for m in await drain(ws, timeout=0.5) if "card" in m.get("data", {})]
     assert cards and cards[-1]["status"] == "answered_in_chat"
     await ws.close()
+
+
+# ---- pickers: /model and choices (/reasoning, /fast) ------------------------------------
+
+PROVIDERS = [
+    {"slug": "anthropic", "name": "Anthropic", "models": ["claude-opus-5-5", "claude-sonnet-5-5"],
+     "is_current": True, "total_models": 2, "source": "built-in"},
+    {"slug": "openrouter", "name": "OpenRouter", "models": ["x/fast-1"], "is_current": False,
+     "total_models": 120, "model_labels": {"x/fast-1": "Free"}},
+]
+
+
+async def ask_model(prompts, picked):
+    async def on_selected(chat_id, model, provider):
+        picked.append((chat_id, model, provider))
+        return f"Model switched to `{model}`\nProvider: {provider}"
+    message_id = await prompts.ask_model("assistant", "sess-1", PROVIDERS, "claude-opus-5-5", "anthropic", on_selected)
+    return message_id[len("card-"):]
+
+
+async def test_model_picker_card_and_switch(gw, store, prompts):
+    picked = []
+    ws = await phone(gw, store)
+    card_id = await ask_model(prompts, picked)
+    msg = await recv(ws)
+    card = msg["data"]["card"]
+    assert msg["data"]["role"] == "model" and msg["data"]["text"] == "Choose a model (now claude-opus-5-5)"
+    assert card["current_model"] == "claude-opus-5-5" and card["current_provider"] == "anthropic"
+    assert card["providers"][1] == {"slug": "openrouter", "name": "OpenRouter", "models": ["x/fast-1"],
+                                    "is_current": False, "total_models": 120, "model_labels": {"x/fast-1": "Free"}}
+    await ws.send(respond(store, card_id, model="claude-sonnet-5-5", provider="anthropic"))
+    got = await drain(ws)
+    assert picked == [("assistant", "claude-sonnet-5-5", "anthropic")]
+    assert next(m for m in got if m["type"] == "prompt.respond.ack")["data"]["status"] == "chosen"
+    updates = [m["data"] for m in got if m["type"] == "chat.message"]
+    assert updates[0]["card"]["status"] == "chosen"
+    assert updates[0]["card"]["chosen"] == {"model": "claude-sonnet-5-5", "provider": "anthropic", "provider_name": "Anthropic"}
+    assert updates[1]["role"] == "system" and updates[1]["text"].startswith("Model switched to")
+    await ws.close()
+
+
+async def test_expensive_model_asks_first(gw, store, prompts):
+    picked = []
+    prompts.resolvers.model_warning = lambda model, provider: "This model costs $75 per million output tokens."
+    ws = await phone(gw, store)
+    card_id = await ask_model(prompts, picked)
+    await recv(ws)
+    await ws.send(respond(store, card_id, model="claude-opus-5-5", provider="anthropic"))
+    ack = await recv(ws)
+    assert ack["data"] == {"card_id": card_id, "status": "needs_confirmation",
+                           "message": "This model costs $75 per million output tokens."}
+    assert picked == []
+    await ws.send(respond(store, card_id, msg_id="r2", model="claude-opus-5-5", provider="anthropic", confirmed=True))
+    await drain(ws)
+    assert picked == [("assistant", "claude-opus-5-5", "anthropic")]
+    await ws.close()
+
+
+async def test_model_not_offered_is_rejected(gw, store, prompts):
+    ws = await phone(gw, store)
+    card_id = await ask_model(prompts, [])
+    await recv(ws)
+    await ws.send(respond(store, card_id, model="claude-opus-5-5", provider="openrouter"))
+    assert (await recv(ws))["data"]["code"] == "INVALID_ANSWER"
+    await ws.close()
+
+
+async def test_new_picker_replaces_the_old_one_and_typing_leaves_it(gw, store, prompts, hermes):
+    ws = await phone(gw, store)
+    first = await ask_model(prompts, [])
+    await recv(ws)
+    hermes.waiting_now = False
+    await prompts.turn_ended("assistant")                       # pickers aren't Hermes turns
+    await ws.send(env(store, "chat.send", {"text": "hello"}, profile_id="assistant"))
+    assert not [m for m in await drain(ws, timeout=0.3) if "card" in m.get("data", {})]
+    second = await ask_model(prompts, [])
+    got = [m["data"]["card"] for m in await drain(ws) if "card" in m.get("data", {})]
+    assert [(c["id"], c["status"]) for c in got] == [(first, "closed"), (second, "pending")]
+    await ws.close()
+
+
+async def test_choice_picker(gw, store, prompts):
+    chosen = []
+
+    async def on_choice(chat_id, value):
+        chosen.append(value)
+        return f"Reasoning set to {value} (this session)"
+    ws = await phone(gw, store)
+    message_id = await prompts.ask_choice("assistant", "sess-1", "**Reasoning**: medium (session)",
+                                          [{"value": "low", "label": "Low", "is_current": False},
+                                           {"value": "medium", "label": "Medium", "is_current": True}], on_choice)
+    card_id = message_id[len("card-"):]
+    msg = await recv(ws)
+    assert msg["data"]["role"] == "choice" and msg["data"]["card"]["options"][1]["is_current"]
+    assert msg["data"]["card"]["title"] == "**Reasoning**: medium (session)"
+    await ws.send(respond(store, card_id, choice="high"))
+    assert (await recv(ws))["data"]["code"] == "INVALID_ANSWER"
+    await ws.send(respond(store, card_id, msg_id="r2", choice="low"))
+    got = await drain(ws)
+    assert chosen == ["low"]
+    card = next(m for m in got if m["type"] == "chat.message")["data"]["card"]
+    assert card["status"] == "chosen" and card["answer"] == "Low"
+    assert any(m["data"].get("text") == "Reasoning set to low (this session)" for m in got if m["type"] == "chat.message")
+    await ws.close()
+
+
+async def test_failing_picker_callback(gw, store, prompts):
+    async def broken(*args):
+        raise RuntimeError("provider down")
+    ws = await phone(gw, store)
+    message_id = await prompts.ask_choice("assistant", "s", "Fast mode", [{"value": "on", "label": "On"}], broken)
+    await recv(ws)
+    await ws.send(respond(store, message_id[len("card-"):], choice="on"))
+    ack = next(m for m in await drain(ws) if m["type"] == "prompt.respond.ack")
+    assert ack["data"]["status"] == "failed"
+    await ws.close()

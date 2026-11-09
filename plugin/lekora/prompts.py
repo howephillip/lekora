@@ -56,6 +56,8 @@ class Resolvers:
     answer: Callable[[str, str], bool] = lambda clarify_id, text: False
     approval_timeout: Callable[[], Optional[int]] = lambda: None
     waiting: Callable[[str, str, Optional[str]], Optional[bool]] = lambda kind, session_key, clarify_id: None
+    # model_warning(model, provider) -> a warning to confirm first (e.g. an expensive model), or None
+    model_warning: Callable[[str, str], Optional[str]] = lambda model, provider: None
     # confirm(session_key, confirm_id, choice) -> (ran, text to show): a slash-command confirmation
     confirm: Callable[[str, str, str], Awaitable[tuple[bool, Optional[str]]]] = None  # type: ignore[assignment]
 
@@ -71,11 +73,13 @@ class _Live:
     """A card Hermes is waiting on in this run."""
     seq: int
     chat_id: str
-    kind: str                      # "approval" | "question" | "confirm"
+    kind: str                      # "approval" | "question" | "confirm" | "model" | "choice"
     session_key: str
     card: dict
     clarify_id: Optional[str] = None   # a question's clarify id, or a confirmation's confirm id
     choices: list[str] = field(default_factory=list)  # a question's options, as Hermes has them
+    # Pickers (/model, /reasoning, /fast): Hermes' own callback, run with the answer.
+    callback: Optional[Callable[..., Awaitable[Any]]] = None
 
 
 def _iso(dt: datetime) -> str:
@@ -113,6 +117,7 @@ class Prompts:
         self.resolvers = resolvers or Resolvers()
         self._clock = clock
         self._live: dict[str, _Live] = {}
+        self.last_warning: Optional[str] = None  # the warning behind a "needs_confirmation" answer
         # After a typed message, Hermes needs a moment to act on it before cards are rechecked.
         self.recheck_delay = 1.5
         self._tasks: set[asyncio.Task] = set()
@@ -169,6 +174,51 @@ class Prompts:
         self._live[card["id"]] = _Live(seq, chat_id, "confirm", session_key, card, clarify_id=confirm_id)
         return CARD_MESSAGE_PREFIX + card["id"]
 
+    async def ask_model(self, chat_id: str, session_key: str, providers: list, current_model: str,
+                        current_provider: str, on_selected: Callable[..., Awaitable[Any]]) -> str:
+        """Hermes' model picker (/model): the providers and models it can switch to."""
+        rows = []
+        for p in providers or []:
+            if not isinstance(p, dict) or not p.get("slug"):
+                continue
+            row = {"slug": str(p["slug"]), "name": str(p.get("name") or p["slug"]),
+                   "models": [str(m) for m in (p.get("models") or [])],
+                   "is_current": bool(p.get("is_current")),
+                   "total_models": int(p.get("total_models") or len(p.get("models") or []))}
+            labels = p.get("model_labels")
+            if isinstance(labels, dict) and labels:
+                row["model_labels"] = {str(k): str(v) for k, v in labels.items()}
+            rows.append(row)
+        card: dict[str, Any] = {
+            "kind": "model", "id": "c_" + uuid.uuid4().hex[:10], "status": "pending",
+            "current_model": str(current_model or ""), "current_provider": str(current_provider or ""),
+            "providers": rows,
+        }
+        await self._supersede(chat_id, "model")
+        text = "Choose a model" + (f" (now {current_model})" if current_model else "")
+        seq = await self._gw().publish_card(chat_id, "model", text, card)
+        self._live[card["id"]] = _Live(seq, chat_id, "model", session_key, card, callback=on_selected)
+        return CARD_MESSAGE_PREFIX + card["id"]
+
+    async def ask_choice(self, chat_id: str, session_key: str, title: str, choices: list,
+                         on_selected: Callable[..., Awaitable[Any]]) -> str:
+        """Hermes' choice picker (/reasoning, /fast, …): a few options, the current one marked."""
+        options = [{"value": str(c.get("value")), "label": str(c.get("label") or c.get("value")),
+                    "is_current": bool(c.get("is_current"))}
+                   for c in (choices or []) if isinstance(c, dict) and c.get("value") is not None]
+        card: dict[str, Any] = {"kind": "choice", "id": "c_" + uuid.uuid4().hex[:10], "status": "pending",
+                                "title": str(title or ""), "options": options}
+        await self._supersede(chat_id, "choice")
+        seq = await self._gw().publish_card(chat_id, "choice", _one_line(_plain_title(title)), card)
+        self._live[card["id"]] = _Live(seq, chat_id, "choice", session_key, card, callback=on_selected)
+        return CARD_MESSAGE_PREFIX + card["id"]
+
+    async def _supersede(self, chat_id: str, kind: str) -> None:
+        """A new picker of the same kind replaces an older one still open in that chat."""
+        for live in list(self._live.values()):
+            if live.chat_id == chat_id and live.kind == kind:
+                await self._close(live, "closed")
+
     # ---- the phone answers -----------------------------------------------------------
 
     async def respond(self, profile_id: str, data: dict) -> tuple[str, str]:
@@ -186,7 +236,47 @@ class Prompts:
             return card_id, await self._answer_approval(live, data)
         if live.kind == "confirm":
             return card_id, await self._answer_confirm(live, data)
+        if live.kind == "model":
+            return card_id, await self._answer_model(live, data)
+        if live.kind == "choice":
+            return card_id, await self._answer_choice(live, data)
         return card_id, await self._answer_question(live, data)
+
+    async def _answer_model(self, live: _Live, data: dict) -> str:
+        model, provider = data.get("model"), data.get("provider")
+        rows = {p["slug"]: p for p in live.card.get("providers", [])}
+        if not (isinstance(model, str) and model and provider in rows and model in rows[provider]["models"]):
+            raise PromptError("INVALID_ANSWER", "That model isn't offered here")
+        if not data.get("confirmed"):
+            # Hermes may look up prices: off the event loop.
+            warning = await asyncio.to_thread(self._safe, lambda: self.resolvers.model_warning(model, provider))
+            if warning:
+                self.last_warning = str(warning)
+                return "needs_confirmation"
+        return await self._run_picker(live, "chosen", (live.chat_id, model, provider),
+                                      chosen={"model": model, "provider": provider,
+                                              "provider_name": rows[provider]["name"]})
+
+    async def _answer_choice(self, live: _Live, data: dict) -> str:
+        value = data.get("choice")
+        option = next((o for o in live.card.get("options", []) if o["value"] == value), None)
+        if option is None:
+            raise PromptError("INVALID_ANSWER", "That option isn't offered here")
+        return await self._run_picker(live, "chosen", (live.chat_id, value), answer=option["label"])
+
+    async def _run_picker(self, live: _Live, status: str, args: tuple, **extra: Any) -> str:
+        """Run Hermes' picker callback once; its reply is shown as a small line."""
+        self._live.pop(live.card["id"], None)  # a second tap must not run it again
+        try:
+            reply = await live.callback(*args) if live.callback else None
+        except Exception:
+            log.exception("Lekora: a Hermes picker failed")
+            await self._close(live, "failed")
+            return "failed"
+        await self._close(live, status, **extra)
+        if isinstance(reply, str) and reply.strip():
+            await self._gw().publish_message(live.chat_id, reply, role="system")
+        return status
 
     async def _answer_confirm(self, live: _Live, data: dict) -> str:
         choice = data.get("choice")
@@ -269,8 +359,8 @@ class Prompts:
                                            "!approve", "!deny", "!always", "!cancel"))
         # Hermes also drops a waiting slash-command confirmation when any next message arrives.
         candidates = [live for live in self._live.values()
-                      if live.chat_id == chat_id and (live.kind == "confirm"
-                                                      or (live.kind == "approval") == typed_answer)]
+                      if live.chat_id == chat_id and live.kind in ("approval", "question", "confirm")
+                      and (live.kind == "confirm" or (live.kind == "approval") == typed_answer)]
         if not candidates:
             return
 
@@ -285,6 +375,8 @@ class Prompts:
         task.add_done_callback(self._tasks.discard)
 
     def _still_waiting(self, live: _Live) -> bool:
+        if live.kind in ("model", "choice"):
+            return True  # Lekora holds these until answered or replaced, not Hermes
         waiting = self._safe(lambda: self.resolvers.waiting(live.kind, live.session_key, live.clarify_id))
         return bool(waiting)  # unknown counts as not waiting
 

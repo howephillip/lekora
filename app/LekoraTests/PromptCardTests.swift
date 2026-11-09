@@ -161,6 +161,75 @@ final class PromptCardTests: XCTestCase {
         XCTAssertEqual(LKPromptText.outcome(of: PromptCard(kind: .confirm, id: "x", status: "confirmed_once")).text, "Approved")
     }
 
+    // MARK: - Pickers
+
+    private func modelCard(warn: String? = nil) -> [String: Any] {
+        var card: [String: Any] = [
+            "kind": "model", "id": "c_m1", "status": "pending", "current_model": "claude-opus-5-5",
+            "current_provider": "anthropic",
+            "providers": [["slug": "anthropic", "name": "Anthropic", "models": ["claude-opus-5-5", "claude-sonnet-5-5"],
+                           "is_current": true, "total_models": 2],
+                          ["slug": "openrouter", "name": "OpenRouter", "models": ["x/fast-1"], "is_current": false,
+                           "total_models": 120, "model_labels": ["x/fast-1": "Free"]]]]
+        if let warn { card["warn"] = warn }
+        return card
+    }
+
+    func testModelPicker() async throws {
+        let gateway = try await connected()
+        host.ask(profile: "bruce", card: modelCard(), role: "model", text: "Choose a model")
+        _ = await waitUntil { gateway.timeline.entries.contains { $0.card?.kind == .model } }
+        let card = try XCTUnwrap(gateway.timeline.entries.first { $0.card?.kind == .model }?.card)
+        XCTAssertEqual(card.providers?.count, 2)
+        XCTAssertEqual(card.providers?[1].modelLabels?["x/fast-1"], "Free")
+        XCTAssertEqual(card.providers?[1].totalModels, 120)
+        XCTAssertNil(gateway.openPrompt(for: "bruce"), "a picker you opened isn't 'waiting on you'")
+        let (status, _) = try await gateway.pickModel(card, in: "bruce", model: "claude-sonnet-5-5", provider: "anthropic")
+        XCTAssertEqual(status, "chosen")
+        let switched = await waitUntil { gateway.timeline.entries.first { $0.card?.kind == .model }?.card?.chosen?.model == "claude-sonnet-5-5" }
+        XCTAssertTrue(switched)
+        let settled = try XCTUnwrap(gateway.timeline.entries.first { $0.card?.kind == .model }?.card)
+        XCTAssertEqual(LKPromptText.outcome(of: settled).text, "Switched to claude-sonnet-5-5\non anthropic")
+    }
+
+    func testExpensiveModelNeedsConfirming() async throws {
+        let gateway = try await connected()
+        host.ask(profile: "bruce", card: modelCard(warn: "Costs $75 per million tokens."), role: "model", text: "x")
+        _ = await waitUntil { gateway.timeline.entries.contains { $0.card?.kind == .model } }
+        let card = try XCTUnwrap(gateway.timeline.entries.first { $0.card?.kind == .model }?.card)
+        let first = try await gateway.pickModel(card, in: "bruce", model: "claude-opus-5-5", provider: "anthropic")
+        XCTAssertEqual(first.status, "needs_confirmation")
+        XCTAssertEqual(first.message, "Costs $75 per million tokens.")
+        XCTAssertEqual(gateway.timeline.entries.first { $0.card?.kind == .model }?.card?.status, "pending", "not switched yet")
+        let second = try await gateway.pickModel(card, in: "bruce", model: "claude-opus-5-5", provider: "anthropic", confirmed: true)
+        XCTAssertEqual(second.status, "chosen")
+        XCTAssertEqual(responses().last?["confirmed"] as? Bool, true)
+    }
+
+    func testChoicePicker() async throws {
+        let gateway = try await connected()
+        host.ask(profile: "bruce", card: ["kind": "choice", "id": "c_r1", "status": "pending", "title": "**Reasoning**: medium",
+                                          "options": [["value": "low", "label": "Low", "is_current": false],
+                                                      ["value": "medium", "label": "Medium", "is_current": true]]],
+                 role: "choice", text: "Reasoning")
+        _ = await waitUntil { gateway.timeline.entries.contains { $0.card?.kind == .choice } }
+        let card = try XCTUnwrap(gateway.timeline.entries.first { $0.card?.kind == .choice }?.card)
+        XCTAssertEqual(card.options?.first { $0.isCurrent }?.value, "medium")
+        let status = try await gateway.answerApproval(card, in: "bruce", choice: "low")
+        XCTAssertEqual(status, "chosen")
+        let chose = await waitUntil { gateway.timeline.entries.first { $0.card?.kind == .choice }?.card?.answer == "Low" }
+        XCTAssertTrue(chose)
+    }
+
+    func testModelButtonSendsSlashModel() async throws {
+        let gateway = try await connected()
+        await gateway.openModelPicker()
+        let sent = await waitUntil {
+            (self.host.received(type: "chat.send").last?["data"] as? [String: Any])?["text"] as? String == "/model"
+        }
+        XCTAssertTrue(sent)
+    }
+
     // MARK: - Cache and decoding
 
     func testCardsSurviveTheCache() throws {

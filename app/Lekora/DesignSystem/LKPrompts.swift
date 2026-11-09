@@ -7,11 +7,15 @@ import SwiftUI
 public struct LKPromptActions {
     public var approve: (_ choice: String, _ reason: String?) async throws -> Void
     public var answer: (_ answers: [String]?, _ text: String?) async throws -> Void
+    /// Model picker: returns the status, and Hermes' reason when it wants a confirmation first.
+    public var pickModel: (_ model: String, _ provider: String, _ confirmed: Bool) async throws -> (String, String?)
 
     public init(approve: @escaping (String, String?) async throws -> Void,
-                answer: @escaping ([String]?, String?) async throws -> Void) {
+                answer: @escaping ([String]?, String?) async throws -> Void,
+                pickModel: @escaping (String, String, Bool) async throws -> (String, String?) = { _, _, _ in ("chosen", nil) }) {
         self.approve = approve
         self.answer = answer
+        self.pickModel = pickModel
     }
 
     static let none = LKPromptActions(approve: { _, _ in }, answer: { _, _ in })
@@ -35,6 +39,8 @@ public struct LKPromptCard: View {
                 case .approval: LKApprovalCard(card: card, agentName: agentName, actions: actions)
                 case .question: LKQuestionCard(card: card, agentName: agentName, actions: actions)
                 case .confirm: LKConfirmCard(card: card, actions: actions)
+                case .model: LKModelCard(card: card, actions: actions)
+                case .choice: LKChoiceCard(card: card, actions: actions)
                 }
             }
             .padding(LK.Spacing.lg)
@@ -44,7 +50,7 @@ public struct LKPromptCard: View {
                 // Outlined while it waits for you; checked every second, so it clears at the deadline.
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     RoundedRectangle(cornerRadius: LK.Radius.card, style: .continuous)
-                        .strokeBorder(card.isOpen(now: context.date)
+                        .strokeBorder(card.isOpen(now: context.date) && card.needsAttention
                                       ? (card.kind == .question ? LK.Palette.accent : LK.Palette.warning).opacity(0.6)
                                       : .clear, lineWidth: 1.5)
                 }
@@ -379,6 +385,215 @@ private struct LKConfirmCard: View {
     }
 }
 
+// MARK: - Model picker (/model)
+
+private struct LKModelCard: View {
+    let card: PromptCard
+    let actions: LKPromptActions
+    @State private var choosing = false
+
+    private var current: String {
+        let provider = card.providers?.first { $0.slug == card.currentProvider }?.name ?? card.currentProvider ?? ""
+        guard let model = card.currentModel, !model.isEmpty else { return "No model set" }
+        return provider.isEmpty ? model : "\(model) · \(provider)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LK.Spacing.md) {
+            Label("Model", systemImage: "cpu")
+                .font(LK.Typography.headline)
+                .foregroundStyle(card.isOpen() ? LK.Palette.accent : .secondary)
+            if card.isOpen() {
+                Text("Now: \(current)")
+                    .font(LK.Typography.body)
+                Button("Choose a Model…") { choosing = true }
+                    .buttonStyle(.borderedProminent)
+                    .tint(LK.Palette.accent)
+            } else {
+                LKPromptOutcome(LKPromptText.outcome(of: card))
+            }
+        }
+        .sheet(isPresented: $choosing) {
+            LKModelPickerSheet(card: card, actions: actions)
+        }
+    }
+}
+
+/// Every model Hermes can switch this agent to, by provider, with search.
+struct LKModelPickerSheet: View {
+    let card: PromptCard
+    let actions: LKPromptActions
+    @Environment(\.dismiss) private var dismiss
+    @State private var search = ""
+    @State private var switching: String?
+    @State private var warning: (model: String, provider: String, message: String)?
+    @State private var failure: String?
+
+    private var sections: [PromptCard.ModelProvider] {
+        let query = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let all = (card.providers ?? []).sorted { $0.isCurrent && !$1.isCurrent }
+        guard !query.isEmpty else { return all }
+        return all.compactMap { provider in
+            // A provider's whole list when its name starts with the search ("open" -> OpenRouter);
+            // otherwise only the models that match ("llama" doesn't pull in all of "Ollama").
+            let models = provider.name.lowercased().hasPrefix(query)
+                ? provider.models : provider.models.filter { $0.lowercased().contains(query) }
+            return models.isEmpty ? nil : PromptCard.ModelProvider(
+                slug: provider.slug, name: provider.name, models: models, isCurrent: provider.isCurrent,
+                totalModels: provider.totalModels, modelLabels: provider.modelLabels)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let failure {
+                    Text(failure).foregroundStyle(LK.Palette.danger).font(LK.Typography.footnote)
+                }
+                ForEach(sections, id: \.slug) { provider in
+                    Section {
+                        ForEach(provider.models, id: \.self) { model in
+                            row(model: model, provider: provider)
+                        }
+                    } header: {
+                        Text(provider.name)
+                    } footer: {
+                        if provider.totalModels > provider.models.count && search.isEmpty {
+                            Text("Showing \(provider.models.count) of \(provider.totalModels) models from \(provider.name).")
+                        }
+                    }
+                }
+            }
+            .overlay {
+                if sections.isEmpty {
+                    ContentUnavailableView.search(text: search)
+                }
+            }
+            .searchable(text: $search, prompt: "Search models")
+            .navigationTitle("Choose a Model")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .alert("Switch anyway?", isPresented: Binding(get: { warning != nil }, set: { if !$0 { warning = nil } })) {
+                Button("Switch Anyway") {
+                    if let warning { pick(warning.model, warning.provider, confirmed: true) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(warning?.message ?? "")
+            }
+        }
+    }
+
+    private func row(model: String, provider: PromptCard.ModelProvider) -> some View {
+        let isCurrent = provider.slug == card.currentProvider && model == card.currentModel
+        return Button {
+            pick(model, provider.slug, confirmed: false)
+        } label: {
+            HStack {
+                Text(model)
+                    .foregroundStyle(.primary)
+                if let label = provider.modelLabels?[model] {
+                    Text(label)
+                        .font(LK.Typography.caption.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(LK.Palette.accent.opacity(0.15), in: Capsule())
+                        .foregroundStyle(LK.Palette.accent)
+                }
+                Spacer()
+                if switching == model {
+                    ProgressView()
+                } else if isCurrent {
+                    Image(systemName: "checkmark").foregroundStyle(LK.Palette.accent)
+                }
+            }
+        }
+        .disabled(switching != nil)
+    }
+
+    private func pick(_ model: String, _ provider: String, confirmed: Bool) {
+        switching = model
+        failure = nil
+        Task {
+            do {
+                let (status, message) = try await actions.pickModel(model, provider, confirmed)
+                switching = nil
+                if status == "needs_confirmation" {
+                    warning = (model, provider, message ?? "Hermes flagged this model.")
+                } else {
+                    dismiss()
+                }
+            } catch {
+                switching = nil
+                failure = "Couldn't switch: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+// MARK: - Choice picker (/reasoning, /fast…)
+
+private struct LKChoiceCard: View {
+    let card: PromptCard
+    let actions: LKPromptActions
+    @State private var sending: String?
+    @State private var failure: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LK.Spacing.md) {
+            Text(LKMessageBubble.markdown(card.title ?? ""))
+                .font(LK.Typography.body)
+            if card.isOpen() {
+                VStack(alignment: .leading, spacing: LK.Spacing.sm) {
+                    ForEach(card.options ?? [], id: \.value) { option in
+                        Button {
+                            choose(option.value)
+                        } label: {
+                            HStack {
+                                Text(option.label).multilineTextAlignment(.leading)
+                                Spacer(minLength: 0)
+                                if sending == option.value {
+                                    ProgressView().controlSize(.small)
+                                } else if option.isCurrent {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(option.isCurrent ? LK.Palette.accent : nil)
+                    }
+                }
+                .disabled(sending != nil)
+            } else {
+                LKPromptOutcome(LKPromptText.outcome(of: card))
+            }
+            if let failure {
+                Text(failure).font(LK.Typography.caption).foregroundStyle(LK.Palette.danger)
+            }
+        }
+    }
+
+    private func choose(_ value: String) {
+        sending = value
+        failure = nil
+        Task {
+            do {
+                try await actions.approve(value, nil)
+            } catch {
+                failure = "Couldn't send your choice: \(error.localizedDescription)"
+            }
+            sending = nil
+        }
+    }
+}
+
 // MARK: - Shared
 
 /// The line a card shows once it can't be answered any more.
@@ -418,6 +633,11 @@ public enum LKPromptText {
         case "confirmed_once": return ("Approved", "checkmark.circle.fill", true)
         case "confirmed_always": return ("Approved — won't ask again", "checkmark.shield.fill", true)
         case "cancelled": return ("Cancelled", "xmark.circle.fill", false)
+        case "chosen" where card.kind == .model:
+            guard let chosen = card.chosen else { return ("Switched model", "checkmark.circle.fill", true) }
+            return ("Switched to \(chosen.model)\non \(chosen.providerName ?? chosen.provider)", "checkmark.circle.fill", true)
+        case "chosen": return ("Chose: \(card.answer ?? "")", "checkmark.circle.fill", true)
+        case "failed": return ("Hermes couldn't make that change", "exclamationmark.triangle.fill", false)
         case "answered_in_chat": return ("Answered in the chat", "text.bubble", nil)
         case "closed": return ("No longer needed", "minus.circle", nil)
         case "expired": return ("Expired — Hermes is no longer waiting", "clock.badge.xmark", nil)
@@ -435,6 +655,7 @@ public enum LKPromptText {
         case .approval: return "Needs your approval"
         case .confirm: return "Needs your confirmation"
         case .question: return "Has a question"
+        case .model, .choice: return "Waiting for your choice"
         }
     }
 }
@@ -454,6 +675,13 @@ public enum LKPromptText {
                                     expiresAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(290)),
                                     choices: ["once", "always", "cancel"]),
                          agentName: "Ashlyn", actions: .none)
+            LKPromptCard(PromptCard(kind: .model, id: "m", currentModel: "claude-opus-5-5", currentProvider: "anthropic",
+                                    providers: [.init(slug: "anthropic", name: "Anthropic", models: ["claude-opus-5-5", "claude-sonnet-5-5"], isCurrent: true)]),
+                         agentName: "Bruce", actions: .none)
+            LKPromptCard(PromptCard(kind: .choice, id: "r", title: "**Reasoning effort**: medium (this session)",
+                                    options: [.init(value: "low", label: "Low"), .init(value: "medium", label: "Medium", isCurrent: true),
+                                              .init(value: "high", label: "High")]),
+                         agentName: "Bruce", actions: .none)
             LKPromptCard(PromptCard(kind: .question, id: "c", question: "Which venue should I book?",
                                     choices: ["Ramen512 (Recommended)", "Kemuri", "Tatsu-ya"]),
                          agentName: "Carl", actions: .none)

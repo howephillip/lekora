@@ -216,12 +216,15 @@ public struct LKSystemNotice: View {
     }
 
     public var body: some View {
-        Text(LKMessageBubble.markdown(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+        // Hermes' notices can be a few lines (e.g. after switching models); code marks are
+        // dropped so the line reads as one piece.
+        Text(LKMessageBubble.markdown(text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        .replacingOccurrences(of: "`", with: "")))
             .font(LK.Typography.caption)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
-            .lineLimit(3)
-            .truncationMode(.middle)
+            .lineLimit(8)
+            .truncationMode(.tail)
             .textSelection(.enabled)
             .padding(.horizontal, LK.Spacing.xl)
             .padding(.vertical, LK.Spacing.xs)

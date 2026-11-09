@@ -133,6 +133,15 @@ public struct WalkingSkeletonPingView: View {
                         unreadBadge
                     }
                 }
+                // Change this agent's model: opens Hermes' own model picker (as /model does).
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await gateway.openModelPicker() }
+                    } label: {
+                        Label("Model", systemImage: "cpu")
+                    }
+                    .disabled(!isConnected)
+                }
                 ToolbarItem(placement: .title) {
                     HStack(spacing: LK.Spacing.sm) {
                         LKAgentAvatar(id: gateway.activeProfileId, palette: gateway.avatarPalettes[gateway.activeProfileId],
@@ -392,6 +401,9 @@ public struct WalkingSkeletonPingView: View {
             },
             answer: { answers, text in
                 try await gateway.answerQuestion(card, in: profileId, answers: answers, text: text)
+            },
+            pickModel: { model, provider, confirmed in
+                try await gateway.pickModel(card, in: profileId, model: model, provider: provider, confirmed: confirmed)
             })
     }
 

@@ -287,8 +287,23 @@ final class FakeHost: @unchecked Sendable {
                 return
             }
             var status = cards[seq]?["status"] as? String ?? "pending"
-            if status == "pending" {
-                if let choice = data["choice"] as? String {
+            if status == "pending", let model = data["model"] as? String {
+                // Model picker: an expensive model needs confirming first.
+                if let warning = cards[seq]?["warn"] as? String, data["confirmed"] as? Bool != true {
+                    send(type: "prompt.respond.ack", id: id,
+                         data: ["card_id": cardId, "status": "needs_confirmation", "message": warning], on: connection)
+                    return
+                }
+                status = "chosen"
+                updateCard(seq: seq, ["status": status,
+                                      "chosen": ["model": model, "provider": data["provider"] as? String ?? ""]])
+            } else if status == "pending" {
+                if let choice = data["choice"] as? String, cards[seq]?["kind"] as? String == "choice" {
+                    status = "chosen"
+                    let label = ((cards[seq]?["options"] as? [[String: Any]]) ?? [])
+                        .first { $0["value"] as? String == choice }?["label"] as? String ?? choice
+                    updateCard(seq: seq, ["status": status, "answer": label])
+                } else if let choice = data["choice"] as? String {
                     let statuses = cards[seq]?["kind"] as? String == "confirm"
                         ? ["once": "confirmed_once", "always": "confirmed_always", "cancel": "cancelled"]
                         : ["once": "allowed_once", "session": "allowed_session", "always": "allowed_always", "deny": "denied"]

@@ -310,3 +310,18 @@ Errors (`error`, same `id`), recoverable:
 - `fingerprint` changes when the list changes.
 - An empty list means the host couldn't read Hermes' commands.
 - An unknown agent gets `error` `UNKNOWN_PROFILE`.
+
+## 8. Model and choice pickers (Phase 2; spec: `model-picker.md`)
+Cards (§6) with `kind` `model` or `choice`:
+```json
+{ "kind": "model", "id": "c_1", "status": "pending", "current_model": "claude-opus-5-5", "current_provider": "anthropic",
+  "providers": [ { "slug": "anthropic", "name": "Anthropic", "models": ["claude-opus-5-5", "claude-sonnet-5-5"],
+                   "is_current": true, "total_models": 2, "model_labels": { "…": "Free" } } ] }
+{ "kind": "choice", "id": "c_2", "status": "pending", "title": "**Reasoning**: medium",
+  "options": [ { "value": "low", "label": "Low", "is_current": false } ] }
+```
+Answers use `prompt.respond`:
+- model: `{card_id, model, provider, confirmed?}`. The ack may be `needs_confirmation` with `message` (why Hermes wants you to confirm); answer again with `confirmed: true`.
+- choice: `{card_id, choice: value}`.
+
+Statuses: `pending`, `chosen` (model cards add `chosen: {model, provider, provider_name}`, choice cards add `answer`), `failed`, `closed`, `expired`.

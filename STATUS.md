@@ -7,6 +7,13 @@ _Last updated: 2026-11-08_
 
 **Phase 2 (complete chat) has started.**
 
+## In progress: model picker (spec: `docs/model-picker.md`)
+⏳ Built 2026-11-08.
+- **What it does:** a Model button in each chat (or typing `/model`) shows a card with the agent's current model and **Choose a Model…**: a searchable list of every model your Hermes computer can use, by provider. Tap one and Hermes switches and confirms. A model Hermes flags (e.g. expensive) asks "Switch anyway?" first. `/reasoning` and `/fast` get a card with one button per option.
+- **How:** Hermes' own picker hooks (the ones Telegram, Discord and Slack use); Hermes does the switching and decides whether it's saved.
+- **Checked:** plugin 256 tests (6 new), app 132 (4 new); every Hermes hook checked against Hermes 0.22.5's source; in the simulator against the real plugin: the Model button, the searchable list, switching, the "Switch anyway?" check, and the /reasoning card.
+- **Waiting on:** the plugin update and your look with real Hermes.
+
 ## Done: slash commands (spec: `docs/slash-commands.md`)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-08.
 - **What it does:** typing `/` shows the agent's commands just above the message bar, each with a short description, narrowing as you type. Commands with fixed options (e.g. `/approvals` manual · smart · off) offer them next. Tapping fills the bar; you send.

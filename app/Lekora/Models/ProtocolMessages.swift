@@ -255,8 +255,63 @@ public struct EmptyData: Codable, Equatable {
 // MARK: - Approval and question cards (docs/prompts.md)
 /// An agent asking for permission to do something risky, or asking you a question.
 public struct PromptCard: Codable, Equatable, Sendable {
-    /// `confirm`: a slash command such as /new asking to be confirmed.
-    public enum Kind: String, Codable, Sendable { case approval, question, confirm }
+    /// `confirm`: a slash command such as /new asking to be confirmed. `model`: Hermes' model
+    /// picker (/model). `choice`: Hermes' choice picker (/reasoning, /fast…).
+    public enum Kind: String, Codable, Sendable { case approval, question, confirm, model, choice }
+
+    /// One provider in the model picker, with the models Hermes can switch to.
+    public struct ModelProvider: Codable, Equatable, Hashable, Sendable {
+        public let slug: String
+        public let name: String
+        public let models: [String]
+        public let isCurrent: Bool
+        public let totalModels: Int
+        public let modelLabels: [String: String]?
+
+        enum CodingKeys: String, CodingKey {
+            case slug, name, models
+            case isCurrent = "is_current", totalModels = "total_models", modelLabels = "model_labels"
+        }
+
+        public init(slug: String, name: String, models: [String], isCurrent: Bool = false,
+                    totalModels: Int? = nil, modelLabels: [String: String]? = nil) {
+            self.slug = slug
+            self.name = name
+            self.models = models
+            self.isCurrent = isCurrent
+            self.totalModels = totalModels ?? models.count
+            self.modelLabels = modelLabels
+        }
+    }
+
+    /// One option in a choice picker.
+    public struct Option: Codable, Equatable, Hashable, Sendable {
+        public let value: String
+        public let label: String
+        public let isCurrent: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case value, label
+            case isCurrent = "is_current"
+        }
+
+        public init(value: String, label: String, isCurrent: Bool = false) {
+            self.value = value
+            self.label = label
+            self.isCurrent = isCurrent
+        }
+    }
+
+    public struct ChosenModel: Codable, Equatable, Sendable {
+        public let model: String
+        public let provider: String
+        public let providerName: String?
+
+        enum CodingKeys: String, CodingKey {
+            case model, provider
+            case providerName = "provider_name"
+        }
+    }
 
     public let kind: Kind
     public let id: String
@@ -275,16 +330,31 @@ public struct PromptCard: Codable, Equatable, Sendable {
     public var answer: String?
     /// Approval: the choices Hermes allows (once / session / always / deny). Question: its options.
     public let choices: [String]
+    // Model picker
+    public let currentModel: String?
+    public let currentProvider: String?
+    public let providers: [ModelProvider]?
+    public var chosen: ChosenModel?
+    // Choice picker (title in `title`)
+    public let options: [Option]?
 
     enum CodingKeys: String, CodingKey {
         case kind, id, status, title, command, description, reason, question, answer, choices
         case smartDenied = "smart_denied", expiresAt = "expires_at", multiSelect = "multi_select"
+        case currentModel = "current_model", currentProvider = "current_provider", providers, chosen, options
     }
 
     public init(kind: Kind, id: String, status: String = "pending", title: String? = nil, command: String? = nil,
                 description: String? = nil, smartDenied: Bool? = nil, expiresAt: String? = nil,
                 reason: String? = nil, question: String? = nil, multiSelect: Bool? = nil,
-                answer: String? = nil, choices: [String] = []) {
+                answer: String? = nil, choices: [String] = [], currentModel: String? = nil,
+                currentProvider: String? = nil, providers: [ModelProvider]? = nil, chosen: ChosenModel? = nil,
+                options: [Option]? = nil) {
+        self.currentModel = currentModel
+        self.currentProvider = currentProvider
+        self.providers = providers
+        self.chosen = chosen
+        self.options = options
         self.kind = kind
         self.id = id
         self.status = status
@@ -315,7 +385,16 @@ public struct PromptCard: Codable, Equatable, Sendable {
         multiSelect = try c.decodeIfPresent(Bool.self, forKey: .multiSelect)
         answer = try c.decodeIfPresent(String.self, forKey: .answer)
         choices = try c.decodeIfPresent([String].self, forKey: .choices) ?? []
+        currentModel = try c.decodeIfPresent(String.self, forKey: .currentModel)
+        currentProvider = try c.decodeIfPresent(String.self, forKey: .currentProvider)
+        providers = try c.decodeIfPresent([ModelProvider].self, forKey: .providers)
+        chosen = try c.decodeIfPresent(ChosenModel.self, forKey: .chosen)
+        options = try c.decodeIfPresent([Option].self, forKey: .options)
     }
+
+    /// Something only you can unblock (the agent is waiting): approvals, questions,
+    /// confirmations. Pickers you opened yourself don't count.
+    public var needsAttention: Bool { kind == .approval || kind == .question || kind == .confirm }
 
     public var isPending: Bool { status == "pending" }
 
@@ -336,20 +415,29 @@ public struct PromptRespondData: Codable, Equatable {
     public let reason: String?
     public let answers: [String]?
     public let text: String?
+    public let model: String?
+    public let provider: String?
+    public let confirmed: Bool?
 
     public init(card_id: String, choice: String? = nil, reason: String? = nil,
-                answers: [String]? = nil, text: String? = nil) {
+                answers: [String]? = nil, text: String? = nil, model: String? = nil,
+                provider: String? = nil, confirmed: Bool? = nil) {
         self.card_id = card_id
         self.choice = choice
         self.reason = reason
         self.answers = answers
         self.text = text
+        self.model = model
+        self.provider = provider
+        self.confirmed = confirmed
     }
 }
 
 public struct PromptRespondAckData: Codable, Equatable {
     public let card_id: String
     public let status: String
+    /// With `needs_confirmation`: why Hermes wants you to confirm (e.g. an expensive model).
+    public let message: String?
 }
 
 // MARK: - Chat history and read state (docs/chat-history.md)
