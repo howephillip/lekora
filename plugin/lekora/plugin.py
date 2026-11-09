@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Protocol
 
 from . import __version__
 from .gateway import Gateway
@@ -23,6 +23,9 @@ from .profiles import discover_profiles
 from .routes import resolve_candidate_endpoints
 from .tls import TLSIdentity, ensure_identity, tls_dir_for
 from .store import Store
+
+if TYPE_CHECKING:
+    from .prompts import Resolvers
 
 log = logging.getLogger(__name__)
 
@@ -110,8 +113,12 @@ class LekoraService:
         auth_timeout: Optional[float] = None,
         profiles_provider: Optional[Callable[[], list[dict]]] = None,
         run_cli: RunCli = run_hermes_cli,
+        resolvers: Optional["Resolvers"] = None,
     ) -> None:
         self._run_cli = run_cli
+        # Approval and question cards (docs/prompts.md); Hermes' resolvers come from the adapter.
+        from .prompts import Prompts
+        self.prompts = Prompts(lambda: self.gateway, resolvers)
         self._instance_lock: Optional[InstanceLock] = None
         self.tls: Optional[TLSIdentity] = None
         self._bridge = bridge
@@ -182,11 +189,18 @@ class LekoraService:
             ssl_context=self.tls.server_context(),
             **kwargs,
         )
+        self.gateway.prompts = self.prompts
         try:
-            return await self.gateway.start()
+            port = await self.gateway.start()
         except BaseException:
             await self.stop()
             raise
+        try:
+            # Hermes forgot any request still waiting from a previous run.
+            await self.prompts.expire_leftovers()
+        except Exception:
+            logging.getLogger(__name__).exception("Lekora: could not expire old cards")
+        return port
 
     async def stop(self) -> None:
         if self.gateway is not None:

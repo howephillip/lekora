@@ -26,6 +26,7 @@ from gateway.platforms.event import MessageEvent, MessageType
 
 from . import hermes_streaming
 from .hermes_routes import ProfileRouter, check_routed
+from .prompts import CARD_MESSAGE_PREFIX, Resolvers
 from .streaming import LiveReplies
 from .plugin import LekoraAlreadyRunning, LekoraConfig, LekoraService, UnsupportedHermesVersion
 from .profiles import named_profile_in_scope
@@ -33,6 +34,30 @@ from .profiles import named_profile_in_scope
 logger = logging.getLogger(__name__)
 
 PLATFORM_NAME = "lekora"
+
+
+def _hermes_resolvers() -> Resolvers:
+    """Hermes' own answer functions for approvals and questions (docs/prompts.md)."""
+    def approve(session_key: str, choice: str, reason: Optional[str]) -> int:
+        from tools.approval import resolve_gateway_approval
+        return resolve_gateway_approval(session_key, choice, reason=reason)
+
+    def answer(clarify_id: str, text: str) -> bool:
+        from tools.clarify_gateway import resolve_gateway_clarify
+        return resolve_gateway_clarify(clarify_id, text)
+
+    def approval_timeout() -> Optional[int]:
+        from gateway.platforms.base_exec_approval import approval_timeout_seconds
+        return approval_timeout_seconds()
+
+    def waiting(kind: str, session_key: str, clarify_id: Optional[str]) -> Optional[bool]:
+        if kind == "approval":
+            from tools.approval import has_blocking_approval
+            return has_blocking_approval(session_key)
+        from tools.clarify_gateway import get_pending
+        return get_pending(clarify_id or "") is not None
+
+    return Resolvers(approve=approve, answer=answer, approval_timeout=approval_timeout, waiting=waiting)
 
 
 def _hermes_version() -> Optional[str]:
@@ -115,7 +140,7 @@ class LekoraAdapter(BasePlatformAdapter):
             return True
         self._service = LekoraService(
             self, config=self._cfg, hermes_version=_hermes_version(),
-            profiles_provider=self.offered_profiles)
+            profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers())
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()
@@ -160,6 +185,10 @@ class LekoraAdapter(BasePlatformAdapter):
                            finalize: bool = False, metadata=None) -> SendResult:
         if self._service is None:
             return SendResult(success=False, error="Lekora is not running")
+        if str(message_id).startswith(CARD_MESSAGE_PREFIX):
+            # Hermes edits an approval card when nobody answered in time: nothing ran.
+            ok = await self._service.prompts.approval_timed_out(str(message_id)[len(CARD_MESSAGE_PREFIX):])
+            return SendResult(success=ok, message_id=str(message_id), error=None if ok else "Unknown card")
         try:
             ok = await self._live.edit(chat_id, str(message_id), content, finalize)
         except Exception as exc:
@@ -167,6 +196,45 @@ class LekoraAdapter(BasePlatformAdapter):
         if not ok:
             return SendResult(success=False, error="Unknown message")
         return SendResult(success=True, message_id=str(message_id))
+
+    # -- approvals and questions (docs/prompts.md) -----------------------------
+    async def _send_exec_approval_prompt(self, prompt) -> SendResult:
+        """Hermes' button hook for approvals: an approval card on the phone."""
+        if self._service is None:
+            return SendResult(success=False, error="Lekora is not running")
+        try:
+            message_id = await self._service.prompts.ask_approval(
+                str(prompt.chat_id), str(prompt.session_key), prompt.command, prompt.description,
+                list(prompt.choices), smart_denied=bool(prompt.smart_denied))
+        except Exception as exc:
+            return SendResult(success=False, error=str(exc))
+        return SendResult(success=True, message_id=message_id)
+
+    async def send_clarify(self, chat_id: str, question: str, choices: Optional[list], clarify_id: str,
+                           session_key: str, metadata: Optional[dict[str, Any]] = None) -> SendResult:
+        """A question card; the phone's answer resolves it through Hermes."""
+        if self._service is None:
+            return SendResult(success=False, error="Lekora is not running")
+        multi = False
+        options = list(choices) if choices else None
+        try:
+            from tools.clarify_gateway import get_pending
+            entry = get_pending(clarify_id)
+            multi = bool(getattr(entry, "multi_select", False))
+            # Answers must match Hermes' own option texts exactly.
+            options = list(getattr(entry, "choices", None) or options or []) or None
+        except Exception:
+            pass
+        try:
+            message_id = await self._service.prompts.ask_question(
+                str(chat_id), str(session_key), question, options, clarify_id, multi_select=multi)
+        except Exception as exc:
+            return SendResult(success=False, error=str(exc))
+        return SendResult(success=True, message_id=message_id)
+
+    async def retire_clarify_card(self, clarify_id: str, notice: str) -> None:
+        if self._service is not None:
+            await self._service.prompts.question_retired(clarify_id)
 
     async def send_typing(self, chat_id: str, metadata=None) -> None:
         """Hermes calls this every ~2 s while an agent works: tell the phone, with what
@@ -187,6 +255,7 @@ class LekoraAdapter(BasePlatformAdapter):
         chat_id = str(getattr(getattr(event, "source", None), "chat_id", "") or "")
         if chat_id and self._service is not None:
             await self._live.turn_ended(chat_id)
+            await self._service.prompts.turn_ended(chat_id)
             await self.stop_typing(chat_id)
 
     async def get_chat_info(self, chat_id: str) -> dict[str, Any]:

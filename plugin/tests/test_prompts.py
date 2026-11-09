@@ -1,0 +1,313 @@
+"""Approval and question cards (docs/prompts.md)."""
+
+import asyncio
+import json
+from datetime import datetime, timezone
+
+import pytest
+
+from lekora.prompts import Prompts, Resolvers
+from tests.test_gateway import PROFILES, env, gw, hello, recv  # noqa: F401  (gw fixture)
+from tests.test_history import drain, hello_rev
+
+
+class FakeHermes:
+    """Stands in for Hermes' approval and clarify functions."""
+
+    def __init__(self):
+        self.approvals = []      # (session_key, choice, reason)
+        self.answers = []        # (clarify_id, text)
+        self.pending_approvals = 1
+        self.pending_questions = {"q1"}
+        self.waiting_now = None  # what `waiting` reports; None = can't tell
+
+    def resolvers(self):
+        def approve(session_key, choice, reason):
+            self.approvals.append((session_key, choice, reason))
+            if self.pending_approvals <= 0:
+                return 0
+            self.pending_approvals -= 1
+            return 1
+
+        def answer(clarify_id, text):
+            self.answers.append((clarify_id, text))
+            if clarify_id in self.pending_questions:
+                self.pending_questions.discard(clarify_id)
+                return True
+            return False
+
+        return Resolvers(approve=approve, answer=answer, approval_timeout=lambda: 300,
+                         waiting=lambda kind, session_key, clarify_id: self.waiting_now)
+
+
+NOW = datetime(2026, 11, 8, 23, 10, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def hermes():
+    return FakeHermes()
+
+
+@pytest.fixture
+def prompts(gw, hermes):
+    p = Prompts(lambda: gw, hermes.resolvers(), clock=lambda: NOW)
+    p.recheck_delay = 0
+    gw.prompts = p
+    return p
+
+
+async def phone(gw, store, name="iPhone"):
+    device_id, tok = store.register_device(name)
+    ws = await hello_rev(gw, store, device_id, tok, since_rev=store.current_rev())
+    await recv(ws)  # hello.ack
+    return ws
+
+
+def respond(store, card_id, msg_id="r1", profile="assistant", **data):
+    return env(store, "prompt.respond", dict(card_id=card_id, **data), profile_id=profile, msg_id=msg_id)
+
+
+async def ask_approval(prompts, choices=("once", "session", "always", "deny"), smart_denied=False):
+    message_id = await prompts.ask_approval("assistant", "sess-1", "rm -rf ./build", "recursive delete",
+                                            list(choices), smart_denied=smart_denied)
+    return message_id[len("card-"):]
+
+
+# ---- approvals -------------------------------------------------------------------
+
+async def test_approval_card_reaches_every_phone(gw, store, prompts):
+    a, b = await phone(gw, store, "a"), await phone(gw, store, "b")
+    card_id = await ask_approval(prompts)
+    for ws in (a, b):
+        msg = await recv(ws)
+        assert msg["type"] == "chat.message" and msg["data"]["role"] == "approval"
+        assert msg["data"]["text"] == "Wants to run: rm -rf ./build"
+        card = msg["data"]["card"]
+        assert card == {"kind": "approval", "id": card_id, "status": "pending", "command": "rm -rf ./build",
+                        "description": "recursive delete", "choices": ["once", "session", "always", "deny"],
+                        "smart_denied": False, "expires_at": "2026-11-08T23:15:00Z"}
+    await a.close(); await b.close()
+
+
+@pytest.mark.parametrize("choice,status", [("once", "allowed_once"), ("session", "allowed_session"),
+                                           ("always", "allowed_always")])
+async def test_allow_choices_go_to_hermes(gw, store, prompts, hermes, choice, status):
+    ws = await phone(gw, store)
+    card_id = await ask_approval(prompts)
+    await recv(ws)
+    await ws.send(respond(store, card_id, choice=choice))
+    got = await drain(ws)
+    ack = next(m for m in got if m["type"] == "prompt.respond.ack")
+    assert ack["id"] == "r1" and ack["data"] == {"card_id": card_id, "status": status}
+    update = next(m for m in got if m["type"] == "chat.message")
+    assert update["data"]["card"]["status"] == status
+    assert hermes.approvals == [("sess-1", choice, None)]
+    await ws.close()
+
+
+async def test_deny_with_reason(gw, store, prompts, hermes):
+    ws = await phone(gw, store)
+    card_id = await ask_approval(prompts)
+    await recv(ws)
+    await ws.send(respond(store, card_id, choice="deny", reason="  not on the build machine  "))
+    got = await drain(ws)
+    assert hermes.approvals == [("sess-1", "deny", "not on the build machine")]
+    card = next(m for m in got if m["type"] == "chat.message")["data"]["card"]
+    assert card["status"] == "denied" and card["reason"] == "not on the build machine"
+    await ws.close()
+
+
+async def test_only_offered_choices_are_accepted(gw, store, prompts, hermes):
+    ws = await phone(gw, store)
+    card_id = await ask_approval(prompts, choices=["once", "deny"], smart_denied=True)
+    first = await recv(ws)
+    assert first["data"]["card"]["choices"] == ["once", "deny"] and first["data"]["card"]["smart_denied"]
+    await ws.send(respond(store, card_id, choice="always"))
+    err = await recv(ws)
+    assert err["type"] == "error" and err["data"]["code"] == "INVALID_ANSWER"
+    assert hermes.approvals == []
+    await ws.close()
+
+
+async def test_hermes_no_longer_waiting_marks_it_expired(gw, store, prompts, hermes):
+    hermes.pending_approvals = 0
+    ws = await phone(gw, store)
+    card_id = await ask_approval(prompts)
+    await recv(ws)
+    await ws.send(respond(store, card_id, choice="once"))
+    got = await drain(ws)
+    assert next(m for m in got if m["type"] == "prompt.respond.ack")["data"]["status"] == "expired"
+    await ws.close()
+
+
+async def test_second_answer_gets_the_current_state(gw, store, prompts, hermes):
+    a, b = await phone(gw, store, "a"), await phone(gw, store, "b")
+    card_id = await ask_approval(prompts)
+    await recv(a); await recv(b)
+    await a.send(respond(store, card_id, choice="once"))
+    await drain(a)
+    assert (await recv(b))["data"]["card"]["status"] == "allowed_once"   # the other phone updates
+    await b.send(respond(store, card_id, choice="deny", msg_id="r2"))
+    ack = await recv(b)
+    assert ack["type"] == "prompt.respond.ack" and ack["data"]["status"] == "allowed_once"
+    assert len(hermes.approvals) == 1, "answered once only"
+    await a.close(); await b.close()
+
+
+async def test_unknown_card(gw, store, prompts):
+    ws = await phone(gw, store)
+    await ws.send(respond(store, "c_nope", choice="once"))
+    assert (await recv(ws))["data"]["code"] == "UNKNOWN_CARD"
+    await ws.close()
+
+
+async def test_timeout_edit_closes_the_card(gw, store, prompts):
+    ws = await phone(gw, store)
+    card_id = await ask_approval(prompts)
+    await recv(ws)
+    assert await prompts.approval_timed_out(card_id)
+    assert (await recv(ws))["data"]["card"]["status"] == "timed_out"
+    assert not await prompts.approval_timed_out(card_id)
+    await ws.close()
+
+
+async def test_typed_approve_closes_approvals_once_hermes_acted(gw, store, prompts, hermes):
+    ws = await phone(gw, store)
+    card_id = await ask_approval(prompts)
+    await recv(ws)
+    hermes.waiting_now = False   # Hermes resolved it from the typed /approve
+    await ws.send(env(store, "chat.send", {"text": "/approve"}, profile_id="assistant"))
+    got = await drain(ws, timeout=0.5)
+    cards = [m["data"]["card"] for m in got if m["type"] == "chat.message" and "card" in m["data"]]
+    assert cards and cards[-1]["status"] == "answered_in_chat" and cards[-1]["id"] == card_id
+    await ws.close()
+
+
+async def test_card_stays_while_hermes_still_waits(gw, store, prompts, hermes):
+    ws = await phone(gw, store)
+    await ask_approval(prompts)
+    await recv(ws)
+    hermes.waiting_now = True
+    await prompts.turn_ended("assistant")   # e.g. a queued message's turn, not this one
+    await ws.send(env(store, "chat.send", {"text": "/approve"}, profile_id="assistant"))
+    got = await drain(ws, timeout=0.3)
+    assert not [m for m in got if "card" in m.get("data", {})]
+    assert prompts.pending_count() == 1
+    await ws.close()
+
+
+# ---- questions -------------------------------------------------------------------
+
+async def ask_question(prompts, choices=("Ramen512", "Kemuri"), multi=False, clarify_id="q1"):
+    message_id = await prompts.ask_question("assistant", "sess-1", "Which venue?", list(choices) if choices else None,
+                                            clarify_id, multi_select=multi)
+    return message_id[len("card-"):]
+
+
+async def test_question_card_and_choice_answer(gw, store, prompts, hermes):
+    ws = await phone(gw, store)
+    card_id = await ask_question(prompts)
+    msg = await recv(ws)
+    assert msg["data"]["role"] == "question" and msg["data"]["text"] == "Asks: Which venue?"
+    assert msg["data"]["card"]["choices"] == ["Ramen512", "Kemuri"] and not msg["data"]["card"]["multi_select"]
+    await ws.send(respond(store, card_id, answers=["Kemuri"]))
+    got = await drain(ws)
+    assert hermes.answers == [("q1", "Kemuri")]
+    card = next(m for m in got if m["type"] == "chat.message")["data"]["card"]
+    assert card["status"] == "answered" and card["answer"] == "Kemuri"
+    await ws.close()
+
+
+async def test_multi_select_and_typed_answers(gw, store, prompts, hermes):
+    hermes.pending_questions = {"q1", "q2"}
+    ws = await phone(gw, store)
+    multi = await ask_question(prompts, choices=["Mon", "Tue", "Wed"], multi=True, clarify_id="q1")
+    other = await ask_question(prompts, clarify_id="q2")
+    await drain(ws)
+    await ws.send(respond(store, multi, answers=["Tue", "Mon"]))
+    await drain(ws)
+    await ws.send(respond(store, other, msg_id="r2", text="Somewhere quiet"))
+    await drain(ws)
+    assert hermes.answers == [("q1", json.dumps(["Tue", "Mon"])), ("q2", "Somewhere quiet")]
+    await ws.close()
+
+
+async def test_single_choice_question_rejects_two_answers_and_unknown_options(gw, store, prompts, hermes):
+    ws = await phone(gw, store)
+    card_id = await ask_question(prompts)
+    await recv(ws)
+    for data in ({"answers": ["Ramen512", "Kemuri"]}, {"answers": ["Elsewhere"]}, {"text": "  "}):
+        await ws.send(respond(store, card_id, **data))
+        assert (await recv(ws))["data"]["code"] == "INVALID_ANSWER"
+    assert hermes.answers == []
+    await ws.close()
+
+
+async def test_retired_question_closes(gw, store, prompts):
+    ws = await phone(gw, store)
+    await ask_question(prompts)
+    await recv(ws)
+    await prompts.question_retired("q1")
+    assert (await recv(ws))["data"]["card"]["status"] == "closed"
+    await ws.close()
+
+
+async def test_turn_end_closes_whatever_hermes_stopped_waiting_on(gw, store, prompts, hermes):
+    ws = await phone(gw, store)
+    await ask_question(prompts)
+    await ask_approval(prompts)
+    await drain(ws)
+    hermes.waiting_now = False
+    await prompts.turn_ended("assistant")
+    statuses = [m["data"]["card"]["status"] for m in await drain(ws)]
+    assert statuses == ["closed", "closed"]
+    await ws.close()
+
+
+# ---- restarts and history --------------------------------------------------------
+
+async def test_cards_from_a_previous_run_expire_on_startup(gw, store, prompts):
+    await ask_approval(prompts)
+    await ask_question(prompts)
+    fresh = Prompts(lambda: gw)   # Hermes restarted: nothing is waiting any more
+    assert await fresh.expire_leftovers() == 2
+    assert store.pending_cards() == []
+    device_id, tok = store.register_device()
+    ws = await hello_rev(gw, store, device_id, tok, since_rev=0)
+    await recv(ws)
+    assert [m["data"]["card"]["status"] for m in await drain(ws)] == ["expired", "expired"]
+    await ws.close()
+
+
+async def test_card_from_a_past_run_answered_gets_its_status(gw, store, prompts):
+    card_id = await ask_approval(prompts)
+    fresh = Prompts(lambda: gw)
+    await fresh.expire_leftovers()
+    gw.prompts = fresh
+    ws = await phone(gw, store)
+    await ws.send(respond(store, card_id, choice="once"))
+    ack = await recv(ws)
+    assert ack["type"] == "prompt.respond.ack" and ack["data"]["status"] == "expired"
+    await ws.close()
+
+
+async def test_service_wires_prompts_and_expires_leftovers(tmp_path):
+    from lekora.plugin import LekoraConfig, LekoraService
+
+    class Bridge:
+        async def deliver_to_agent(self, profile_id, text, message_id):
+            pass
+
+    cfg = LekoraConfig(db_path=str(tmp_path / "lekora.db"), listen_host="127.0.0.1",
+                       profiles=[{"profile_id": "assistant", "name": "A", "avatar": "x"}])
+    svc = LekoraService(Bridge(), cfg, check_version=False)
+    await svc.start()
+    await svc.prompts.ask_approval("assistant", "s", "ls", "why", ["once", "deny"])
+    await svc.stop()
+    svc2 = LekoraService(Bridge(), cfg, check_version=False)
+    await svc2.start()
+    try:
+        assert svc2.gateway.prompts is svc2.prompts
+        assert svc2.store.pending_cards() == []
+    finally:
+        await svc2.stop()

@@ -7,15 +7,23 @@ _Last updated: 2026-11-08_
 
 **Phase 2 (complete chat) has started.**
 
-## In progress: agents home (spec: `docs/agents-home.md`)
-⏳ Built 2026-11-08 after your look at Hermex, not yet on your Hermes machine.
+## In progress: permission pop-ups and question cards (spec: `docs/prompts.md`)
+⏳ Built 2026-11-08, not yet on your Hermes machine.
+- **Approvals:** when Hermes pauses an agent to ask permission (a risky command), the chat shows a card with the command, why it asks, a countdown, and Deny / Allow / "…" (Allow for this chat, Always allow, which asks you to confirm first). Deny takes an optional reason the agent sees. Afterwards the card shows the outcome ("Allowed once", "Denied — not now", "Timed out — nothing ran").
+- **Questions:** when an agent asks you to choose, a card with a button per option (or ticks for several), "Other…" for your own answer, or an answer box for open questions.
+- **Everywhere:** an agent waiting on you shows "Needs your approval" / "Has a question" in orange on the agents list; cards count as unread; they're saved with the chat on the Hermes computer, so every phone sees them and answering on one updates the others. Cards that can't be answered any more say why.
+- **How:** uses Hermes' own button hooks (the ones Telegram/Slack use) and its own answer functions; nothing in Hermes' config is touched by Lekora. "Always allow" is Hermes' own setting, saved by Hermes when you choose it.
+- **Checked:** plugin 239 tests (20 new), app 121 (10 new); every Hermes function and field the plugin uses checked against Hermes 0.22.5's source; in the simulator against the real plugin: allow, deny with reason, always allow with confirmation, question choice, "Other…", list labels, and the card staying still under your finger. Not yet: the real Hermes pass (your Hermes machine).
+- **Waiting on:** commit and push, the plugin update, and your test with real Hermes.
+
+## Done: agents home (spec: `docs/agents-home.md`)
+✅ Confirmed on your iPhone and Hermes machine 2026-11-08 (after two rounds of your feedback).
 - **Home:** the app opens on a Messages-style list of your agents. Each has its own playful avatar (a critter on a colour gradient; no two of your agents share colours), the last message, its time ("3:31 PM", "Yesterday", "Wednesday"), and a blue dot for unread replies. While an agent works, its row shows the moving dots and what it's doing. The most recent conversation is at the top. "+" adds an agent; "…" has Manage Agents and Forget Host.
 - **Chat:** unchanged iMessage look. The title shows the agent's avatar and name; time lines appear between messages more than 15 minutes apart; the back button shows how many other agents have unread replies ("‹ 2"); "## headings" show as bold lines; an unsent message stays in its chat while you switch.
 - **Plugin:** messages carry the time they were saved; messages already cached on your phone are fetched again once to pick up their times.
 - **Checked:** plugin 219 tests, app 110 tests (11 new); three rounds in the simulator against the real plugin over the encrypted connection (order, avatars, previews, working line, unread dots, back-button count, drafts, newest message fully visible on opening).
 - **Your first look (2026-11-08), fixed:** sent text stayed in the message bar; no swipe to go back; "Hermes" shown under the titles; avatars now gently animated (float, sway, drifting light; livelier while working); drag the chat left to see every message's time, as in Messages. Times on messages need the plugin update (the phone only learns them from the updated plugin). Checked in the simulator: bar clears after sending, swipe back from the edge and mid-screen, time reveal, no "Hermes", avatars moving.
 - **Your second look (2026-11-08), fixed:** the sent text still stayed in the bar (now a fresh text box after each send, keyboard kept up); times disappeared after reopening (the app no longer throws away its saved messages to refetch times; your own messages keep their time; agents' times arrive once the plugin is updated); new jump-to-newest ⌄ button; avatars are now little visor bots that blink, glance around, bob and wobble their antennas. Checked in the simulator; app 111 tests, plugin 219.
-- **Waiting on:** commit and push, the plugin update (needed for agents' message times), and your third look on your iPhone.
 
 ## Done: chat history on the phone, and unread dots (spec: `docs/chat-history.md`)
 ✅ Confirmed on your iPhone and Hermes machine 2026-11-08: the dots appear and clear.

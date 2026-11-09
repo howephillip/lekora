@@ -135,8 +135,9 @@ public struct AgentsHomeView: View {
         if let activity = gateway.agentActivity[id] {
             working = Self.workingLine(activity.status)
         }
+        let attention = gateway.openPrompt(for: id).map(LKPromptText.attention(for:))
         return LKAgentRow.Content(id: id, palette: gateway.avatarPalettes[id], name: profile.name, preview: preview, date: last?.date,
-                                  unread: gateway.hasUnread(id), working: working)
+                                  unread: gateway.hasUnread(id), working: working, attention: attention)
     }
 
     /// "is searching the web…" -> "Searching the web…"; nothing said -> "Thinking…".

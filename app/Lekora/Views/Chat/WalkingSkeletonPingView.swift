@@ -59,6 +59,9 @@ public struct WalkingSkeletonPingView: View {
     /// unless Hermes says what it's doing (e.g. running a tool between messages).
     private var showsTypingIndicator: Bool {
         guard let activity else { return false }
+        // Waiting for you to answer a card: the agent isn't working, and a disappearing
+        // bubble would shift the card under your finger.
+        if messages.last?.card?.isOpen() == true { return false }
         let streaming = messages.last?.status == .streaming
         return !streaming || !(activity.status ?? "").isEmpty
     }
@@ -196,6 +199,8 @@ public struct WalkingSkeletonPingView: View {
                         }
                         if entry.role == .system {
                             LKSystemNotice(entry.text)
+                        } else if let card = entry.card {
+                            LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
                         } else {
                             LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
                                             delivery: delivery(for: entry))
@@ -359,6 +364,18 @@ public struct WalkingSkeletonPingView: View {
         }
         .padding(.top, 80)
         .padding(.horizontal, LK.Spacing.xxl)
+    }
+
+    /// Answers from a card go to the host, for this chat's agent (docs/prompts.md).
+    private func promptActions(for card: PromptCard) -> LKPromptActions {
+        let profileId = gateway.activeProfileId
+        return LKPromptActions(
+            approve: { choice, reason in
+                try await gateway.answerApproval(card, in: profileId, choice: choice, reason: reason)
+            },
+            answer: { answers, text in
+                try await gateway.answerQuestion(card, in: profileId, answers: answers, text: text)
+            })
     }
 
     private func delivery(for entry: ChatEntry) -> LKMessageBubble.Delivery {

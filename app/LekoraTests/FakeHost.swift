@@ -29,11 +29,44 @@ final class FakeHost: @unchecked Sendable {
     /// Every message carries this `at` time, like current hosts; nil = a host from before times.
     var messageTime: String? = "2026-11-08T12:00:00Z"
 
+    /// Cards by seq (docs/prompts.md), and every prompt.respond received.
+    var cards: [Int: [String: Any]] = [:]
+    /// What the fake Hermes says about an answered card: nil = accept it.
+    var respondStatusOverride: String?
+
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+
+    /// An agent asks for permission (an approval card) or asks a question.
+    @discardableResult
+    func ask(profile: String, card: [String: Any], role: String, text: String) -> Int {
+        let seq = (history.last?.seq ?? 0) + 1
+        history.append((seq, role, text, profile))
+        cards[seq] = card
+        broadcast(seq: seq)
+        return seq
+    }
+
+    private func broadcast(seq: Int) {
+        guard let event = history.first(where: { $0.seq == seq }) else { return }
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open {
+            send(type: "chat.message", data: messageData(event), profileId: event.profile, on: connection)
+        }
+    }
+
+    /// The card changes state (answered elsewhere, timed out…).
+    func updateCard(seq: Int, _ changes: [String: Any]) {
+        guard var card = cards[seq] else { return }
+        for (key, value) in changes { card[key] = value }
+        cards[seq] = card
+        corrections[seq] = currentRev + 1
+        broadcast(seq: seq)
+    }
     var currentRev: Int { history.map { rev(of: $0.seq) }.max() ?? 0 }
 
     private func messageData(_ event: (seq: Int, role: String, text: String, profile: String)) -> [String: Any] {
         var data: [String: Any] = ["seq": event.seq, "role": event.role, "text": event.text, "rev": rev(of: event.seq)]
+        if let card = cards[event.seq] { data["card"] = card }
         if let messageTime { data["at"] = messageTime }
         return data
     }
@@ -233,6 +266,28 @@ final class FakeHost: @unchecked Sendable {
             send(type: "history.page", id: id, data: [
                 "messages": page.map { messageData($0) }, "has_more": older.count > page.count,
             ], profileId: profile, on: connection)
+
+        case "prompt.respond":
+            let cardId = data["card_id"] as? String ?? ""
+            guard let seq = cards.first(where: { $0.value["id"] as? String == cardId })?.key else {
+                send(error: "UNKNOWN_CARD", reason: "No such card", id: id, on: connection, close: false)
+                return
+            }
+            var status = cards[seq]?["status"] as? String ?? "pending"
+            if status == "pending" {
+                if let choice = data["choice"] as? String {
+                    status = respondStatusOverride ?? ["once": "allowed_once", "session": "allowed_session",
+                                                       "always": "allowed_always", "deny": "denied"][choice] ?? "denied"
+                    var changes: [String: Any] = ["status": status]
+                    if let reason = data["reason"] as? String { changes["reason"] = reason }
+                    updateCard(seq: seq, changes)
+                } else {
+                    status = respondStatusOverride ?? "answered"
+                    let answer = (data["text"] as? String) ?? ((data["answers"] as? [String]) ?? []).joined(separator: ", ")
+                    updateCard(seq: seq, ["status": status, "answer": answer])
+                }
+            }
+            send(type: "prompt.respond.ack", id: id, data: ["card_id": cardId, "status": status], on: connection)
 
         case "chat.read":
             let profile = message["profile_id"] as? String ?? ""

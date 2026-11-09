@@ -399,9 +399,12 @@ public struct LKAgentRow: View {
         public var unread: Bool
         /// What it's doing right now, when working ("Searching the web…").
         public var working: String?
+        /// What it needs from you ("Needs your approval"), shown above everything else.
+        public var attention: String?
 
         public init(id: String, palette: Int? = nil, name: String, preview: String, date: Date?,
-                    unread: Bool, working: String?) {
+                    unread: Bool, working: String?, attention: String? = nil) {
+            self.attention = attention
             self.id = id
             self.palette = palette
             self.name = name
@@ -437,7 +440,20 @@ public struct LKAgentRow: View {
                             .foregroundStyle(content.unread ? LK.Palette.accent : .secondary)
                     }
                 }
-                if let working = content.working {
+                if let attention = content.attention {
+                    // Same height as a two-line preview; the label sits on the first line.
+                    ZStack(alignment: .topLeading) {
+                        Text("\n")
+                            .lineLimit(2, reservesSpace: true)
+                            .opacity(0)
+                            .accessibilityHidden(true)
+                        Label(attention, systemImage: "exclamationmark.circle.fill")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(LK.Palette.warning)
+                            .lineLimit(1)
+                    }
+                    .font(LK.Typography.subheadline)
+                } else if let working = content.working {
                     // Same height as a two-line preview, so the list doesn't shift.
                     ZStack(alignment: .topLeading) {
                         Text("\n")

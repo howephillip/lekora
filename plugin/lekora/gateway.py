@@ -25,6 +25,7 @@ from .ws import ConnectionClosed, ServerConnection, serve
 
 if TYPE_CHECKING:
     from .profile_admin import ProfileAdmin
+    from .prompts import Prompts
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +95,8 @@ class Gateway:
         self._server = None
         self._conns: set[_Conn] = set()
         self._tasks: set[asyncio.Task] = set()
+        # Approval and question cards (docs/prompts.md); set by LekoraService.
+        self.prompts: Optional["Prompts"] = None
 
     # ---- lifecycle ---------------------------------------------------------
 
@@ -152,8 +155,10 @@ class Gateway:
     @staticmethod
     def _message_data(seq: int, role: str, text: str, rev: int,
                       client_id: Optional[str] = None, draft_id: Optional[str] = None,
-                      at: Optional[str] = None) -> dict:
+                      at: Optional[str] = None, card: Optional[dict] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
+        if card:
+            data["card"] = card  # an approval or question card (docs/prompts.md)
         if at:
             data["at"] = at  # when it was saved (UTC, ISO 8601): the phone shows times
         if client_id:
@@ -165,7 +170,8 @@ class Gateway:
     def _event_json(self, ev) -> str:
         return self._envelope("chat.message", self._message_data(
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
-            ev.payload.get("client_id"), at=ev.created_at), profile_id=ev.profile_id)
+            ev.payload.get("client_id"), at=ev.created_at, card=ev.payload.get("card")),
+            profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
 
@@ -176,6 +182,24 @@ class Gateway:
             profile_id, "chat.message", {"role": role, "text": text})
         await self._broadcast(self.store.get_event(seq), draft_id=draft_id)
         return seq
+
+    async def publish_card(self, profile_id: str, role: str, text: str, card: dict) -> int:
+        """Save an approval or question card as a chat message and send it to every phone."""
+        seq = self.store.append_event(profile_id, "chat.message", {"role": role, "text": text, "card": card})
+        await self._broadcast(self.store.get_event(seq))
+        return seq
+
+    async def update_card(self, seq: int, card: dict, text: Optional[str] = None) -> None:
+        """A card's new state (answered, timed out…): saved with a new change number, resent."""
+        event = self.store.get_event(seq)
+        if event is None:
+            return
+        payload = dict(event.payload, card=card)
+        if text is not None:
+            payload["text"] = text
+        updated = self.store.update_event_payload(seq, payload)
+        if updated is not None:
+            await self._broadcast(updated)
 
     async def update_message(self, seq: int, text: str) -> bool:
         """Change a saved message (Hermes corrected it after it was sealed). Phones receive
@@ -210,7 +234,8 @@ class Gateway:
             return
         payload = self._envelope("chat.message", self._message_data(
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
-            ev.payload.get("client_id"), draft_id, at=ev.created_at), profile_id=ev.profile_id)
+            ev.payload.get("client_id"), draft_id, at=ev.created_at, card=ev.payload.get("card")),
+            profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
                 continue
@@ -297,6 +322,8 @@ class Gateway:
             await self._history_fetch(conn, msg_id, env.get("profile_id"), data)
         elif type_ == "chat.read":
             await self._chat_read(conn, env.get("profile_id"), data)
+        elif type_ == "prompt.respond":
+            await self._prompt_respond(conn, msg_id, env.get("profile_id"), data)
         elif type_ in ("profile.create", "profile.delete"):
             if self._profile_admin is None:
                 raise _Reject("PROFILE_ADMIN_UNAVAILABLE",
@@ -430,6 +457,8 @@ class Gateway:
         seq = self.store.append_event(profile_id, "chat.message", payload)
         # Every phone gets it, the sender too: client_id tells it which bubble now has this seq.
         await self._broadcast(self.store.get_event(seq))
+        if self.prompts is not None:  # a typed /approve or reply answers waiting cards
+            await self.prompts.user_message(profile_id, text)
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -453,10 +482,24 @@ class Gateway:
         events, has_more = self.store.messages_before(profile_id, before, limit)
         messages = [self._message_data(e.seq, e.payload.get("role", "assistant"),
                                        e.payload.get("text", ""), e.rev, e.payload.get("client_id"),
-                                       at=e.created_at)
+                                       at=e.created_at, card=e.payload.get("card"))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
+            msg_id=msg_id, profile_id=profile_id))
+
+    async def _prompt_respond(self, conn: _Conn, msg_id: Optional[str], profile_id: Any, data: dict) -> None:
+        """The phone answered an approval or question card (docs/prompts.md)."""
+        from .prompts import PromptError
+        if self.prompts is None:
+            raise _Reject("UNKNOWN_CARD", "This host has no cards to answer", True, False, msg_id)
+        profile_id = self._known_profile(profile_id, msg_id)
+        try:
+            card_id, status = await self.prompts.respond(profile_id, data)
+        except PromptError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        await self._send(conn, self._envelope(
+            "prompt.respond.ack", {"card_id": card_id, "status": status},
             msg_id=msg_id, profile_id=profile_id))
 
     async def _chat_read(self, conn: _Conn, profile_id: Any, data: dict) -> None:

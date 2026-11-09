@@ -7,6 +7,8 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
         case agent
         /// Hermes' own notices ("Gateway online…", "Background task finished…").
         case system
+        /// An approval or question card from the agent (docs/prompts.md).
+        case prompt
     }
 
     public enum Status: Equatable, Codable {
@@ -28,9 +30,11 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
     /// When the host saved it (or when it was sent from here); nil for messages cached
     /// before hosts sent times.
     public var date: Date?
+    /// For `.prompt` entries.
+    public var card: PromptCard?
 
     public init(id: String, profileId: String, role: Role, text: String, seq: Int? = nil,
-                status: Status = .sent, date: Date? = nil) {
+                status: Status = .sent, date: Date? = nil, card: PromptCard? = nil) {
         self.id = id
         self.profileId = profileId
         self.role = role
@@ -38,6 +42,7 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
         self.seq = seq
         self.status = status
         self.date = date
+        self.card = card
     }
 }
 
@@ -80,7 +85,7 @@ public struct ChatTimeline: Equatable {
         for message in messages {
             applyIncoming(seq: message.seq, profileId: profileId, role: message.role,
                           text: message.text, clientId: message.client_id,
-                          date: message.date, isPage: true)
+                          date: message.date, card: message.card, isPage: true)
         }
         if !hasMore { completeProfiles.insert(profileId) }
     }
@@ -156,11 +161,12 @@ public struct ChatTimeline: Equatable {
     /// - Parameter isPage: from a page of older messages, which may come before what's here.
     public mutating func applyIncoming(seq: Int, profileId: String, role: String, text: String,
                                        draftId: String? = nil, clientId: String? = nil,
-                                       date: Date? = nil, isPage: Bool = false) {
+                                       date: Date? = nil, card: PromptCard? = nil, isPage: Bool = false) {
         if let index = entries.firstIndex(where: { $0.seq == seq }) {
             // Seen before (replay) — or a correction the agent made after saving it.
             if entries[index].text != text { entries[index].text = text }
             if let date, entries[index].date != date { entries[index].date = date }
+            if let card, entries[index].card != card { entries[index].card = card }  // a card's new state
             return
         }
 
@@ -197,12 +203,29 @@ public struct ChatTimeline: Equatable {
         let entry = ChatEntry(
             id: "seq-\(seq)",
             profileId: profileId,
-            role: role == "user" ? .user : (role == "system" ? .system : .agent),
+            role: Self.role(role, card: card),
             text: text,
             seq: seq,
-            date: date
+            date: date,
+            card: card
         )
         entries.insert(entry, at: insertionIndex(for: seq))
+    }
+
+    private static func role(_ role: String, card: PromptCard?) -> ChatEntry.Role {
+        if card != nil { return .prompt }
+        switch role {
+        case "user": return .user
+        case "system": return .system
+        default: return .agent
+        }
+    }
+
+    /// A card's status as the host reported it after an answer (before its update arrives).
+    public mutating func setCardStatus(cardId: String, status: String) {
+        guard let index = entries.firstIndex(where: { $0.card?.id == cardId }),
+              entries[index].card?.status != status else { return }
+        entries[index].card?.status = status
     }
 
     /// Where a saved message goes: before the first saved message with a higher seq;

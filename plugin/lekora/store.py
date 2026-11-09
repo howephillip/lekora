@@ -451,6 +451,30 @@ class Store:
         return Event(row["seq"], row["instance_id"], row["profile_id"], row["event_type"],
                      payload, row["created_at"], rev)
 
+    def update_event_payload(self, seq: int, payload: dict[str, Any]) -> Optional[Event]:
+        """Replace a saved chat message's payload (a card's new status). New change number."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM events WHERE instance_id = ? AND seq = ?",
+                (self.instance_id, int(seq))).fetchone()
+            if row is None or row["event_type"] != "chat.message":
+                return None
+            rev = self._next_rev()
+            self._db.execute("UPDATE events SET payload_json = ?, rev = ? WHERE seq = ?",
+                             (json.dumps(payload), rev, int(seq)))
+            self._db.commit()
+        return Event(row["seq"], row["instance_id"], row["profile_id"], row["event_type"],
+                     payload, row["created_at"], rev)
+
+    def pending_cards(self) -> list[Event]:
+        """Approval and question cards still marked pending (docs/prompts.md)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM events WHERE instance_id = ? AND event_type = 'chat.message' "
+                "AND json_extract(payload_json, '$.card.status') = 'pending' ORDER BY seq",
+                (self.instance_id,)).fetchall()
+        return [self._event(r) for r in rows]
+
     def events_for_profile(self, profile_id: str) -> list[Event]:
         """One agent's events in order (for the backup taken before deleting it)."""
         with self._lock:

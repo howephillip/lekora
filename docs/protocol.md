@@ -255,3 +255,42 @@ All additions are optional fields or new types; protocol version stays 1.
 
 ### `at` on messages (Phase 2; spec: `agents-home.md`)
 `chat.message` data and each `history.page` message carry `at`: when the host saved the message, UTC ISO 8601 (`"2026-11-08T22:42:05Z"`). Optional for the phone: older hosts don't send it. `hello.ack` carries `message_times: true` from hosts that do.
+
+## 6. Permission and question cards (Phase 2; spec: `prompts.md`)
+
+### Cards are chat messages
+A card is a `chat.message` with `role` `approval` or `question` and a `card` object; `text` is a one-line summary (for previews and older apps). Status changes resend the same `seq` with a new `rev` (like corrections), so replays and other phones stay in step.
+```json
+{ "seq": 210, "role": "approval", "rev": 412, "at": "2026-11-08T23:10:00Z",
+  "text": "Wants to run: rm -rf ./build",
+  "card": { "kind": "approval", "id": "c_5f2a91", "status": "pending",
+            "command": "rm -rf ./build", "description": "recursive delete",
+            "choices": ["once", "session", "always", "deny"], "smart_denied": false,
+            "expires_at": "2026-11-08T23:15:00Z" } }
+{ "seq": 214, "role": "question", "rev": 420, "text": "Asks: Which venue?",
+  "card": { "kind": "question", "id": "c_77b0c3", "status": "pending",
+            "question": "Which venue?", "choices": ["Ramen512", "Kemuri"], "multi_select": false } }
+```
+`status`:
+- approval: `pending`, `allowed_once`, `allowed_session`, `allowed_always`, `denied`, `timed_out`, `answered_in_chat`, `closed`, `expired`;
+- question: `pending`, `answered`, `answered_in_chat`, `closed`, `expired`.
+
+Answered cards add `answer` (question) or `reason` (a denial's reason). `expires_at` is optional.
+
+### `prompt.respond` (Client -> Host) / `prompt.respond.ack` (Host -> Client)
+```json
+{ "type": "prompt.respond", "profile_id": "bruce",
+  "data": { "card_id": "c_5f2a91", "choice": "deny", "reason": "not now" } }
+{ "type": "prompt.respond", "profile_id": "bruce",
+  "data": { "card_id": "c_77b0c3", "answers": ["Ramen512"] } }        // or "text": "my own answer"
+{ "type": "prompt.respond.ack", "id": "<same id>", "data": { "card_id": "c_5f2a91", "status": "denied" } }
+```
+- `choice` is one of the card's `choices`.
+- `answers`: one or more of the question's choices (several only if `multi_select`).
+- `text`: a typed answer ("Other…" or an open question).
+
+A card that's no longer pending (answered on another phone, timed out…) is not an error: the ack carries its current `status`. If Hermes no longer has the request (e.g. it restarted), the card becomes `expired` and the ack says so.
+
+Errors (`error`, same `id`), recoverable:
+- `UNKNOWN_CARD`: no such card for that agent.
+- `INVALID_ANSWER`: a choice not offered, or an empty answer.

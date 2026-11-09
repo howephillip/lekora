@@ -152,7 +152,9 @@ public final class GatewayClient: ObservableObject {
     public func hasUnread(_ profileId: String) -> Bool {
         guard hostTracksRead else { return false }
         let marker = readMarkers[profileId] ?? 0
-        return timeline.entries.contains { $0.profileId == profileId && $0.role == .agent && ($0.seq ?? 0) > marker }
+        return timeline.entries.contains {
+            $0.profileId == profileId && ($0.role == .agent || $0.role == .prompt) && ($0.seq ?? 0) > marker
+        }
     }
 
     /// Another agent this phone uses has unread replies.
@@ -242,6 +244,34 @@ public final class GatewayClient: ObservableObject {
                 self.timeline.applyPage(profileId: profileId, messages: page.messages, hasMore: page.has_more)
             }
         }
+    }
+
+    // MARK: - Approval and question cards (docs/prompts.md)
+
+    /// The newest card still waiting for an answer in an agent's chat.
+    public func openPrompt(for profileId: String, now: Date = Date()) -> PromptCard? {
+        timeline.entries(for: profileId).last { $0.card?.isOpen(now: now) == true }?.card
+    }
+
+    /// Answers an approval card: `once`, `session`, `always` or `deny` (with an optional reason).
+    @discardableResult
+    public func answerApproval(_ card: PromptCard, in profileId: String, choice: String,
+                               reason: String? = nil) async throws -> String {
+        try await respond(profileId: profileId, PromptRespondData(card_id: card.id, choice: choice, reason: reason))
+    }
+
+    /// Answers a question card with one or more of its options, or with typed text.
+    @discardableResult
+    public func answerQuestion(_ card: PromptCard, in profileId: String,
+                               answers: [String]? = nil, text: String? = nil) async throws -> String {
+        try await respond(profileId: profileId, PromptRespondData(card_id: card.id, answers: answers, text: text))
+    }
+
+    private func respond(profileId: String, _ data: PromptRespondData) async throws -> String {
+        let ack = try await request(type: "prompt.respond", profileId: profileId, data: data,
+                                    reply: PromptRespondAckData.self, timeout: 20)
+        timeline.setCardStatus(cardId: ack.card_id, status: ack.status)
+        return ack.status
     }
 
     // MARK: - Older messages (docs/chat-history.md)
@@ -802,7 +832,8 @@ public final class GatewayClient: ObservableObject {
                 text: envelope.data.text,
                 draftId: envelope.data.draft_id,
                 clientId: envelope.data.client_id,
-                date: envelope.data.date
+                date: envelope.data.date,
+                card: envelope.data.card
             )
             if profileId == activeProfileId { markActiveChatRead() }
         case "chat.read":

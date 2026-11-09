@@ -182,9 +182,11 @@ public struct ChatMessageData: Codable, Equatable {
     public let client_id: String?
     /// When the host saved it, UTC ISO 8601 (docs/agents-home.md).
     public let at: String?
+    /// An approval or question card (docs/prompts.md).
+    public let card: PromptCard?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
-                rev: Int? = nil, client_id: String? = nil, at: String? = nil) {
+                rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil) {
         self.seq = seq
         self.role = role
         self.text = text
@@ -192,12 +194,108 @@ public struct ChatMessageData: Codable, Equatable {
         self.rev = rev
         self.client_id = client_id
         self.at = at
+        self.card = card
     }
 
     /// `at` as a date (nil if absent or unreadable).
     public var date: Date? {
         at.flatMap { try? Date($0, strategy: .iso8601) }
     }
+}
+
+// MARK: - Approval and question cards (docs/prompts.md)
+/// An agent asking for permission to do something risky, or asking you a question.
+public struct PromptCard: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable { case approval, question }
+
+    public let kind: Kind
+    public let id: String
+    public var status: String
+    // Approval
+    public let command: String?
+    public let description: String?
+    public let smartDenied: Bool?
+    public let expiresAt: String?
+    public var reason: String?
+    // Question
+    public let question: String?
+    public let multiSelect: Bool?
+    public var answer: String?
+    /// Approval: the choices Hermes allows (once / session / always / deny). Question: its options.
+    public let choices: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case kind, id, status, command, description, reason, question, answer, choices
+        case smartDenied = "smart_denied", expiresAt = "expires_at", multiSelect = "multi_select"
+    }
+
+    public init(kind: Kind, id: String, status: String = "pending", command: String? = nil,
+                description: String? = nil, smartDenied: Bool? = nil, expiresAt: String? = nil,
+                reason: String? = nil, question: String? = nil, multiSelect: Bool? = nil,
+                answer: String? = nil, choices: [String] = []) {
+        self.kind = kind
+        self.id = id
+        self.status = status
+        self.command = command
+        self.description = description
+        self.smartDenied = smartDenied
+        self.expiresAt = expiresAt
+        self.reason = reason
+        self.question = question
+        self.multiSelect = multiSelect
+        self.answer = answer
+        self.choices = choices
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decode(Kind.self, forKey: .kind)
+        id = try c.decode(String.self, forKey: .id)
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? "pending"
+        command = try c.decodeIfPresent(String.self, forKey: .command)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        smartDenied = try c.decodeIfPresent(Bool.self, forKey: .smartDenied)
+        expiresAt = try c.decodeIfPresent(String.self, forKey: .expiresAt)
+        reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        question = try c.decodeIfPresent(String.self, forKey: .question)
+        multiSelect = try c.decodeIfPresent(Bool.self, forKey: .multiSelect)
+        answer = try c.decodeIfPresent(String.self, forKey: .answer)
+        choices = try c.decodeIfPresent([String].self, forKey: .choices) ?? []
+    }
+
+    public var isPending: Bool { status == "pending" }
+
+    /// When Hermes stops waiting (approvals).
+    public var expiryDate: Date? { expiresAt.flatMap { try? Date($0, strategy: .iso8601) } }
+
+    /// Pending and not past its deadline.
+    public func isOpen(now: Date = Date()) -> Bool {
+        guard isPending else { return false }
+        if let expiry = expiryDate, expiry <= now { return false }
+        return true
+    }
+}
+
+public struct PromptRespondData: Codable, Equatable {
+    public let card_id: String
+    public let choice: String?
+    public let reason: String?
+    public let answers: [String]?
+    public let text: String?
+
+    public init(card_id: String, choice: String? = nil, reason: String? = nil,
+                answers: [String]? = nil, text: String? = nil) {
+        self.card_id = card_id
+        self.choice = choice
+        self.reason = reason
+        self.answers = answers
+        self.text = text
+    }
+}
+
+public struct PromptRespondAckData: Codable, Equatable {
+    public let card_id: String
+    public let status: String
 }
 
 // MARK: - Chat history and read state (docs/chat-history.md)
