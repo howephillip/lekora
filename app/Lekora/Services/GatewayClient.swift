@@ -155,9 +155,34 @@ public final class GatewayClient: ObservableObject {
         return timeline.entries.contains { $0.profileId == profileId && $0.role == .agent && ($0.seq ?? 0) > marker }
     }
 
-    /// Another agent this phone uses has unread replies (the dot by the title).
-    public var otherAgentsHaveUnread: Bool {
-        enabledProfiles.contains { $0.profile_id != activeProfileId && hasUnread($0.profile_id) }
+    /// Another agent this phone uses has unread replies.
+    public var otherAgentsHaveUnread: Bool { otherAgentsWithUnread > 0 }
+
+    /// How many other agents have unread replies (the count by the chat's back button).
+    public var otherAgentsWithUnread: Int {
+        enabledProfiles.filter { $0.profile_id != activeProfileId && hasUnread($0.profile_id) }.count
+    }
+
+    /// Each agent's avatar colours, unique among the host's agents.
+    public var avatarPalettes: [String: Int] {
+        LKAgentLook.assignPalettes(profiles.map(\.profile_id))
+    }
+
+    /// Unsent text per agent, kept while switching between chats (as Messages does).
+    public var drafts: [String: String] = [:]
+
+    /// The agents this phone uses, most recent conversation first; agents with no messages
+    /// keep the host's order at the end (docs/agents-home.md).
+    public var agentsByRecency: [ProfileData] {
+        let newest = Dictionary(grouping: timeline.entries, by: \.profileId).mapValues { entries in
+            // An unsent message counts as the newest of all.
+            entries.map { $0.seq ?? Int.max }.max() ?? Int.min
+        }
+        return enabledProfiles.enumerated().sorted { a, b in
+            let left = newest[a.element.profile_id] ?? Int.min
+            let right = newest[b.element.profile_id] ?? Int.min
+            return left != right ? left > right : a.offset < b.offset
+        }.map(\.element)
     }
 
     /// The chat screen tells the client when it's on screen with the app in front.
@@ -200,6 +225,23 @@ public final class GatewayClient: ObservableObject {
             }
         }
         readMarkers = merged
+    }
+
+    /// Messages cached before the host sent times: fetch each such agent's newest page again
+    /// so they get their times (docs/agents-home.md). Nothing cached is thrown away.
+    private func fillInMissingTimes() {
+        let agents = Set(timeline.entries.filter { $0.seq != nil && $0.date == nil }.map(\.profileId))
+        guard !agents.isEmpty else { return }
+        Task { [weak self] in
+            for profileId in agents.sorted() {
+                guard let self, case .connected = self.state else { return }
+                guard let page = try? await self.request(
+                    type: "history.fetch", profileId: profileId,
+                    data: HistoryFetchData(before_seq: nil, limit: 100),
+                    reply: HistoryPageData.self, timeout: 20) else { continue }
+                self.timeline.applyPage(profileId: profileId, messages: page.messages, hasMore: page.has_more)
+            }
+        }
     }
 
     // MARK: - Older messages (docs/chat-history.md)
@@ -402,6 +444,7 @@ public final class GatewayClient: ObservableObject {
             }
             if let rev = ack.rev { currentRev = max(currentRev, rev) }
             mergeReadMarkers(ack.read)
+            if ack.message_times == true { fillInMissingTimes() }
             agentActivity = [:]
             let activeName = activeProfile?.name ?? ack.profiles.first?.name ?? "Hermes Agent"
             state = .connected(instanceName: ack.instance_name, profileName: activeName)
@@ -758,7 +801,8 @@ public final class GatewayClient: ObservableObject {
                 role: envelope.data.role,
                 text: envelope.data.text,
                 draftId: envelope.data.draft_id,
-                clientId: envelope.data.client_id
+                clientId: envelope.data.client_id,
+                date: envelope.data.date
             )
             if profileId == activeProfileId { markActiveChatRead() }
         case "chat.read":

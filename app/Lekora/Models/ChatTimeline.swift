@@ -25,14 +25,19 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
     /// Host sequence number; nil for our own messages until the host reports them back.
     public var seq: Int?
     public var status: Status
+    /// When the host saved it (or when it was sent from here); nil for messages cached
+    /// before hosts sent times.
+    public var date: Date?
 
-    public init(id: String, profileId: String, role: Role, text: String, seq: Int? = nil, status: Status = .sent) {
+    public init(id: String, profileId: String, role: Role, text: String, seq: Int? = nil,
+                status: Status = .sent, date: Date? = nil) {
         self.id = id
         self.profileId = profileId
         self.role = role
         self.text = text
         self.seq = seq
         self.status = status
+        self.date = date
     }
 }
 
@@ -74,7 +79,8 @@ public struct ChatTimeline: Equatable {
     public mutating func applyPage(profileId: String, messages: [ChatMessageData], hasMore: Bool) {
         for message in messages {
             applyIncoming(seq: message.seq, profileId: profileId, role: message.role,
-                          text: message.text, clientId: message.client_id, isPage: true)
+                          text: message.text, clientId: message.client_id,
+                          date: message.date, isPage: true)
         }
         if !hasMore { completeProfiles.insert(profileId) }
     }
@@ -119,7 +125,8 @@ public struct ChatTimeline: Equatable {
             return
         }
         guard !text.isEmpty else { return }
-        entries.append(ChatEntry(id: draftId, profileId: profileId, role: .agent, text: text, status: .streaming))
+        entries.append(ChatEntry(id: draftId, profileId: profileId, role: .agent, text: text,
+                                 status: .streaming, date: Date()))
     }
 
     /// Live bubbles are previews: after a reconnect the host's replay is the truth.
@@ -128,7 +135,8 @@ public struct ChatTimeline: Equatable {
     }
 
     public mutating func addOutgoing(id: String, profileId: String, text: String) {
-        entries.append(ChatEntry(id: id, profileId: profileId, role: .user, text: text, status: .sending))
+        entries.append(ChatEntry(id: id, profileId: profileId, role: .user, text: text,
+                                 status: .sending, date: Date()))
     }
 
     public mutating func markSent(id: String) {
@@ -148,10 +156,11 @@ public struct ChatTimeline: Equatable {
     /// - Parameter isPage: from a page of older messages, which may come before what's here.
     public mutating func applyIncoming(seq: Int, profileId: String, role: String, text: String,
                                        draftId: String? = nil, clientId: String? = nil,
-                                       isPage: Bool = false) {
+                                       date: Date? = nil, isPage: Bool = false) {
         if let index = entries.firstIndex(where: { $0.seq == seq }) {
             // Seen before (replay) — or a correction the agent made after saving it.
             if entries[index].text != text { entries[index].text = text }
+            if let date, entries[index].date != date { entries[index].date = date }
             return
         }
 
@@ -160,6 +169,7 @@ public struct ChatTimeline: Equatable {
             entries[index].seq = seq
             entries[index].text = text
             entries[index].status = .sent
+            if let date { entries[index].date = date }
             settle(at: index)
             return
         }
@@ -172,6 +182,7 @@ public struct ChatTimeline: Equatable {
            }) {
             entries[index].seq = seq
             if entries[index].status != .sent { entries[index].status = .sent }
+            if let date { entries[index].date = date }
             settle(at: index)
             return
         }
@@ -188,7 +199,8 @@ public struct ChatTimeline: Equatable {
             profileId: profileId,
             role: role == "user" ? .user : (role == "system" ? .system : .agent),
             text: text,
-            seq: seq
+            seq: seq,
+            date: date
         )
         entries.insert(entry, at: insertionIndex(for: seq))
     }

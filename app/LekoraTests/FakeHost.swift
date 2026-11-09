@@ -26,12 +26,16 @@ final class FakeHost: @unchecked Sendable {
     var recentLimit = 50
     /// Answer `hello` like a host from before chat history (no rev / replay / read).
     var legacyHello = false
+    /// Every message carries this `at` time, like current hosts; nil = a host from before times.
+    var messageTime: String? = "2026-11-08T12:00:00Z"
 
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
     var currentRev: Int { history.map { rev(of: $0.seq) }.max() ?? 0 }
 
     private func messageData(_ event: (seq: Int, role: String, text: String, profile: String)) -> [String: Any] {
-        ["seq": event.seq, "role": event.role, "text": event.text, "rev": rev(of: event.seq)]
+        var data: [String: Any] = ["seq": event.seq, "role": event.role, "text": event.text, "rev": rev(of: event.seq)]
+        if let messageTime { data["at"] = messageTime }
+        return data
     }
 
     /// An agent corrects a saved message (e.g. while the phone is away).
@@ -211,6 +215,7 @@ final class FakeHost: @unchecked Sendable {
                     replay = history.filter { keep.contains($0.seq) }
                 }
                 ack["rev"] = currentRev
+                if messageTime != nil { ack["message_times"] = true }
                 ack["read"] = Dictionary(uniqueKeysWithValues: profiles.compactMap { $0["profile_id"] }.map { ($0, readMarkers[$0] ?? 0) })
             }
             send(type: "hello.ack", id: id, data: ack, on: connection)

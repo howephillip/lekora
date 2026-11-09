@@ -137,6 +137,8 @@ public struct HelloAckData: Codable, Equatable {
     public let replay: String?
     /// Each agent's read marker: highest seq read on any of the user's phones.
     public let read: [String: Int]?
+    /// True when messages carry the time they were saved (`at`).
+    public let message_times: Bool?
 
     public init(
         status: String = "ok",
@@ -145,7 +147,8 @@ public struct HelloAckData: Codable, Equatable {
         profiles: [ProfileData],
         rev: Int? = nil,
         replay: String? = nil,
-        read: [String: Int]? = nil
+        read: [String: Int]? = nil,
+        message_times: Bool? = nil
     ) {
         self.status = status
         self.current_seq = current_seq
@@ -154,6 +157,7 @@ public struct HelloAckData: Codable, Equatable {
         self.rev = rev
         self.replay = replay
         self.read = read
+        self.message_times = message_times
     }
 }
 
@@ -176,15 +180,23 @@ public struct ChatMessageData: Codable, Equatable {
     public let rev: Int?
     /// On user messages: the `chat.send` id, so the sending phone matches its own bubble.
     public let client_id: String?
+    /// When the host saved it, UTC ISO 8601 (docs/agents-home.md).
+    public let at: String?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
-                rev: Int? = nil, client_id: String? = nil) {
+                rev: Int? = nil, client_id: String? = nil, at: String? = nil) {
         self.seq = seq
         self.role = role
         self.text = text
         self.draft_id = draft_id
         self.rev = rev
         self.client_id = client_id
+        self.at = at
+    }
+
+    /// `at` as a date (nil if absent or unreadable).
+    public var date: Date? {
+        at.flatMap { try? Date($0, strategy: .iso8601) }
     }
 }
 

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		122872783B46AFB360CFB885 /* LKAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6AA398351F711D345961F7 /* LKAgents.swift */; };
 		1B51B78C457850705F4DEAFD /* ChatTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0CDF9E6E70F592D7D26D0F /* ChatTimeline.swift */; };
 		22BE641970CDB938F9E67B27 /* LKPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73562A915817188C789BD926 /* LKPreviews.swift */; };
 		26178CF7B74152D4EABA6E2F /* AgentLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA0E7D3EB239925597D00D4 /* AgentLifecycleTests.swift */; };
@@ -27,9 +28,11 @@
 		8A96BCD0023E5369B1FF002B /* AutoReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536416A3D691A83035A2FBAE /* AutoReconnectTests.swift */; };
 		8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */; };
 		9204696E33041E24602FA7C5 /* ReconnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F0CED43AE9F169638D5D29 /* ReconnectingView.swift */; };
+		989D398F4C0DCC50E9936694 /* AgentsHomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 354249C24E28051B0D46C7F7 /* AgentsHomeTests.swift */; };
 		9AE3FC3D1F24E1FCDEAD6CA9 /* LKControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D68937DEF313C782685EDF4 /* LKControls.swift */; };
 		A7FABDA05D86D7F06AF087E5 /* LKTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F460D8439ADD0ACFDFE2A0C /* LKTheme.swift */; };
 		AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D236D28311188A8777EEA28 /* RouteProber.swift */; };
+		B3E1652F6BF2059C81EA8B5E /* AgentsHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71FE4330319847F703BD319 /* AgentsHomeView.swift */; };
 		B4BE360A187FB1147A43DC0E /* LKSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98E6C761189D7F9969880583 /* LKSurfaces.swift */; };
 		B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19C424E99FE08F51187724FC /* FakeHost.swift */; };
 		C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */; };
@@ -57,6 +60,7 @@
 		1C14F78E55A3258FA42F19E4 /* ChatCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCache.swift; sourceTree = "<group>"; };
 		2CD6AF1AA6582890921BFB14 /* LekoraTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LekoraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingSkeletonPingView.swift; sourceTree = "<group>"; };
+		354249C24E28051B0D46C7F7 /* AgentsHomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsHomeTests.swift; sourceTree = "<group>"; };
 		3AA5EC2D74AA90CF7D81DF01 /* LekoraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LekoraApp.swift; sourceTree = "<group>"; };
 		3D68937DEF313C782685EDF4 /* LKControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKControls.swift; sourceTree = "<group>"; };
 		5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimelineTests.swift; sourceTree = "<group>"; };
@@ -77,8 +81,10 @@
 		9F460D8439ADD0ACFDFE2A0C /* LKTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKTheme.swift; sourceTree = "<group>"; };
 		A1FA8B34B4CE7A6CD6671CD0 /* EncryptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptionTests.swift; sourceTree = "<group>"; };
 		A70D035010855C26CF7103C5 /* LKChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKChat.swift; sourceTree = "<group>"; };
+		A71FE4330319847F703BD319 /* AgentsHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsHomeView.swift; sourceTree = "<group>"; };
 		B8596CF7B9B0B12CD2C7E000 /* PinnedTLS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedTLS.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
+		DD6AA398351F711D345961F7 /* LKAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKAgents.swift; sourceTree = "<group>"; };
 		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProberTests.swift; sourceTree = "<group>"; };
@@ -118,6 +124,7 @@
 		7AF8CE578C7AB07A9C71C113 /* DesignSystem */ = {
 			isa = PBXGroup;
 			children = (
+				DD6AA398351F711D345961F7 /* LKAgents.swift */,
 				A70D035010855C26CF7103C5 /* LKChat.swift */,
 				3D68937DEF313C782685EDF4 /* LKControls.swift */,
 				73562A915817188C789BD926 /* LKPreviews.swift */,
@@ -145,6 +152,7 @@
 			isa = PBXGroup;
 			children = (
 				9AA0E7D3EB239925597D00D4 /* AgentLifecycleTests.swift */,
+				354249C24E28051B0D46C7F7 /* AgentsHomeTests.swift */,
 				536C65B6C9407858DCEC49A3 /* AgentSwitchingTests.swift */,
 				536416A3D691A83035A2FBAE /* AutoReconnectTests.swift */,
 				0BF412341EDFBD9C0BD40EA1 /* ChatHistoryTests.swift */,
@@ -183,6 +191,7 @@
 		DCFB9DB67227C71469250099 /* Chat */ = {
 			isa = PBXGroup;
 			children = (
+				A71FE4330319847F703BD319 /* AgentsHomeView.swift */,
 				3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */,
 			);
 			path = Chat;
@@ -275,12 +284,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B3E1652F6BF2059C81EA8B5E /* AgentsHomeView.swift in Sources */,
 				2988CBAEB83B34780FC8D41F /* ChatCache.swift in Sources */,
 				1B51B78C457850705F4DEAFD /* ChatTimeline.swift in Sources */,
 				40CC469576F60182124E5293 /* ChooseProfilesView.swift in Sources */,
 				3E26C6FC055625CF828F3902 /* DeviceName.swift in Sources */,
 				E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */,
 				5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */,
+				122872783B46AFB360CFB885 /* LKAgents.swift in Sources */,
 				D5E75A6364A09E0D8E76A561 /* LKChat.swift in Sources */,
 				9AE3FC3D1F24E1FCDEAD6CA9 /* LKControls.swift in Sources */,
 				22BE641970CDB938F9E67B27 /* LKPreviews.swift in Sources */,
@@ -304,6 +315,7 @@
 			files = (
 				26178CF7B74152D4EABA6E2F /* AgentLifecycleTests.swift in Sources */,
 				89351AEBEC5B52FBF90979BE /* AgentSwitchingTests.swift in Sources */,
+				989D398F4C0DCC50E9936694 /* AgentsHomeTests.swift in Sources */,
 				8A96BCD0023E5369B1FF002B /* AutoReconnectTests.swift in Sources */,
 				63D6F2FB67ACF2275D7D12DA /* ChatHistoryTests.swift in Sources */,
 				C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */,

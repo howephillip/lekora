@@ -44,37 +44,28 @@ public struct ContentView: View {
         self.gateway = gateway
     }
 
-    public var body: some View {
+    /// The agents list shows while connected, and while reconnecting when the last known
+    /// chats are on the phone. One place in the view tree, so a reconnect keeps the open chat.
+    private var showsAgents: Bool {
         switch gateway.state {
-        case .connected(let instanceName, let profileName):
-            if gateway.needsProfileChoice {
-                ChooseProfilesView(gateway: gateway, mode: .setup)
-            } else {
-                WalkingSkeletonPingView(
-                    gateway: gateway,
-                    instanceName: instanceName,
-                    profileName: profileName
-                )
-            }
+        case .connected:
+            return !gateway.needsProfileChoice
         case .disconnected, .probing, .connecting:
-            if gateway.hasCachedChats {
-                // The last known chats, while reconnecting (docs/chat-history.md).
-                WalkingSkeletonPingView(
-                    gateway: gateway,
-                    instanceName: gateway.savedHost?.instanceName ?? "",
-                    profileName: gateway.activeProfile?.name ?? ""
-                )
-            } else if let host = gateway.savedHost {
-                ReconnectingView(gateway: gateway, host: host)
-            } else {
-                SetupWizardView(gateway: gateway)
-            }
+            return gateway.hasCachedChats
         default:
-            if let host = gateway.savedHost {
-                ReconnectingView(gateway: gateway, host: host)
-            } else {
-                SetupWizardView(gateway: gateway)
-            }
+            return false
+        }
+    }
+
+    public var body: some View {
+        if showsAgents {
+            AgentsHomeView(gateway: gateway)
+        } else if case .connected = gateway.state {
+            ChooseProfilesView(gateway: gateway, mode: .setup)
+        } else if let host = gateway.savedHost {
+            ReconnectingView(gateway: gateway, host: host)
+        } else {
+            SetupWizardView(gateway: gateway)
         }
     }
 }

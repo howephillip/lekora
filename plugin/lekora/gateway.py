@@ -151,8 +151,11 @@ class Gateway:
 
     @staticmethod
     def _message_data(seq: int, role: str, text: str, rev: int,
-                      client_id: Optional[str] = None, draft_id: Optional[str] = None) -> dict:
+                      client_id: Optional[str] = None, draft_id: Optional[str] = None,
+                      at: Optional[str] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
+        if at:
+            data["at"] = at  # when it was saved (UTC, ISO 8601): the phone shows times
         if client_id:
             data["client_id"] = client_id  # the chat.send id: the sender matches its own bubble
         if draft_id:
@@ -162,7 +165,7 @@ class Gateway:
     def _event_json(self, ev) -> str:
         return self._envelope("chat.message", self._message_data(
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
-            ev.payload.get("client_id")), profile_id=ev.profile_id)
+            ev.payload.get("client_id"), at=ev.created_at), profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
 
@@ -207,7 +210,7 @@ class Gateway:
             return
         payload = self._envelope("chat.message", self._message_data(
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
-            ev.payload.get("client_id"), draft_id), profile_id=ev.profile_id)
+            ev.payload.get("client_id"), draft_id, at=ev.created_at), profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
                 continue
@@ -397,6 +400,7 @@ class Gateway:
                 ack["replay"] = "recent"
                 replay = self.store.recent_messages(RECENT_PER_PROFILE)
             ack["rev"] = rev_now
+            ack["message_times"] = True  # messages carry "at" (docs/agents-home.md)
             ack["read"] = {p["profile_id"]: self.store.read_marker(p["profile_id"]) for p in profiles}
         # Hold the connection lock so live broadcasts queue behind the replay.
         async with conn.lock:
@@ -448,7 +452,8 @@ class Gateway:
             raise _Reject("INVALID_MESSAGE", "history.fetch needs numbers", True, False, msg_id)
         events, has_more = self.store.messages_before(profile_id, before, limit)
         messages = [self._message_data(e.seq, e.payload.get("role", "assistant"),
-                                       e.payload.get("text", ""), e.rev, e.payload.get("client_id"))
+                                       e.payload.get("text", ""), e.rev, e.payload.get("client_id"),
+                                       at=e.created_at)
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},

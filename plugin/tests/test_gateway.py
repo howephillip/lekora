@@ -167,7 +167,8 @@ async def test_ping_pong(gw, store):
     await recv(ws)  # hello.ack
     await ws.send(env(store, "chat.send", {"text": "Ping"}, profile_id="assistant", msg_id="c-1"))
     echo = await recv(ws)  # its own message comes back with its seq, matched by client_id
-    assert echo["data"] == {"seq": 1, "role": "user", "text": "Ping", "rev": 1, "client_id": "c-1"}
+    assert echo["data"] == {"seq": 1, "role": "user", "text": "Ping", "rev": 1, "client_id": "c-1",
+                            "at": "2026-11-07T12:00:00Z"}   # when it was saved (test clock)
     msg = await recv(ws)
     assert msg["type"] == "chat.message" and msg["profile_id"] == "assistant"
     assert msg["data"]["text"] == "Pong from Hermes"
@@ -454,7 +455,7 @@ async def test_saved_reply_carries_its_draft_id(gw, store):
     seq = await gw.publish_message("bruce", "Hello there.", draft_id="live-1")
     msg = await recv(ws)
     assert msg["data"] == {"seq": seq, "role": "assistant", "text": "Hello there.", "rev": seq,
-                           "draft_id": "live-1"}
+                           "draft_id": "live-1", "at": "2026-11-07T12:00:00Z"}
     await ws.close()
 
 

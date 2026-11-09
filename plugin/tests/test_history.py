@@ -123,10 +123,11 @@ async def test_phone_without_cache_gets_recent_messages(gw, store, monkeypatch):
     ws = await hello_rev(gw, store, device_id, tok, since_rev=0)
     ack = await recv(ws)
     assert ack["data"]["replay"] == "recent" and ack["data"]["rev"] == 7
+    assert ack["data"]["message_times"] is True
     assert ack["data"]["read"] == {"assistant": 0, "coder": 0}
     got = await drain(ws)
     assert [m["data"]["seq"] for m in got] == [4, 5, 6, 7]
-    assert all("rev" in m["data"] for m in got)
+    assert all("rev" in m["data"] and "at" in m["data"] for m in got)
     await ws.close()
 
 
@@ -193,6 +194,7 @@ async def test_history_fetch_returns_a_page(gw, store):
     page = await recv(ws)
     assert page["type"] == "history.page" and page["id"] == "f1" and page["profile_id"] == "assistant"
     assert [m["seq"] for m in page["data"]["messages"]] == [2, 3]
+    assert all(m["at"] == "2026-11-07T12:00:00Z" for m in page["data"]["messages"])
     assert page["data"]["has_more"] is True
     await ws.send(env(store, "history.fetch", {"before_seq": 2}, profile_id="assistant", msg_id="f2"))
     page = await recv(ws)

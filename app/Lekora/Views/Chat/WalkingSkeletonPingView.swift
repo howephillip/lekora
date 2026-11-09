@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The connected screen: a chat with the active agent. Tap the title to switch agents.
+/// A chat with one agent, opened from the agents list (docs/agents-home.md).
 public struct WalkingSkeletonPingView: View {
     @ObservedObject public var gateway: GatewayClient
     public let instanceName: String
@@ -13,8 +13,6 @@ public struct WalkingSkeletonPingView: View {
 
     @State private var draft: String = ""
     @FocusState private var inputFocused: Bool
-    @State private var confirmingForget = false
-    @State private var choosingAgents = false
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
     @State private var isOnScreen = false
@@ -25,6 +23,13 @@ public struct WalkingSkeletonPingView: View {
     /// or the next page would start before this one is back in place.
     @State private var pageInFlight = false
     @Environment(\.scenePhase) private var scenePhase
+    /// How far the messages are dragged left to show their times (as in Messages).
+    @State private var timeReveal: CGFloat = 0
+    private static let timeRevealWidth: CGFloat = 72
+    @State private var restoredDraft = false
+    /// Changed on every send: a fresh text box, so nothing the keyboard was still holding
+    /// (an autocorrect or prediction) can write the sent text back into it.
+    @State private var composerID = 0
 
     public init(gateway: GatewayClient, instanceName: String, profileName: String) {
         self.gateway = gateway
@@ -67,122 +72,106 @@ public struct WalkingSkeletonPingView: View {
         return false
     }
 
-    private var isDisconnected: Bool { gateway.state == .disconnected }
-
-    /// The host's name, or what's happening while the last known chats are shown offline.
-    private var subtitle: String {
-        if isConnected { return instanceName }
-        return isDisconnected ? "Not connected" : "Connecting…"
+    /// Only while not connected: what's happening ("Connecting…").
+    private var subtitle: String? {
+        if isConnected { return nil }
+        return gateway.state == .disconnected ? "Not connected" : "Connecting…"
     }
 
     public var body: some View {
-        NavigationStack {
-            messageList
-                .lkScreenBackground()
-                .safeAreaBar(edge: .bottom) {
-                    LKComposer("Message \(profileName)", text: $draft, canSend: canSend,
-                               focus: $inputFocused, onSend: send)
+        messageList
+            // Scrolled up into older messages: a small button back to the newest one.
+            .overlay(alignment: .bottomTrailing) {
+                if !isAtBottom {
+                    Button {
+                        isAtBottom = true
+                        scrollToBottom(animated: true)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .padding(.trailing, LK.Spacing.lg)
+                    .padding(.bottom, LK.Spacing.sm)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    .accessibilityLabel("Newest message")
                 }
-                .navigationTitle(profileName)
-                .navigationSubtitle(subtitle)
-                // A blue dot when another agent has replies waiting (docs/chat-history.md).
-                #if os(iOS)
-                .toolbar {
-                    ToolbarItem(placement: .title) {
-                        titleView
+            }
+            .animation(.easeOut(duration: 0.2), value: isAtBottom)
+            .lkScreenBackground()
+            .safeAreaBar(edge: .bottom) {
+                LKComposer("Message \(profileName)", text: $draft, canSend: canSend,
+                           focus: $inputFocused, onSend: send)
+                    .id(composerID)
+            }
+            .navigationTitle(profileName)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Next to the standard back button (which keeps the swipe-back gestures):
+                // how many other agents have unread replies — docs/agents-home.md.
+                if gateway.otherAgentsWithUnread > 0 {
+                    ToolbarItem(placement: .topBarLeading) {
+                        unreadBadge
                     }
                 }
-                #endif
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
-                // Agent switcher: tapping the title opens this menu (the system adds the chevron).
-                .toolbarTitleMenu {
-                    ForEach(gateway.enabledProfiles) { profile in
-                        Button {
-                            gateway.switchToProfile(profile.profile_id)
-                        } label: {
-                            if profile.profile_id == gateway.activeProfileId {
-                                Label(profile.name, systemImage: "checkmark")
-                            } else if gateway.hasUnread(profile.profile_id) {
-                                // Title, subtitle and icon: the menu row layout.
-                                Text(profile.name)
-                                Text("New messages")
-                                LKUnreadDot.menuIcon
-                            } else {
-                                Text(profile.name)
+                ToolbarItem(placement: .title) {
+                    HStack(spacing: LK.Spacing.sm) {
+                        LKAgentAvatar(id: gateway.activeProfileId, palette: gateway.avatarPalettes[gateway.activeProfileId],
+                                      size: 28, working: activity != nil)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(profileName)
+                                .font(.headline)
+                            if let subtitle {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
-                    }
-                    Divider()
-                    Button("Manage Agents…", systemImage: "person.2") {
-                        choosingAgents = true
+                        .lineLimit(1)
                     }
                 }
-                .sheet(isPresented: $choosingAgents) {
-                    ChooseProfilesView(gateway: gateway, mode: .edit)
+            }
+            #endif
+            // New messages count as read only while the chat is on screen with the app in front.
+            .onAppear {
+                isOnScreen = true
+                updateVisibility()
+                if !restoredDraft {  // once: a later onAppear must not bring back sent text
+                    restoredDraft = true
+                    draft = gateway.drafts[gateway.activeProfileId] ?? ""
                 }
-                // No "connected" badge: this screen only shows while connected; any
-                // connection problem switches the app to the Reconnecting screen.
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Menu {
-                            Button("Forget Host", systemImage: "xmark.circle", role: .destructive) {
-                                confirmingForget = true
-                            }
-                        } label: {
-                            Label("More", systemImage: "ellipsis")
-                        }
-                    }
-                }
-                .confirmationDialog(
-                    "Forget \(instanceName)?",
-                    isPresented: $confirmingForget,
-                    titleVisibility: .visible
-                ) {
-                    Button("Disconnect and Forget", role: .destructive) {
-                        Task { await gateway.forgetHost() }
-                    }
-                } message: {
-                    Text("This phone will disconnect and be removed from the host's device list. To connect again you'll need a new pairing code from the Hermes machine. Your chats stay on the host.")
-                }
-                .overlay {
-                    if gateway.isForgetting {
-                        LKBlockingProgress("Forgetting host…")
-                    }
-                }
-        }
-        // New messages count as read only while the chat is on screen with the app in front.
-        .onAppear { isOnScreen = true; updateVisibility() }
-        .onDisappear { isOnScreen = false; updateVisibility() }
-        .onChange(of: scenePhase) { _, _ in updateVisibility() }
-        // Shown offline with the last known chats: try to reconnect after a dropped connection.
-        .task(id: isDisconnected) {
-            guard isDisconnected else { return }
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard !Task.isCancelled else { return }
-            // Its own task: this one is cancelled as soon as the state changes to
-            // "connecting", which must not cancel the connection attempt itself.
-            Task { await gateway.resumeSavedSession() }
-        }
+            }
+            .onChange(of: draft) { _, text in
+                gateway.drafts[gateway.activeProfileId] = text.isEmpty ? nil : text
+            }
+            // Opened by a push: once it has slid in and the message bar is measured, show
+            // the newest message in full.
+            .task {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                isAtBottom = true
+                scrollToBottom(animated: false)
+            }
+            .onDisappear { isOnScreen = false; updateVisibility() }
+            .onChange(of: scenePhase) { _, _ in updateVisibility() }
     }
 
     private func updateVisibility() {
         gateway.setChatVisible(isOnScreen && scenePhase == .active)
     }
 
-    /// The agent's name, with a blue dot when another agent has unread replies. The system
-    /// adds the subtitle and the menu chevron; tapping it opens the agent menu.
-    private var titleView: some View {
-        HStack(spacing: 6) {
-            Text(profileName)
-                .font(.headline)
-                .lineLimit(1)
-            if gateway.otherAgentsHaveUnread {
-                LKUnreadDot()
-                    .accessibilityLabel("Another agent has new messages")
-            }
-        }
+    private var unreadBadge: some View {
+        Text("\(gateway.otherAgentsWithUnread)")
+            .font(LK.Typography.captionStrong)
+            .foregroundStyle(LK.Palette.onAccent)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(LK.Palette.accent, in: Capsule())
+            .accessibilityLabel(gateway.otherAgentsWithUnread == 1
+                                ? "1 other agent with new messages"
+                                : "\(gateway.otherAgentsWithUnread) other agents with new messages")
     }
 
     // MARK: - Messages
@@ -199,13 +188,29 @@ public struct WalkingSkeletonPingView: View {
                 } else if messages.isEmpty {
                     emptyState
                 }
+                let timeLines = LKTime.separatorIds(for: messages)
                 ForEach(messages) { entry in
                     Group {
+                        if timeLines.contains(entry.id), let date = entry.date {
+                            LKTimeSeparator(date)
+                        }
                         if entry.role == .system {
                             LKSystemNotice(entry.text)
                         } else {
                             LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
                                             delivery: delivery(for: entry))
+                                .offset(x: -timeReveal)
+                                .overlay(alignment: .trailing) {
+                                    if let date = entry.date {
+                                        Text(date.formatted(date: .omitted, time: .shortened))
+                                            .font(LK.Typography.caption)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize()
+                                            .offset(x: Self.timeRevealWidth - timeReveal)
+                                            .opacity(timeReveal / Self.timeRevealWidth)
+                                            .accessibilityHidden(true)
+                                    }
+                                }
                         }
                     }
                     .id(entry.id)
@@ -218,6 +223,13 @@ public struct WalkingSkeletonPingView: View {
             .padding(.horizontal, LK.Spacing.lg)
             .padding(.vertical, LK.Spacing.md)
         }
+        #if os(iOS)
+        // Drag left to see every message's time; let go and they slide back (as in Messages).
+        // Only leftward drags: swiping right still goes back to the agents list.
+        .gesture(LKLeftwardPan(
+            onChange: { distance in timeReveal = min(distance, Self.timeRevealWidth) },
+            onEnd: { withAnimation(.spring(duration: 0.3)) { timeReveal = 0 } }))
+        #endif
         .onScrollPhaseChange { _, phase in
             userIsScrolling = phase == .interacting || phase == .decelerating
         }
@@ -363,6 +375,10 @@ public struct WalkingSkeletonPingView: View {
         guard canSend else { return }
         let text = draft
         draft = ""
+        gateway.drafts[gateway.activeProfileId] = nil
+        // A fresh text box (see composerID), keeping the keyboard up.
+        composerID += 1
+        DispatchQueue.main.async { inputFocused = true }
         isAtBottom = true          // you just sent something: show it, and the reply
         scrollToBottom(animated: true)
         Task {

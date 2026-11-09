@@ -46,7 +46,10 @@ public struct LKMessageBubble: View {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible)
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        // Headings ("## Report") aren't inline Markdown: show them as bold lines.
+        let headed = text.replacingOccurrences(of: #"(?m)^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$"#,
+                                               with: "**$1**", options: .regularExpression)
+        return (try? AttributedString(markdown: headed, options: options)) ?? AttributedString(text)
     }
 
     public var body: some View {
@@ -123,26 +126,6 @@ public struct LKComposer: View {
         }
         .padding(.horizontal, LK.Spacing.lg)
         .padding(.vertical, LK.Spacing.sm)
-    }
-}
-
-/// An agent's initial in a tinted circle. Hermes profiles have no pictures yet.
-public struct LKAgentAvatar: View {
-    private let name: String
-    private let size: CGFloat
-
-    public init(_ name: String, size: CGFloat = 40) {
-        self.name = name
-        self.size = size
-    }
-
-    public var body: some View {
-        Text(name.first.map { String($0).uppercased() } ?? "?")
-            .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
-            .foregroundStyle(LK.Palette.accent)
-            .frame(width: size, height: size)
-            .background(LK.Palette.accent.opacity(0.15), in: Circle())
-            .accessibilityHidden(true)
     }
 }
 
@@ -270,3 +253,51 @@ public struct LKUnreadDot: View {
         return Image(systemName: "circle.fill")
     }
 }
+
+// MARK: - Drag left to see times
+
+#if canImport(UIKit)
+/// A pan that only starts for a leftward, mostly-horizontal drag, so vertical scrolling and
+/// the system's swipe-right-to-go-back keep working. Reports how far left (0…) it is.
+public struct LKLeftwardPan: UIGestureRecognizerRepresentable {
+    private let onChange: (CGFloat) -> Void
+    private let onEnd: () -> Void
+
+    public init(onChange: @escaping (CGFloat) -> Void, onEnd: @escaping () -> Void) {
+        self.onChange = onChange
+        self.onEnd = onEnd
+    }
+
+    public func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    public func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let pan = UIPanGestureRecognizer()
+        pan.delegate = context.coordinator
+        return pan
+    }
+
+    public func handleUIGestureRecognizerAction(_ pan: UIPanGestureRecognizer, context: Context) {
+        switch pan.state {
+        case .began, .changed:
+            onChange(max(0, -pan.translation(in: pan.view).x))
+        case .ended, .cancelled, .failed:
+            onEnd()
+        default:
+            break
+        }
+    }
+
+    public final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        public func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = recognizer as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view)
+            return velocity.x < 0 && abs(velocity.x) > abs(velocity.y)
+        }
+
+        public func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                                      shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
+    }
+}
+#endif

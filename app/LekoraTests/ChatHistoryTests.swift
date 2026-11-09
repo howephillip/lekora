@@ -77,6 +77,27 @@ final class ChatHistoryTests: XCTestCase {
         XCTAssertEqual(relaunched.timeline.entries.count, 3, "nothing duplicated")
     }
 
+    func testMessagesCachedWithoutTimesGetThemOnceTheHostSendsTimes() async throws {
+        host.messageTime = nil  // a host from before message times
+        let store = try savedStore()
+        let first = await connected(store)
+        _ = await waitUntil { first.timeline.entries.count == 3 }
+        await first.sendMessage("Mine")  // sent from here: keeps the phone's own time
+        _ = await waitUntil { first.timeline.entries.count == 5 }
+        first.saveCacheNow()
+        first.disconnect()
+
+        let offline = GatewayClient(keychain: store, requireTLS: false, cacheStore: cacheStore)
+        XCTAssertNotNil(offline.timeline.entries.first { $0.text == "Mine" }?.date, "own times survive a relaunch")
+
+        host.messageTime = "2026-11-08T12:00:00Z"  // the host is updated
+        let relaunched = await connected(store)
+        XCTAssertEqual(lastHello()["since_rev"] as? Int, 50, "only what changed: nothing is thrown away")
+        let dated = await waitUntil { relaunched.timeline.entries.allSatisfy { $0.date != nil } }
+        XCTAssertTrue(dated, "times filled in")
+        XCTAssertEqual(relaunched.timeline.entries.count, 5)
+    }
+
     func testCorrectionMadeWhileAwayArrives() async throws {
         let store = try savedStore()
         let first = await connected(store)

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The agent selector: which Hermes profiles this phone uses, plus adding and deleting
 /// agents (docs/agent-lifecycle.md). The last setup step after pairing (skipped when the
-/// host has only one agent), and reachable later from the chat's agent menu.
+/// host has only one agent), and reachable later from Manage Agents on the agents list.
 public struct ChooseProfilesView: View {
     public enum Mode {
         /// End of setup: no way back, Continue goes to the chat.
@@ -71,7 +71,7 @@ public struct ChooseProfilesView: View {
                         if mode == .edit { dismiss() }
                     }
                     .disabled(chosen.isEmpty)
-                    Text(chosen.isEmpty ? "Choose at least one agent." : "You can change this later from the agent menu in the chat.")
+                    Text(chosen.isEmpty ? "Choose at least one agent." : "You can change this later with Manage Agents on the Agents screen.")
                         .font(LK.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -145,7 +145,7 @@ public struct ChooseProfilesView: View {
             }
         } label: {
             HStack(spacing: LK.Spacing.md) {
-                LKAgentAvatar(profile.name)
+                LKAgentAvatar(id: profile.profile_id, palette: gateway.avatarPalettes[profile.profile_id])
                 VStack(alignment: .leading, spacing: LK.Spacing.xxs) {
                     Text(profile.name)
                         .font(LK.Typography.headline)

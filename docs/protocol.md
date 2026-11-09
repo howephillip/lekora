@@ -252,3 +252,6 @@ All additions are optional fields or new types; protocol version stays 1.
 
 ### `chat.read` (both directions)
 `{ "type": "chat.read", "profile_id": "bruce", "data": { "seq": 151 } }`. From a phone: the host moves the agent's marker to `seq` (never backwards) and sends the same `chat.read` to the user's other connected phones. No reply.
+
+### `at` on messages (Phase 2; spec: `agents-home.md`)
+`chat.message` data and each `history.page` message carry `at`: when the host saved the message, UTC ISO 8601 (`"2026-11-08T22:42:05Z"`). Optional for the phone: older hosts don't send it. `hello.ack` carries `message_times: true` from hosts that do.
