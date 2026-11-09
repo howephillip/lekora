@@ -29,6 +29,14 @@ final class FakeHost: @unchecked Sendable {
     /// Every message carries this `at` time, like current hosts; nil = a host from before times.
     var messageTime: String? = "2026-11-08T12:00:00Z"
 
+    /// What commands.list answers (docs/slash-commands.md).
+    var slashCommands: [[String: Any]] = [
+        ["name": "new", "description": "Start a new session", "args": "", "choices": [], "aliases": ["reset"],
+         "group": "hermes", "category": "Session"],
+        ["name": "approvals", "description": "Approval mode", "args": "[manual|smart|off]",
+         "choices": ["manual", "smart", "off"], "aliases": [], "group": "hermes", "category": "Configuration"],
+    ]
+
     /// Cards by seq (docs/prompts.md), and every prompt.respond received.
     var cards: [Int: [String: Any]] = [:]
     /// What the fake Hermes says about an answered card: nil = accept it.
@@ -266,6 +274,11 @@ final class FakeHost: @unchecked Sendable {
             send(type: "history.page", id: id, data: [
                 "messages": page.map { messageData($0) }, "has_more": older.count > page.count,
             ], profileId: profile, on: connection)
+
+        case "commands.list":
+            send(type: "commands.list.result", id: id,
+                 data: ["commands": slashCommands, "fingerprint": "f\(slashCommands.count)"],
+                 profileId: message["profile_id"] as? String, on: connection)
 
         case "prompt.respond":
             let cardId = data["card_id"] as? String ?? ""

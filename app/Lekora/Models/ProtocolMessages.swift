@@ -203,6 +203,55 @@ public struct ChatMessageData: Codable, Equatable {
     }
 }
 
+// MARK: - Slash commands (docs/slash-commands.md)
+/// A command an agent can use, from Hermes' own lists.
+public struct SlashCommand: Codable, Equatable, Hashable, Sendable {
+    public let name: String
+    public let description: String
+    /// e.g. "[manual|smart|off]" or "<prompt>"
+    public let args: String
+    /// Fixed options for the first argument, e.g. ["manual", "smart", "off"].
+    public let choices: [String]
+    public let aliases: [String]
+    /// "hermes", "plugin", "skill" or "quick"
+    public let group: String
+    public let category: String
+
+    public init(name: String, description: String, args: String = "", choices: [String] = [],
+                aliases: [String] = [], group: String = "hermes", category: String = "") {
+        self.name = name
+        self.description = description
+        self.args = args
+        self.choices = choices
+        self.aliases = aliases
+        self.group = group
+        self.category = category
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        args = try c.decodeIfPresent(String.self, forKey: .args) ?? ""
+        choices = try c.decodeIfPresent([String].self, forKey: .choices) ?? []
+        aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
+        group = try c.decodeIfPresent(String.self, forKey: .group) ?? "hermes"
+        category = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+    }
+
+    /// Takes something after the name (an argument or an option).
+    public var takesArguments: Bool { !args.isEmpty || !choices.isEmpty }
+}
+
+public struct CommandsListResult: Codable, Equatable {
+    public let commands: [SlashCommand]
+    public let fingerprint: String
+}
+
+public struct EmptyData: Codable, Equatable {
+    public init() {}
+}
+
 // MARK: - Approval and question cards (docs/prompts.md)
 /// An agent asking for permission to do something risky, or asking you a question.
 public struct PromptCard: Codable, Equatable, Sendable {

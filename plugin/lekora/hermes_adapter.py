@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime
 import logging
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 from gateway.config import HomeChannel, Platform
@@ -122,6 +123,13 @@ class LekoraAdapter(BasePlatformAdapter):
         except Exception as exc:  # never block startup over a cosmetic notice
             logger.debug("Lekora: could not set in-memory home channel: %s", exc)
 
+    def _commands_for(self, profile_id: str) -> list[dict]:
+        """The slash commands this agent can use, from Hermes' own lists (in its profile)."""
+        from .hermes_commands import list_commands
+        from .profiles import profile_home
+        root = Path(self._cfg.hermes_root) if self._cfg.hermes_root else None
+        return list_commands(profile_home(profile_id, root))
+
     @property
     def name(self) -> str:
         return "Lekora"
@@ -152,7 +160,8 @@ class LekoraAdapter(BasePlatformAdapter):
             return True
         self._service = LekoraService(
             self, config=self._cfg, hermes_version=_hermes_version(),
-            profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers())
+            profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers(),
+            commands_provider=self._commands_for)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()

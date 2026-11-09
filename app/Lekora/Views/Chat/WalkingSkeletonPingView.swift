@@ -105,9 +105,22 @@ public struct WalkingSkeletonPingView: View {
             .animation(.easeOut(duration: 0.2), value: isAtBottom)
             .lkScreenBackground()
             .safeAreaBar(edge: .bottom) {
-                LKComposer("Message \(profileName)", text: $draft, canSend: canSend,
-                           focus: $inputFocused, onSend: send)
-                    .id(composerID)
+                VStack(spacing: LK.Spacing.sm) {
+                    // Typing "/": this agent's commands, from Hermes (docs/slash-commands.md).
+                    let suggestions = LKCommandMatcher.suggestions(
+                        for: draft, commands: gateway.commands[gateway.activeProfileId] ?? [])
+                    if !suggestions.isEmpty {
+                        LKCommandSuggestions(suggestions) { picked in
+                            draft = picked.insert
+                            inputFocused = true
+                        }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    LKComposer("Message \(profileName)", text: $draft, canSend: canSend,
+                               focus: $inputFocused, onSend: send)
+                        .id(composerID)
+                }
+                .animation(.easeOut(duration: 0.15), value: draft.hasPrefix("/"))
             }
             .navigationTitle(profileName)
             #if os(iOS)
@@ -149,6 +162,10 @@ public struct WalkingSkeletonPingView: View {
             }
             .onChange(of: draft) { _, text in
                 gateway.drafts[gateway.activeProfileId] = text.isEmpty ? nil : text
+            }
+            // This agent's commands; again once connected, if the chat opened offline.
+            .task(id: "\(gateway.activeProfileId)|\(isConnected)") {
+                if isConnected { await gateway.loadCommands(for: gateway.activeProfileId) }
             }
             // Opened by a push: once it has slid in and the message bar is measured, show
             // the newest message in full.

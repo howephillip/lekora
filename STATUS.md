@@ -7,15 +7,21 @@ _Last updated: 2026-11-08_
 
 **Phase 2 (complete chat) has started.**
 
-## In progress: permission pop-ups and question cards (spec: `docs/prompts.md`)
+## In progress: slash commands (spec: `docs/slash-commands.md`)
 ⏳ Built 2026-11-08, not yet on your Hermes machine.
+- **What it does:** typing `/` shows the agent's commands just above the message bar, each with a short description, narrowing as you type. Commands with fixed options (e.g. `/approvals` manual · smart · off) offer them next. Tapping fills the bar; you send.
+- **Where the list comes from:** Hermes' own lists, the same ones its Telegram and Discord menus use: built-in commands (with Hermes' own descriptions, in your language), your plugins' and skills' commands, and your `quick_commands`. Read for each agent separately (skills and plugins can differ per agent), every time its chat opens, so new skills appear without an app update.
+- **Checked:** plugin 250 tests (6 new, including reading Hermes' sources with stand-ins), app 128 (6 new); every Hermes name used checked against Hermes 0.22.5's source; in the simulator against the real plugin: the list, narrowing, aliases, options, inserting, sending.
+- **Waiting on:** commit and push, the plugin update, and your look with real Hermes.
+
+## Done: permission pop-ups and question cards (spec: `docs/prompts.md`)
+✅ Confirmed on your iPhone with real Hermes 2026-11-08.
 - **Approvals:** when Hermes pauses an agent to ask permission (a risky command), the chat shows a card with the command, why it asks, a countdown, and Deny / Allow / "…" (Allow for this chat, Always allow, which asks you to confirm first). Deny takes an optional reason the agent sees. Afterwards the card shows the outcome ("Allowed once", "Denied — not now", "Timed out — nothing ran").
 - **Questions:** when an agent asks you to choose, a card with a button per option (or ticks for several), "Other…" for your own answer, or an answer box for open questions.
 - **Everywhere:** an agent waiting on you shows "Needs your approval" / "Has a question" in orange on the agents list; cards count as unread; they're saved with the chat on the Hermes computer, so every phone sees them and answering on one updates the others. Cards that can't be answered any more say why.
 - **How:** uses Hermes' own button hooks (the ones Telegram/Slack use) and its own answer functions; nothing in Hermes' config is touched by Lekora. "Always allow" is Hermes' own setting, saved by Hermes when you choose it.
 - **Checked:** plugin 239 tests (20 new), app 121 (10 new); every Hermes function and field the plugin uses checked against Hermes 0.22.5's source; in the simulator against the real plugin: allow, deny with reason, always allow with confirmation, question choice, "Other…", list labels, and the card staying still under your finger. Not yet: the real Hermes pass (your Hermes machine).
 - **First real test (2026-11-08):** `/new` showed Hermes' plain-text confirmation ("reply /approve, /always, or /cancel"). That's a third kind of Hermes prompt (slash-command confirmations) I hadn't covered; now a confirmation card too: Cancel / Approve / "…" Always approve (asks first), then Hermes' result as a small line. Plugin 244 tests, app 122.
-- **Waiting on:** commit and push, the plugin update, and your test with real Hermes (approval, question, and /new).
 
 ## Done: agents home (spec: `docs/agents-home.md`)
 ✅ Confirmed on your iPhone and Hermes machine 2026-11-08 (after two rounds of your feedback).

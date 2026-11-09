@@ -24,6 +24,7 @@
 		63D6F2FB67ACF2275D7D12DA /* ChatHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF412341EDFBD9C0BD40EA1 /* ChatHistoryTests.swift */; };
 		79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */; };
 		85721F1A389C4C7C54E14060 /* SetupWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */; };
+		85A48211426289A7ADE8D689 /* LKCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1419813F14C562B1CFE0A201 /* LKCommands.swift */; };
 		8819CC96515C88BFED0FF717 /* SavedHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029415CB05BE8C4EC47DCBDE /* SavedHost.swift */; };
 		888B003DBEEC83DAAD851C7B /* LekoraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA5EC2D74AA90CF7D81DF01 /* LekoraApp.swift */; };
 		89351AEBEC5B52FBF90979BE /* AgentSwitchingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536C65B6C9407858DCEC49A3 /* AgentSwitchingTests.swift */; };
@@ -40,6 +41,7 @@
 		C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
 		D5E75A6364A09E0D8E76A561 /* LKChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70D035010855C26CF7103C5 /* LKChat.swift */; };
+		DA6AC93C150CEF3A3051FD74 /* SlashCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C0252903486B4E2D6FB60B /* SlashCommandTests.swift */; };
 		E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */; };
 		F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */; };
 /* End PBXBuildFile section */
@@ -59,6 +61,7 @@
 		029415CB05BE8C4EC47DCBDE /* SavedHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedHost.swift; sourceTree = "<group>"; };
 		08407DF491E075BA09148236 /* LKPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKPrompts.swift; sourceTree = "<group>"; };
 		0BF412341EDFBD9C0BD40EA1 /* ChatHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryTests.swift; sourceTree = "<group>"; };
+		1419813F14C562B1CFE0A201 /* LKCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKCommands.swift; sourceTree = "<group>"; };
 		19C424E99FE08F51187724FC /* FakeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeHost.swift; sourceTree = "<group>"; };
 		1C14F78E55A3258FA42F19E4 /* ChatCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCache.swift; sourceTree = "<group>"; };
 		2CD6AF1AA6582890921BFB14 /* LekoraTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LekoraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -91,6 +94,7 @@
 		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E950FA3284FD2DBC6C00F77F /* PromptCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptCardTests.swift; sourceTree = "<group>"; };
 		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F3C0252903486B4E2D6FB60B /* SlashCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandTests.swift; sourceTree = "<group>"; };
 		F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProberTests.swift; sourceTree = "<group>"; };
 		FD0CDF9E6E70F592D7D26D0F /* ChatTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimeline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -130,6 +134,7 @@
 			children = (
 				DD6AA398351F711D345961F7 /* LKAgents.swift */,
 				A70D035010855C26CF7103C5 /* LKChat.swift */,
+				1419813F14C562B1CFE0A201 /* LKCommands.swift */,
 				3D68937DEF313C782685EDF4 /* LKControls.swift */,
 				73562A915817188C789BD926 /* LKPreviews.swift */,
 				08407DF491E075BA09148236 /* LKPrompts.swift */,
@@ -167,6 +172,7 @@
 				E950FA3284FD2DBC6C00F77F /* PromptCardTests.swift */,
 				8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */,
 				F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */,
+				F3C0252903486B4E2D6FB60B /* SlashCommandTests.swift */,
 				84C49F382533B2B608146FCD /* StreamingTests.swift */,
 			);
 			path = LekoraTests;
@@ -299,6 +305,7 @@
 				5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */,
 				122872783B46AFB360CFB885 /* LKAgents.swift in Sources */,
 				D5E75A6364A09E0D8E76A561 /* LKChat.swift in Sources */,
+				85A48211426289A7ADE8D689 /* LKCommands.swift in Sources */,
 				9AE3FC3D1F24E1FCDEAD6CA9 /* LKControls.swift in Sources */,
 				22BE641970CDB938F9E67B27 /* LKPreviews.swift in Sources */,
 				21EA61180ECA274F34F6B62C /* LKPrompts.swift in Sources */,
@@ -331,6 +338,7 @@
 				48CE2E2B9C0DE7891BFAB400 /* PromptCardTests.swift in Sources */,
 				8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */,
 				79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */,
+				DA6AC93C150CEF3A3051FD74 /* SlashCommandTests.swift in Sources */,
 				5AB862F68D3B1CA449D76244 /* StreamingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

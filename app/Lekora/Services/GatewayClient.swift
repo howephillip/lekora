@@ -246,6 +246,20 @@ public final class GatewayClient: ObservableObject {
         }
     }
 
+    // MARK: - Slash commands (docs/slash-commands.md)
+
+    /// Each agent's commands, as its Hermes profile offers them (refreshed when its chat opens).
+    @Published public private(set) var commands: [String: [SlashCommand]] = [:]
+
+    /// Asks the host for an agent's commands. Keeps the last list if the host can't answer.
+    public func loadCommands(for profileId: String) async {
+        guard let result = try? await request(type: "commands.list", profileId: profileId, data: EmptyData(),
+                                              reply: CommandsListResult.self, timeout: 15) else { return }
+        if commands[profileId] != result.commands {
+            commands[profileId] = result.commands
+        }
+    }
+
     // MARK: - Approval and question cards (docs/prompts.md)
 
     /// The newest card still waiting for an answer in an agent's chat.

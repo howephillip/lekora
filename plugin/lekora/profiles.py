@@ -131,3 +131,9 @@ def named_profile_in_scope(owner_profile: Optional[str] = None) -> Optional[str]
         return name if name and name != DEFAULT_PROFILE_ID else home.name
     except Exception:
         return None
+
+
+def profile_home(profile_id: str, root: Optional[Path] = None) -> Path:
+    """Where a profile lives: the Hermes root for ``default``, else ``profiles/<id>``."""
+    root = Path(root) if root is not None else hermes_root()
+    return root if profile_id == DEFAULT_PROFILE_ID else root / "profiles" / profile_id

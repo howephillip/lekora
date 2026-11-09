@@ -114,7 +114,9 @@ class LekoraService:
         profiles_provider: Optional[Callable[[], list[dict]]] = None,
         run_cli: RunCli = run_hermes_cli,
         resolvers: Optional["Resolvers"] = None,
+        commands_provider: Optional[Callable[[str], list[dict]]] = None,
     ) -> None:
+        self._commands_provider = commands_provider
         self._run_cli = run_cli
         # Approval and question cards (docs/prompts.md); Hermes' resolvers come from the adapter.
         from .prompts import Prompts
@@ -190,6 +192,7 @@ class LekoraService:
             **kwargs,
         )
         self.gateway.prompts = self.prompts
+        self.gateway.commands_provider = self._commands_provider
         try:
             port = await self.gateway.start()
         except BaseException:

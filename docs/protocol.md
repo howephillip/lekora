@@ -296,3 +296,17 @@ A card that's no longer pending (answered on another phone, timed out…) is not
 Errors (`error`, same `id`), recoverable:
 - `UNKNOWN_CARD`: no such card for that agent.
 - `INVALID_ANSWER`: a choice not offered, or an empty answer.
+
+## 7. Slash commands (Phase 2; spec: `slash-commands.md`)
+```json
+{ "type": "commands.list", "profile_id": "bruce", "data": {} }
+{ "type": "commands.list.result", "id": "<same id>", "profile_id": "bruce",
+  "data": { "fingerprint": "3f9c0a1b2c3d4e5f",
+            "commands": [ { "name": "approvals", "description": "Show or change approval mode",
+                            "args": "[manual|smart|off]", "choices": ["manual", "smart", "off"],
+                            "aliases": [], "group": "hermes", "category": "Configuration" } ] } }
+```
+- `group` is one of `hermes`, `plugin`, `skill` or `quick`.
+- `fingerprint` changes when the list changes.
+- An empty list means the host couldn't read Hermes' commands.
+- An unknown agent gets `error` `UNKNOWN_PROFILE`.

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import time
@@ -97,6 +98,8 @@ class Gateway:
         self._tasks: set[asyncio.Task] = set()
         # Approval and question cards (docs/prompts.md); set by LekoraService.
         self.prompts: Optional["Prompts"] = None
+        # An agent's slash commands (docs/slash-commands.md); set by LekoraService.
+        self.commands_provider: Optional[Callable[[str], list[dict]]] = None
 
     # ---- lifecycle ---------------------------------------------------------
 
@@ -322,6 +325,8 @@ class Gateway:
             await self._history_fetch(conn, msg_id, env.get("profile_id"), data)
         elif type_ == "chat.read":
             await self._chat_read(conn, env.get("profile_id"), data)
+        elif type_ == "commands.list":
+            await self._commands_list(conn, msg_id, env.get("profile_id"))
         elif type_ == "prompt.respond":
             await self._prompt_respond(conn, msg_id, env.get("profile_id"), data)
         elif type_ in ("profile.create", "profile.delete"):
@@ -486,6 +491,22 @@ class Gateway:
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
+            msg_id=msg_id, profile_id=profile_id))
+
+    async def _commands_list(self, conn: _Conn, msg_id: Optional[str], profile_id: Any) -> None:
+        """The slash commands this agent can use, read from Hermes (docs/slash-commands.md)."""
+        profile_id = self._known_profile(profile_id, msg_id)
+        commands: list[dict] = []
+        if self.commands_provider is not None:
+            try:
+                commands = await asyncio.wait_for(
+                    asyncio.to_thread(self.commands_provider, profile_id), timeout=10)
+            except Exception:
+                log.exception("Lekora: could not list commands for %s", profile_id)
+                commands = []
+        fingerprint = hashlib.sha256(json.dumps(commands, sort_keys=True).encode()).hexdigest()[:16]
+        await self._send(conn, self._envelope(
+            "commands.list.result", {"commands": commands, "fingerprint": fingerprint},
             msg_id=msg_id, profile_id=profile_id))
 
     async def _prompt_respond(self, conn: _Conn, msg_id: Optional[str], profile_id: Any, data: dict) -> None:
