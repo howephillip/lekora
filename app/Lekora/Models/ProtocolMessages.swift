@@ -206,12 +206,15 @@ public struct ChatMessageData: Codable, Equatable {
 // MARK: - Approval and question cards (docs/prompts.md)
 /// An agent asking for permission to do something risky, or asking you a question.
 public struct PromptCard: Codable, Equatable, Sendable {
-    public enum Kind: String, Codable, Sendable { case approval, question }
+    /// `confirm`: a slash command such as /new asking to be confirmed.
+    public enum Kind: String, Codable, Sendable { case approval, question, confirm }
 
     public let kind: Kind
     public let id: String
     public var status: String
-    // Approval
+    /// Confirm: e.g. "Confirm /new".
+    public let title: String?
+    // Approval (and what a confirmation will do, in `description`)
     public let command: String?
     public let description: String?
     public let smartDenied: Bool?
@@ -225,17 +228,18 @@ public struct PromptCard: Codable, Equatable, Sendable {
     public let choices: [String]
 
     enum CodingKeys: String, CodingKey {
-        case kind, id, status, command, description, reason, question, answer, choices
+        case kind, id, status, title, command, description, reason, question, answer, choices
         case smartDenied = "smart_denied", expiresAt = "expires_at", multiSelect = "multi_select"
     }
 
-    public init(kind: Kind, id: String, status: String = "pending", command: String? = nil,
+    public init(kind: Kind, id: String, status: String = "pending", title: String? = nil, command: String? = nil,
                 description: String? = nil, smartDenied: Bool? = nil, expiresAt: String? = nil,
                 reason: String? = nil, question: String? = nil, multiSelect: Bool? = nil,
                 answer: String? = nil, choices: [String] = []) {
         self.kind = kind
         self.id = id
         self.status = status
+        self.title = title
         self.command = command
         self.description = description
         self.smartDenied = smartDenied
@@ -252,6 +256,7 @@ public struct PromptCard: Codable, Equatable, Sendable {
         kind = try c.decode(Kind.self, forKey: .kind)
         id = try c.decode(String.self, forKey: .id)
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? "pending"
+        title = try c.decodeIfPresent(String.self, forKey: .title)
         command = try c.decodeIfPresent(String.self, forKey: .command)
         description = try c.decodeIfPresent(String.self, forKey: .description)
         smartDenied = try c.decodeIfPresent(Bool.self, forKey: .smartDenied)

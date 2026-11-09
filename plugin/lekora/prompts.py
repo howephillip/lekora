@@ -27,6 +27,10 @@ log = logging.getLogger(__name__)
 APPROVAL_CHOICES = ("once", "session", "always", "deny")
 APPROVAL_STATUS = {"once": "allowed_once", "session": "allowed_session",
                    "always": "allowed_always", "deny": "denied"}
+# Confirmations of slash commands such as /new (Hermes' slash_confirm).
+CONFIRM_CHOICES = ("once", "always", "cancel")
+CONFIRM_STATUS = {"once": "confirmed_once", "always": "confirmed_always", "cancel": "cancelled"}
+CONFIRM_TIMEOUT = 300  # Hermes drops a confirmation after this many seconds
 CARD_MESSAGE_PREFIX = "card-"  # the message id Hermes gets back (and edits on timeout)
 MAX_REASON = 280               # Hermes caps a denial reason at this length
 MAX_ANSWER = 2000
@@ -52,6 +56,14 @@ class Resolvers:
     answer: Callable[[str, str], bool] = lambda clarify_id, text: False
     approval_timeout: Callable[[], Optional[int]] = lambda: None
     waiting: Callable[[str, str, Optional[str]], Optional[bool]] = lambda kind, session_key, clarify_id: None
+    # confirm(session_key, confirm_id, choice) -> (ran, text to show): a slash-command confirmation
+    confirm: Callable[[str, str, str], Awaitable[tuple[bool, Optional[str]]]] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.confirm is None:
+            async def nothing(session_key: str, confirm_id: str, choice: str) -> tuple[bool, Optional[str]]:
+                return False, None
+            self.confirm = nothing
 
 
 @dataclass
@@ -59,15 +71,34 @@ class _Live:
     """A card Hermes is waiting on in this run."""
     seq: int
     chat_id: str
-    kind: str                      # "approval" | "question"
+    kind: str                      # "approval" | "question" | "confirm"
     session_key: str
     card: dict
-    clarify_id: Optional[str] = None
+    clarify_id: Optional[str] = None   # a question's clarify id, or a confirmation's confirm id
     choices: list[str] = field(default_factory=list)  # a question's options, as Hermes has them
 
 
 def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _plain_title(title: str) -> str:
+    """"⚠️ **Confirm /new**" -> "Confirm /new"."""
+    return _one_line(str(title or "").replace("**", "").replace("⚠️", "").replace("⚠", "")) or "Confirm"
+
+
+def _confirm_detail(message: str) -> str:
+    """What the command will do, from Hermes' prompt: without its title line, its
+    "Choose: …" list and its "Text fallback" line (the card has buttons for those)."""
+    parts = [p.strip() for p in str(message or "").split("\n\n") if p.strip()]
+    if parts and (parts[0].startswith(("⚠", "**")) and "confirm" in parts[0].lower()):
+        parts = parts[1:]
+    kept = []
+    for part in parts:
+        if part.lower().startswith(("choose:", "_text fallback", "text fallback")):
+            break
+        kept.append(part)
+    return "\n\n".join(kept)
 
 
 def _one_line(text: str, limit: int = 120) -> str:
@@ -125,6 +156,19 @@ class Prompts:
                                        clarify_id=clarify_id, choices=options)
         return CARD_MESSAGE_PREFIX + card["id"]
 
+    async def ask_confirm(self, chat_id: str, session_key: str, title: str, message: str,
+                          confirm_id: str) -> str:
+        """A slash command (e.g. /new) asking to be confirmed: Approve / Always / Cancel."""
+        card: dict[str, Any] = {
+            "kind": "confirm", "id": "c_" + uuid.uuid4().hex[:10], "status": "pending",
+            "title": _plain_title(title), "description": _confirm_detail(message),
+            "choices": list(CONFIRM_CHOICES),
+            "expires_at": _iso(self._clock() + timedelta(seconds=CONFIRM_TIMEOUT)),
+        }
+        seq = await self._gw().publish_card(chat_id, "confirm", card["title"], card)
+        self._live[card["id"]] = _Live(seq, chat_id, "confirm", session_key, card, clarify_id=confirm_id)
+        return CARD_MESSAGE_PREFIX + card["id"]
+
     # ---- the phone answers -----------------------------------------------------------
 
     async def respond(self, profile_id: str, data: dict) -> tuple[str, str]:
@@ -140,7 +184,27 @@ class Prompts:
             return card_id, stored.get("status", "expired")  # answered, closed or from a past run
         if live.kind == "approval":
             return card_id, await self._answer_approval(live, data)
+        if live.kind == "confirm":
+            return card_id, await self._answer_confirm(live, data)
         return card_id, await self._answer_question(live, data)
+
+    async def _answer_confirm(self, live: _Live, data: dict) -> str:
+        choice = data.get("choice")
+        if choice not in CONFIRM_CHOICES:
+            raise PromptError("INVALID_ANSWER", "That choice isn't offered for this request")
+        self._live.pop(live.card["id"], None)  # Hermes runs it once; a second tap must not
+        try:
+            ran, text = await self.resolvers.confirm(live.session_key, live.clarify_id or "", choice)
+        except Exception:
+            log.exception("Lekora: a Hermes confirmation failed")
+            ran, text = False, None
+        if not ran:
+            await self._close(live, "expired")
+            return "expired"
+        await self._close(live, CONFIRM_STATUS[choice])
+        if text and text.strip():
+            await self._gw().publish_message(live.chat_id, text, role="system")  # e.g. "New session started"
+        return CONFIRM_STATUS[choice]
 
     async def _answer_approval(self, live: _Live, data: dict) -> str:
         choice = data.get("choice")
@@ -201,9 +265,12 @@ class Prompts:
         """A typed message: /approve or /deny may answer approvals, anything else questions.
         Hermes handles it a moment later; then the cards it answered are marked."""
         command = (text or "").strip().lower()
-        typed_approval = command.startswith(("/approve", "/deny", "!approve", "!deny"))
+        typed_answer = command.startswith(("/approve", "/deny", "/always", "/cancel",
+                                           "!approve", "!deny", "!always", "!cancel"))
+        # Hermes also drops a waiting slash-command confirmation when any next message arrives.
         candidates = [live for live in self._live.values()
-                      if live.chat_id == chat_id and (live.kind == "approval") == typed_approval]
+                      if live.chat_id == chat_id and (live.kind == "confirm"
+                                                      or (live.kind == "approval") == typed_answer)]
         if not candidates:
             return
 

@@ -143,6 +143,24 @@ final class PromptCardTests: XCTestCase {
         }
     }
 
+    // MARK: - Slash-command confirmations
+
+    func testConfirmationCard() async throws {
+        let gateway = try await connected()
+        host.ask(profile: "bruce", card: ["kind": "confirm", "id": "c_f1", "status": "pending", "title": "Confirm /new",
+                                          "description": "This starts a fresh session.",
+                                          "choices": ["once", "always", "cancel"]],
+                 role: "confirm", text: "Confirm /new")
+        _ = await waitUntil { gateway.openPrompt(for: "bruce") != nil }
+        let card = try XCTUnwrap(gateway.openPrompt(for: "bruce"))
+        XCTAssertEqual(card.kind, .confirm)
+        XCTAssertEqual(card.title, "Confirm /new")
+        XCTAssertEqual(LKPromptText.attention(for: card), "Needs your confirmation")
+        let status = try await gateway.answerApproval(card, in: "bruce", choice: "cancel")
+        XCTAssertEqual(status, "cancelled")
+        XCTAssertEqual(LKPromptText.outcome(of: PromptCard(kind: .confirm, id: "x", status: "confirmed_once")).text, "Approved")
+    }
+
     // MARK: - Cache and decoding
 
     func testCardsSurviveTheCache() throws {

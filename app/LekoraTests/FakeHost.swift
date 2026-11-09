@@ -276,8 +276,10 @@ final class FakeHost: @unchecked Sendable {
             var status = cards[seq]?["status"] as? String ?? "pending"
             if status == "pending" {
                 if let choice = data["choice"] as? String {
-                    status = respondStatusOverride ?? ["once": "allowed_once", "session": "allowed_session",
-                                                       "always": "allowed_always", "deny": "denied"][choice] ?? "denied"
+                    let statuses = cards[seq]?["kind"] as? String == "confirm"
+                        ? ["once": "confirmed_once", "always": "confirmed_always", "cancel": "cancelled"]
+                        : ["once": "allowed_once", "session": "allowed_session", "always": "allowed_always", "deny": "denied"]
+                    status = respondStatusOverride ?? statuses[choice] ?? "denied"
                     var changes: [String: Any] = ["status": status]
                     if let reason = data["reason"] as? String { changes["reason"] = reason }
                     updateCard(seq: seq, changes)

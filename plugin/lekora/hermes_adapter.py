@@ -50,14 +50,26 @@ def _hermes_resolvers() -> Resolvers:
         from gateway.platforms.base_exec_approval import approval_timeout_seconds
         return approval_timeout_seconds()
 
+    async def confirm(session_key: str, confirm_id: str, choice: str) -> tuple[bool, Optional[str]]:
+        from tools import slash_confirm
+        entry = slash_confirm.get_pending(session_key)
+        if not entry or entry.get("confirm_id") != confirm_id or slash_confirm.clear_if_stale(session_key):
+            return False, None
+        return True, await slash_confirm.resolve(session_key, confirm_id, choice)
+
     def waiting(kind: str, session_key: str, clarify_id: Optional[str]) -> Optional[bool]:
         if kind == "approval":
             from tools.approval import has_blocking_approval
             return has_blocking_approval(session_key)
+        if kind == "confirm":
+            from tools import slash_confirm
+            entry = slash_confirm.get_pending(session_key)
+            return bool(entry and entry.get("confirm_id") == clarify_id)
         from tools.clarify_gateway import get_pending
         return get_pending(clarify_id or "") is not None
 
-    return Resolvers(approve=approve, answer=answer, approval_timeout=approval_timeout, waiting=waiting)
+    return Resolvers(approve=approve, answer=answer, approval_timeout=approval_timeout,
+                     waiting=waiting, confirm=confirm)
 
 
 def _hermes_version() -> Optional[str]:
@@ -228,6 +240,18 @@ class LekoraAdapter(BasePlatformAdapter):
         try:
             message_id = await self._service.prompts.ask_question(
                 str(chat_id), str(session_key), question, options, clarify_id, multi_select=multi)
+        except Exception as exc:
+            return SendResult(success=False, error=str(exc))
+        return SendResult(success=True, message_id=message_id)
+
+    async def send_slash_confirm(self, chat_id: str, title: str, message: str, session_key: str,
+                                 confirm_id: str, metadata: Optional[dict[str, Any]] = None) -> SendResult:
+        """Confirming a slash command such as /new: a card with Approve / Always / Cancel."""
+        if self._service is None:
+            return SendResult(success=False, error="Lekora is not running")
+        try:
+            message_id = await self._service.prompts.ask_confirm(
+                str(chat_id), str(session_key), title, message, str(confirm_id))
         except Exception as exc:
             return SendResult(success=False, error=str(exc))
         return SendResult(success=True, message_id=message_id)

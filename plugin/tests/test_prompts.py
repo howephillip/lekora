@@ -311,3 +311,83 @@ async def test_service_wires_prompts_and_expires_leftovers(tmp_path):
         assert svc2.store.pending_cards() == []
     finally:
         await svc2.stop()
+
+
+# ---- slash-command confirmations (/new) ------------------------------------------------
+
+HERMES_NEW_PROMPT = ("⚠️ **Confirm /new**\n\nThis starts a fresh session and discards the current conversation history."
+                     "\n\nChoose:\n• **Approve Once** — proceed this time only\n• **Always Approve** — proceed and "
+                     "silence this prompt permanently\n• **Cancel** — keep current conversation\n\n"
+                     "_Text fallback: reply `/approve`, `/always`, or `/cancel`._")
+
+
+@pytest.fixture
+def confirmer():
+    calls = []
+
+    async def confirm(session_key, confirm_id, choice):
+        calls.append((session_key, confirm_id, choice))
+        if confirm_id == "gone":
+            return False, None
+        return True, ("✨ New session started." if choice != "cancel" else "Cancelled /new.")
+    return calls, confirm
+
+
+async def ask_confirm(prompts, confirm_id="7"):
+    message_id = await prompts.ask_confirm("assistant", "sess-1", "⚠️ **Confirm /new**", HERMES_NEW_PROMPT, confirm_id)
+    return message_id[len("card-"):]
+
+
+async def test_confirmation_card_shows_only_what_it_does(gw, store, prompts):
+    ws = await phone(gw, store)
+    card_id = await ask_confirm(prompts)
+    msg = await recv(ws)
+    assert msg["data"]["role"] == "confirm" and msg["data"]["text"] == "Confirm /new"
+    card = msg["data"]["card"]
+    assert card["id"] == card_id and card["title"] == "Confirm /new"
+    assert card["description"] == "This starts a fresh session and discards the current conversation history."
+    assert card["choices"] == ["once", "always", "cancel"] and card["expires_at"] == "2026-11-08T23:15:00Z"
+    await ws.close()
+
+
+@pytest.mark.parametrize("choice,status,follow_up", [("once", "confirmed_once", "✨ New session started."),
+                                                     ("cancel", "cancelled", "Cancelled /new.")])
+async def test_confirmation_runs_through_hermes(gw, store, prompts, confirmer, choice, status, follow_up):
+    calls, confirm = confirmer
+    prompts.resolvers.confirm = confirm
+    ws = await phone(gw, store)
+    card_id = await ask_confirm(prompts)
+    await recv(ws)
+    await ws.send(respond(store, card_id, choice=choice))
+    got = await drain(ws)
+    assert calls == [("sess-1", "7", choice)]
+    assert next(m for m in got if m["type"] == "prompt.respond.ack")["data"]["status"] == status
+    messages = [m["data"] for m in got if m["type"] == "chat.message"]
+    assert messages[0]["card"]["status"] == status
+    assert {"role": "system", "text": follow_up}.items() <= messages[1].items()   # Hermes' result as a small line
+    await ws.send(respond(store, card_id, choice="once", msg_id="r2"))   # a second tap does nothing
+    assert (await recv(ws))["data"]["status"] == status and len(calls) == 1
+    await ws.close()
+
+
+async def test_confirmation_hermes_dropped_is_expired(gw, store, prompts, confirmer):
+    calls, confirm = confirmer
+    prompts.resolvers.confirm = confirm
+    ws = await phone(gw, store)
+    card_id = await ask_confirm(prompts, confirm_id="gone")
+    await recv(ws)
+    await ws.send(respond(store, card_id, choice="once"))
+    ack = next(m for m in await drain(ws) if m["type"] == "prompt.respond.ack")
+    assert ack["data"]["status"] == "expired"
+    await ws.close()
+
+
+async def test_any_typed_message_rechecks_a_confirmation(gw, store, prompts, hermes):
+    ws = await phone(gw, store)
+    await ask_confirm(prompts)
+    await recv(ws)
+    hermes.waiting_now = False   # Hermes dropped it when the next message arrived
+    await ws.send(env(store, "chat.send", {"text": "never mind"}, profile_id="assistant"))
+    cards = [m["data"]["card"] for m in await drain(ws, timeout=0.5) if "card" in m.get("data", {})]
+    assert cards and cards[-1]["status"] == "answered_in_chat"
+    await ws.close()

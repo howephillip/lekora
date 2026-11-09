@@ -271,6 +271,8 @@ A card is a `chat.message` with `role` `approval` or `question` and a `card` obj
   "card": { "kind": "question", "id": "c_77b0c3", "status": "pending",
             "question": "Which venue?", "choices": ["Ramen512", "Kemuri"], "multi_select": false } }
 ```
+A third kind, `confirm` (role `confirm`), is a slash command such as /new asking to be confirmed: `title`, `description`, `choices` `["once","always","cancel"]`, `expires_at`; statuses `pending`, `confirmed_once`, `confirmed_always`, `cancelled`, `answered_in_chat`, `closed`, `expired`. It's answered with `choice`, like an approval.
+
 `status`:
 - approval: `pending`, `allowed_once`, `allowed_session`, `allowed_always`, `denied`, `timed_out`, `answered_in_chat`, `closed`, `expired`;
 - question: `pending`, `answered`, `answered_in_chat`, `closed`, `expired`.

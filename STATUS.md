@@ -14,7 +14,8 @@ _Last updated: 2026-11-08_
 - **Everywhere:** an agent waiting on you shows "Needs your approval" / "Has a question" in orange on the agents list; cards count as unread; they're saved with the chat on the Hermes computer, so every phone sees them and answering on one updates the others. Cards that can't be answered any more say why.
 - **How:** uses Hermes' own button hooks (the ones Telegram/Slack use) and its own answer functions; nothing in Hermes' config is touched by Lekora. "Always allow" is Hermes' own setting, saved by Hermes when you choose it.
 - **Checked:** plugin 239 tests (20 new), app 121 (10 new); every Hermes function and field the plugin uses checked against Hermes 0.22.5's source; in the simulator against the real plugin: allow, deny with reason, always allow with confirmation, question choice, "Other…", list labels, and the card staying still under your finger. Not yet: the real Hermes pass (your Hermes machine).
-- **Waiting on:** commit and push, the plugin update, and your test with real Hermes.
+- **First real test (2026-11-08):** `/new` showed Hermes' plain-text confirmation ("reply /approve, /always, or /cancel"). That's a third kind of Hermes prompt (slash-command confirmations) I hadn't covered; now a confirmation card too: Cancel / Approve / "…" Always approve (asks first), then Hermes' result as a small line. Plugin 244 tests, app 122.
+- **Waiting on:** commit and push, the plugin update, and your test with real Hermes (approval, question, and /new).
 
 ## Done: agents home (spec: `docs/agents-home.md`)
 ✅ Confirmed on your iPhone and Hermes machine 2026-11-08 (after two rounds of your feedback).

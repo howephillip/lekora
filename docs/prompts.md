@@ -14,6 +14,8 @@ When an agent wants to do something risky, Hermes stops and asks. When an agent 
   - When a question ends without a button (timeout, reset, a typed reply), Hermes calls `retire_clarify_card(clarify_id, notice)`.
   - Typing an answer in the chat still works, through Hermes' own text matching.
 
+- **Slash-command confirmations** (e.g. `/new`, `/reload-mcp`). Hermes calls `send_slash_confirm(chat_id, title, message, session_key, confirm_id, metadata)`. The answer runs through `tools.slash_confirm.resolve(session_key, confirm_id, "once"|"always"|"cancel")`, which returns the text to show (e.g. "New session started"). Hermes drops it after 5 minutes, or when the chat's next message arrives. `always` turns that confirmation off in Hermes' own config, written by Hermes.
+
 ## What you see
 - **Approval card,** in the chat where the agent is working:
   - "Bruce wants to run a command" with the command in a code box, and why it was flagged.
@@ -28,6 +30,11 @@ When an agent wants to do something risky, Hermes stops and asks. When an agent 
   - With several allowed, you tick options, then **Send**.
   - An open question has an answer field.
   - After answering, it shows your answer.
+- **Confirmation card** (found on your first real test with `/new`):
+  - "Confirm /new" and what it will do.
+  - **Cancel** and **Approve**.
+  - "…" for **Always approve**, which asks first.
+  - Afterwards: "Approved" / "Cancelled", and Hermes' result as a small line ("New session started").
 - **Elsewhere in the app:**
   - The agent's row on the home screen says **Needs your approval** (orange) or **Has a question**.
   - Cards count as unread, so they show in the dots and the back-button badge.
@@ -53,6 +60,7 @@ When an agent wants to do something risky, Hermes stops and asks. When an agent 
   - A typed `/approve` or `/deny` in the chat: pending approvals are "Answered in chat".
   - Any other typed message: pending questions are "Answered in chat".
   - On startup: cards left pending from a previous run are marked expired, since Hermes forgot them.
+- **Confirmations:** the adapter overrides `send_slash_confirm`. `Prompts.ask_confirm(...)` saves a card (role `confirm`) with the title and what it does: Hermes' prompt text without its "Choose:" list and "Text fallback" line. An answer runs `slash_confirm.resolve` (after checking Hermes still has that confirmation), and Hermes' result text is posted as a system line.
 - **Labels:** the phone shows its own button labels. The host sends the choices Hermes allows.
 
 ## Protocol
