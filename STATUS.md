@@ -7,12 +7,11 @@ _Last updated: 2026-11-08_
 
 **Phase 2 (complete chat) has started.**
 
-## In progress: slash commands (spec: `docs/slash-commands.md`)
-⏳ Built 2026-11-08, not yet on your Hermes machine.
+## Done: slash commands (spec: `docs/slash-commands.md`)
+✅ Confirmed on your iPhone with real Hermes 2026-11-08.
 - **What it does:** typing `/` shows the agent's commands just above the message bar, each with a short description, narrowing as you type. Commands with fixed options (e.g. `/approvals` manual · smart · off) offer them next. Tapping fills the bar; you send.
 - **Where the list comes from:** Hermes' own lists, the same ones its Telegram and Discord menus use: built-in commands (with Hermes' own descriptions, in your language), your plugins' and skills' commands, and your `quick_commands`. Read for each agent separately (skills and plugins can differ per agent), every time its chat opens, so new skills appear without an app update.
 - **Checked:** plugin 250 tests (6 new, including reading Hermes' sources with stand-ins), app 128 (6 new); every Hermes name used checked against Hermes 0.22.5's source; in the simulator against the real plugin: the list, narrowing, aliases, options, inserting, sending.
-- **Waiting on:** commit and push, the plugin update, and your look with real Hermes.
 
 ## Done: permission pop-ups and question cards (spec: `docs/prompts.md`)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-08.
