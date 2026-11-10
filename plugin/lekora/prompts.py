@@ -110,6 +110,10 @@ def _one_line(text: str, limit: int = 120) -> str:
     return line if len(line) <= limit else line[: limit - 1] + "…"
 
 
+async def _no_command(chat_id: str, text: str) -> None:
+    log.warning("Lekora: can't send %r: not connected to Hermes", text)
+
+
 class Prompts:
     def __init__(self, gateway: Callable[[], Any], resolvers: Optional[Resolvers] = None,
                  clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
@@ -120,6 +124,8 @@ class Prompts:
         self.last_warning: Optional[str] = None  # the warning behind a "needs_confirmation" answer
         # Set by the service: whether a model is in OpenRouter's full catalog.
         self.knows_openrouter_model: Callable[[str], bool] = lambda model: False
+        # Set by the service: hands a command to the agent's chat as if typed ("/model … --global").
+        self.send_command: Callable[[str, str], Awaitable[Any]] = _no_command
         # After a typed message, Hermes needs a moment to act on it before cards are rechecked.
         self.recheck_delay = 1.5
         self._tasks: set[asyncio.Task] = set()
@@ -253,6 +259,15 @@ class Prompts:
             or (provider == "openrouter" and self._safe(lambda: self.knows_openrouter_model(model))))
         if not (isinstance(model, str) and model and offered):
             raise PromptError("INVALID_ANSWER", "That model isn't offered here")
+        scope = data.get("scope")
+        if scope in ("session", "global"):
+            # An explicit choice: this chat only, or the agent's default. Hermes' own /model flags do
+            # it (and run its own expensive-model check, as a confirmation card if needed).
+            self._live.pop(live.card["id"], None)
+            await self._close(live, "chosen", chosen={"model": model, "provider": provider,
+                                                      "provider_name": rows[provider]["name"], "scope": scope})
+            await self.send_command(live.chat_id, f"/model {model} --provider {provider} --{scope}")
+            return "chosen"
         if not data.get("confirmed"):
             # Hermes may look up prices: off the event loop.
             warning = await asyncio.to_thread(self._safe, lambda: self.resolvers.model_warning(model, provider))

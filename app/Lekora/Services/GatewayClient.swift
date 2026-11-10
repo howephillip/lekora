@@ -270,9 +270,9 @@ public final class GatewayClient: ObservableObject {
     /// Switches the model from a model-picker card. `needs_confirmation` comes back with
     /// Hermes' reason (e.g. an expensive model); call again with `confirmed` to go ahead.
     public func pickModel(_ card: PromptCard, in profileId: String, model: String, provider: String,
-                          confirmed: Bool = false) async throws -> (status: String, message: String?) {
+                          confirmed: Bool = false, scope: String? = nil) async throws -> (status: String, message: String?) {
         let ack = try await respondAck(profileId: profileId, PromptRespondData(
-            card_id: card.id, model: model, provider: provider, confirmed: confirmed ? true : nil))
+            card_id: card.id, model: model, provider: provider, confirmed: confirmed ? true : nil, scope: scope))
         return (ack.status, ack.message)
     }
 

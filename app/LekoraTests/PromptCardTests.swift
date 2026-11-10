@@ -192,6 +192,19 @@ final class PromptCardTests: XCTestCase {
         XCTAssertEqual(LKPromptText.outcome(of: settled).text, "Switched to claude-sonnet-5-5\non anthropic")
     }
 
+    func testModelForThisChatOrAsTheDefault() async throws {
+        let gateway = try await connected()
+        host.ask(profile: "bruce", card: modelCard(), role: "model", text: "x")
+        _ = await waitUntil { gateway.timeline.entries.contains { $0.card?.kind == .model } }
+        let card = try XCTUnwrap(gateway.timeline.entries.first { $0.card?.kind == .model }?.card)
+        _ = try await gateway.pickModel(card, in: "bruce", model: "claude-sonnet-5-5", provider: "anthropic", scope: "global")
+        XCTAssertEqual(responses().last?["scope"] as? String, "global")
+        let settled = await waitUntil { gateway.timeline.entries.first { $0.card?.kind == .model }?.card?.chosen?.scope == "global" }
+        XCTAssertTrue(settled)
+        let done = try XCTUnwrap(gateway.timeline.entries.first { $0.card?.kind == .model }?.card)
+        XCTAssertEqual(LKPromptText.outcome(of: done).text, "Switched to claude-sonnet-5-5\non anthropic · as the default")
+    }
+
     func testExpensiveModelNeedsConfirming() async throws {
         let gateway = try await connected()
         host.ask(profile: "bruce", card: modelCard(warn: "Costs $75 per million tokens."), role: "model", text: "x")

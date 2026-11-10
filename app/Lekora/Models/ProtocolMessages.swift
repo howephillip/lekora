@@ -391,9 +391,11 @@ public struct PromptCard: Codable, Equatable, Sendable {
         public let model: String
         public let provider: String
         public let providerName: String?
+        /// "session" or "global" when chosen explicitly.
+        public let scope: String?
 
         enum CodingKeys: String, CodingKey {
-            case model, provider
+            case model, provider, scope
             case providerName = "provider_name"
         }
     }
@@ -503,10 +505,13 @@ public struct PromptRespondData: Codable, Equatable {
     public let model: String?
     public let provider: String?
     public let confirmed: Bool?
+    /// Model picker: "session" (this chat only) or "global" (the agent's default).
+    public let scope: String?
 
     public init(card_id: String, choice: String? = nil, reason: String? = nil,
                 answers: [String]? = nil, text: String? = nil, model: String? = nil,
-                provider: String? = nil, confirmed: Bool? = nil) {
+                provider: String? = nil, confirmed: Bool? = nil, scope: String? = nil) {
+        self.scope = scope
         self.card_id = card_id
         self.choice = choice
         self.reason = reason

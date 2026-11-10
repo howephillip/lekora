@@ -342,4 +342,4 @@ Plain requests, each answered with `<type>.result` (same `id`):
   - `models.hosts` routing also carries `no_training`, and hosts carry `country`, `privacy_url` and `terms_url`.
   - Errors: `INVALID_ROUTING` (no hosts for prefer/only, or a host not serving the model) and `UNKNOWN_MODEL`.
 
-`prompt.respond` for a model card also accepts any model from OpenRouter's catalog when the provider is `openrouter`.
+`prompt.respond` for a model card also accepts any model from OpenRouter's catalog when the provider is `openrouter`, and `scope`: `session` | `global`. With a scope, the host sends Hermes `/model <id> --provider <slug> --<scope>` as if typed, and `chosen` carries the `scope`.

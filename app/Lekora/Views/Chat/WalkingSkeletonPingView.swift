@@ -402,8 +402,9 @@ public struct WalkingSkeletonPingView: View {
             answer: { answers, text in
                 try await gateway.answerQuestion(card, in: profileId, answers: answers, text: text)
             },
-            pickModel: { model, provider, confirmed in
-                try await gateway.pickModel(card, in: profileId, model: model, provider: provider, confirmed: confirmed)
+            pickModel: { model, provider, confirmed, scope in
+                try await gateway.pickModel(card, in: profileId, model: model, provider: provider,
+                                            confirmed: confirmed, scope: scope)
             },
             models: LKModelSource(
                 catalog: { provider, models in

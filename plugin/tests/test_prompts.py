@@ -507,3 +507,30 @@ async def test_failing_picker_callback(gw, store, prompts):
     ack = next(m for m in await drain(ws) if m["type"] == "prompt.respond.ack")
     assert ack["data"]["status"] == "failed"
     await ws.close()
+
+
+
+async def test_model_for_this_chat_or_as_the_default_uses_hermes_own_flags(gw, store, prompts):
+    sent = []
+
+    async def send_command(chat_id, text):
+        sent.append((chat_id, text))
+    prompts.send_command = send_command
+    prompts.resolvers.model_warning = lambda model, provider: "pricey"   # Hermes checks it itself on this path
+    picked = []
+    ws = await phone(gw, store)
+    card_id = await ask_model(prompts, picked)
+    await recv(ws)
+    await ws.send(respond(store, card_id, model="claude-sonnet-5-5", provider="anthropic", scope="global"))
+    got = await drain(ws)
+    assert next(m for m in got if m["type"] == "prompt.respond.ack")["data"]["status"] == "chosen"
+    card = next(m for m in got if m["type"] == "chat.message")["data"]["card"]
+    assert card["chosen"]["scope"] == "global"
+    assert sent == [("assistant", "/model claude-sonnet-5-5 --provider anthropic --global")]
+    assert picked == [], "not through the picker callback"
+    second = await ask_model(prompts, picked)
+    await drain(ws)
+    await ws.send(respond(store, second, msg_id="r2", model="x/fast-1", provider="openrouter", scope="session"))
+    await drain(ws)
+    assert sent[-1] == ("assistant", "/model x/fast-1 --provider openrouter --session")
+    await ws.close()

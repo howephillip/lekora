@@ -8,13 +8,14 @@ public struct LKPromptActions {
     public var approve: (_ choice: String, _ reason: String?) async throws -> Void
     public var answer: (_ answers: [String]?, _ text: String?) async throws -> Void
     /// Model picker: returns the status, and Hermes' reason when it wants a confirmation first.
-    public var pickModel: (_ model: String, _ provider: String, _ confirmed: Bool) async throws -> (String, String?)
+    /// `scope`: "session" (this chat only) or "global" (the agent's default).
+    public var pickModel: (_ model: String, _ provider: String, _ confirmed: Bool, _ scope: String?) async throws -> (String, String?)
     /// Prices, hosts and routing for the model picker (nil: just Hermes' list).
     public var models: LKModelSource?
 
     public init(approve: @escaping (String, String?) async throws -> Void,
                 answer: @escaping ([String]?, String?) async throws -> Void,
-                pickModel: @escaping (String, String, Bool) async throws -> (String, String?) = { _, _, _ in ("chosen", nil) },
+                pickModel: @escaping (String, String, Bool, String?) async throws -> (String, String?) = { _, _, _, _ in ("chosen", nil) },
                 models: LKModelSource? = nil) {
         self.approve = approve
         self.answer = answer
@@ -43,7 +44,7 @@ public struct LKPromptCard: View {
                 case .approval: LKApprovalCard(card: card, agentName: agentName, actions: actions)
                 case .question: LKQuestionCard(card: card, agentName: agentName, actions: actions)
                 case .confirm: LKConfirmCard(card: card, actions: actions)
-                case .model: LKModelCard(card: card, actions: actions)
+                case .model: LKModelCard(card: card, actions: actions, agentName: agentName)
                 case .choice: LKChoiceCard(card: card, actions: actions)
                 }
             }
@@ -394,6 +395,7 @@ private struct LKConfirmCard: View {
 private struct LKModelCard: View {
     let card: PromptCard
     let actions: LKPromptActions
+    let agentName: String
     @State private var choosing = false
 
     private var current: String {
@@ -418,7 +420,7 @@ private struct LKModelCard: View {
             }
         }
         .sheet(isPresented: $choosing) {
-            LKModelPickerSheet(card: card, actions: actions)
+            LKModelPickerSheet(card: card, actions: actions, agentName: agentName)
         }
     }
 }
@@ -521,7 +523,8 @@ public enum LKPromptText {
         case "cancelled": return ("Cancelled", "xmark.circle.fill", false)
         case "chosen" where card.kind == .model:
             guard let chosen = card.chosen else { return ("Switched model", "checkmark.circle.fill", true) }
-            return ("Switched to \(chosen.model)\non \(chosen.providerName ?? chosen.provider)", "checkmark.circle.fill", true)
+            let scope = chosen.scope == "global" ? " · as the default" : chosen.scope == "session" ? " · this chat" : ""
+            return ("Switched to \(chosen.model)\non \(chosen.providerName ?? chosen.provider)\(scope)", "checkmark.circle.fill", true)
         case "chosen": return ("Chose: \(card.answer ?? "")", "checkmark.circle.fill", true)
         case "failed": return ("Hermes couldn't make that change", "exclamationmark.triangle.fill", false)
         case "answered_in_chat": return ("Answered in the chat", "text.bubble", nil)

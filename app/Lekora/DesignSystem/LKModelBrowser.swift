@@ -61,6 +61,7 @@ public enum LKModelText {
 struct LKModelPickerSheet: View {
     let card: PromptCard
     let actions: LKPromptActions
+    var agentName = "this agent"
     @Environment(\.dismiss) private var dismiss
     @State private var search = ""
     @State private var details: [String: [String: CatalogModel]] = [:]   // provider -> model id -> details
@@ -69,6 +70,7 @@ struct LKModelPickerSheet: View {
     @State private var warning: (model: String, provider: String, message: String)?
     @State private var failure: String?
     @State private var path: [LKModelRoute] = []
+    @State private var pendingScope: String?
     /// The model tapped: asks "Use / Advanced… / Cancel".
     @State private var confirming: LKModelChoice?
 
@@ -114,7 +116,9 @@ struct LKModelPickerSheet: View {
                                         choose: { confirming = LKModelChoice(model: $0, provider: "openrouter") })
                 case .detail(let model):
                     LKModelDetail(model: model, isCurrent: model.id == card.currentModel, actions: actions,
-                                  pick: { pick(model.id, "openrouter", confirmed: false) }, switching: switching)
+                                  agentName: agentName,
+                                  pick: { scope in pick(model.id, "openrouter", confirmed: false, scope: scope) },
+                                  switching: switching)
                 }
             }
             .toolbar {
@@ -124,7 +128,7 @@ struct LKModelPickerSheet: View {
             }
             .alert("Switch anyway?", isPresented: Binding(get: { warning != nil }, set: { if !$0 { warning = nil } })) {
                 Button("Switch Anyway") {
-                    if let warning { pick(warning.model, warning.provider, confirmed: true) }
+                    if let warning { pick(warning.model, warning.provider, confirmed: true, scope: pendingScope) }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
@@ -137,15 +141,16 @@ struct LKModelPickerSheet: View {
         .alert(confirming.map { "Use \($0.model.name ?? $0.model.id)?" } ?? "",
                isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                presenting: confirming) { choice in
-            Button("Use This Model") { pick(choice.model.id, choice.provider, confirmed: false) }
+            Button("Use in This Chat") { pick(choice.model.id, choice.provider, confirmed: false, scope: "session") }
+            Button("Use in All Chats") { pick(choice.model.id, choice.provider, confirmed: false, scope: "global") }
             if choice.provider == "openrouter", actions.models != nil {
                 Button("Advanced…") { path.append(.detail(choice.model)) }
             }
             Button("Cancel", role: .cancel) {}
         } message: { choice in
             Text(choice.provider == "openrouter"
-                 ? "Advanced lets you choose which companies host it, and whether they may train on your data."
-                 : "Switches this agent to it.")
+                 ? "This chat only, or for every chat with \(agentName). Advanced lets you choose which companies host it, and whether they may train on your data."
+                 : "This chat only, or for every chat with \(agentName).")
         }
     }
 
@@ -179,15 +184,16 @@ struct LKModelPickerSheet: View {
         }
     }
 
-    private func pick(_ model: String, _ provider: String, confirmed: Bool) {
+    private func pick(_ model: String, _ provider: String, confirmed: Bool, scope: String? = nil) {
         switching = model
         failure = nil
         Task {
             do {
-                let (status, message) = try await actions.pickModel(model, provider, confirmed)
+                let (status, message) = try await actions.pickModel(model, provider, confirmed, scope)
                 switching = nil
                 if status == "needs_confirmation" {
                     warning = (model, provider, message ?? "Hermes flagged this model.")
+                    pendingScope = scope
                 } else {
                     dismiss()
                 }
@@ -387,7 +393,8 @@ struct LKModelDetail: View {
     let model: CatalogModel
     let isCurrent: Bool
     let actions: LKPromptActions
-    let pick: () -> Void
+    var agentName = "this agent"
+    let pick: (_ scope: String) -> Void
     let switching: String?
     @State private var hosts: [ModelHost] = []
     @State private var mode = "balanced"
@@ -418,7 +425,8 @@ struct LKModelDetail: View {
     var body: some View {
         List {
             Section {
-                LKModelHeader(model: model, isCurrent: isCurrent, busy: switching == model.id, use: pick)
+                LKModelHeader(model: model, isCurrent: isCurrent, busy: switching == model.id,
+                              agentName: agentName, use: pick)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             }
@@ -622,7 +630,8 @@ struct LKModelHeader: View {
     let model: CatalogModel
     let isCurrent: Bool
     let busy: Bool
-    let use: () -> Void
+    var agentName = "this agent"
+    let use: (_ scope: String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: LK.Spacing.md) {
@@ -666,10 +675,14 @@ struct LKModelHeader: View {
             }
 
             if !isCurrent {  // the badge already says so for the model in use
-                Button(action: use) {
+                Menu {
+                    Button("Use in This Chat", systemImage: "bubble.left") { use("session") }
+                    Button("Use in All Chats", systemImage: "star") { use("global") }
+                } label: {
                     HStack {
                         if busy { ProgressView().tint(LK.Palette.onAccent) }
                         Text("Use This Model")
+                        Image(systemName: "chevron.down").font(.caption.weight(.bold))
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -720,7 +733,7 @@ struct LKModelHeader: View {
         LKModelHeader(model: CatalogModel(id: "deepseek/deepseek-v4.1-flash-1017", name: "DeepSeek V4.1 Flash 1017",
                                           maker: "deepseek", maker_name: "DeepSeek", context: 1_048_576, input: 0.006,
                                           output: 0.5, free: false, reasoning: true, vision: true),
-                      isCurrent: true, busy: false, use: {})
+                      isCurrent: true, busy: false, use: { _ in })
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
     }

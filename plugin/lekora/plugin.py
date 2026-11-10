@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Protocol
@@ -194,6 +195,9 @@ class LekoraService:
             **kwargs,
         )
         self.gateway.prompts = self.prompts
+        # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
+        self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(
+            chat_id, text, "lekora-" + uuid.uuid4().hex[:12])
         self.gateway.commands_provider = self._commands_provider
         self.gateway.models = self._models_service()
         if self.gateway.models is not None:

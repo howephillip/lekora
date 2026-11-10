@@ -321,8 +321,9 @@ final class FakeHost: @unchecked Sendable {
                     return
                 }
                 status = "chosen"
-                updateCard(seq: seq, ["status": status,
-                                      "chosen": ["model": model, "provider": data["provider"] as? String ?? ""]])
+                var chosen: [String: Any] = ["model": model, "provider": data["provider"] as? String ?? ""]
+                if let scope = data["scope"] as? String { chosen["scope"] = scope }
+                updateCard(seq: seq, ["status": status, "chosen": chosen])
             } else if status == "pending" {
                 if let choice = data["choice"] as? String, cards[seq]?["kind"] as? String == "choice" {
                     status = "chosen"

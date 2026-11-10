@@ -22,6 +22,10 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
   - Hosts show where they're based, with their privacy policy and terms on a long press.
   - Search matches every word.
   - Plugin 270 tests, app 136; checked in the simulator with OpenRouter's real data.
+- **Your third look (2026-11-09):**
+  - Switches said "session only".
+  - Picking a model now asks **Use in This Chat** or **Use in All Chats**. These use Hermes' own `--session` / `--global`; "All Chats" makes Hermes save it as that agent's default.
+  - Plugin 271 tests, app 137; checked in the simulator.
 - **Waiting on:** the plugin update and your look with real Hermes.
 
 ## Done: slash commands (spec: `docs/slash-commands.md`)
