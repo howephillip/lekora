@@ -9,8 +9,8 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 
 **Phase 2 (complete chat) has started.**
 
-## In progress: model picker (spec: `docs/model-picker.md`)
-⏳ Built 2026-11-08.
+## Done: model picker (spec: `docs/model-picker.md`)
+✅ Confirmed on your iPhone with real Hermes 2026-11-09 (after four rounds of your feedback).
 - **What it does:** a Model button in each chat (or typing `/model`) shows a card with the agent's current model and **Choose a Model…**: a searchable list of every model your Hermes computer can use, by provider. Tap one and Hermes switches and confirms. A model Hermes flags (e.g. expensive) asks "Switch anyway?" first. `/reasoning` and `/fast` get a card with one button per option.
 - **How:** Hermes' own picker hooks (the ones Telegram, Discord and Slack use); Hermes does the switching and decides whether it's saved.
 - **Checked:** plugin 256 tests (6 new), app 132 (4 new); every Hermes hook checked against Hermes 0.22.5's source; in the simulator against the real plugin: the Model button, the searchable list, switching, the "Switch anyway?" check, and the /reasoning card.
@@ -27,7 +27,6 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
   - Picking a model now asks **Use in This Chat** or **Use in All Chats**. These use Hermes' own `--session` / `--global`; "All Chats" makes Hermes save it as that agent's default.
   - Plugin 271 tests, app 137; checked in the simulator.
 - **Your fourth look (2026-11-09):** the buttons now say it plainly: **This Session Only** / **Always Use for <agent>**, and the card afterwards matches. App-only change.
-- **Waiting on:** the plugin update and your look with real Hermes.
 
 ## Done: slash commands (spec: `docs/slash-commands.md`)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-08.
