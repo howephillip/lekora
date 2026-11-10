@@ -276,6 +276,27 @@ public final class GatewayClient: ObservableObject {
         return (ack.status, ack.message)
     }
 
+    /// Prices and abilities of a provider's models: OpenRouter's whole tool-capable catalog,
+    /// or the given models of another provider where Hermes knows them.
+    public func modelCatalog(provider: String, models: [String] = [], in profileId: String) async throws -> CatalogResult {
+        try await request(type: "models.catalog", profileId: profileId,
+                          data: CatalogRequestData(provider: provider, models: models),
+                          reply: CatalogResult.self, timeout: 30)
+    }
+
+    /// The companies hosting an OpenRouter model, and this agent's routing choice for it.
+    public func modelHosts(_ model: String, in profileId: String) async throws -> HostsResult {
+        try await request(type: "models.hosts", profileId: profileId, data: ModelRequestData(model: model),
+                          reply: HostsResult.self, timeout: 30)
+    }
+
+    /// Saves which hosts OpenRouter may use for a model (Hermes' provider_routing, backed up first).
+    public func setRouting(_ model: String, mode: String, hosts: [String] = [], in profileId: String) async throws -> RoutingChoice {
+        try await request(type: "models.routing.set", profileId: profileId,
+                          data: RoutingRequestData(model: model, mode: mode, hosts: hosts),
+                          reply: RoutingChoice.self, timeout: 30)
+    }
+
     /// Opens Hermes' model picker in this chat (the same as typing /model).
     public func openModelPicker() async {
         await sendMessage("/model")

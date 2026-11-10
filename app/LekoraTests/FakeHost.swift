@@ -29,6 +29,9 @@ final class FakeHost: @unchecked Sendable {
     /// Every message carries this `at` time, like current hosts; nil = a host from before times.
     var messageTime: String? = "2026-11-08T12:00:00Z"
 
+    /// The routing saved by models.routing.set (docs/model-picker.md).
+    var routing: [String: Any] = ["mode": "balanced", "hosts": []]
+
     /// What commands.list answers (docs/slash-commands.md).
     var slashCommands: [[String: Any]] = [
         ["name": "new", "description": "Start a new session", "args": "", "choices": [], "aliases": ["reset"],
@@ -274,6 +277,29 @@ final class FakeHost: @unchecked Sendable {
             send(type: "history.page", id: id, data: [
                 "messages": page.map { messageData($0) }, "has_more": older.count > page.count,
             ], profileId: profile, on: connection)
+
+        case "models.catalog":
+            send(type: "models.catalog.result", id: id, data: [
+                "provider": data["provider"] as? String ?? "", "complete": true,
+                "models": [["id": "deepseek/v4", "name": "DeepSeek V4", "maker": "deepseek", "maker_name": "DeepSeek",
+                            "created": 2, "context": 1048576, "input": 0.08, "output": 0.5, "free": false,
+                            "reasoning": true, "vision": true],
+                           ["id": "meta/llama:free", "name": "Llama", "maker": "meta", "maker_name": "Meta",
+                            "created": 1, "context": 131072, "input": 0, "output": 0, "free": true]]],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "models.hosts":
+            send(type: "models.hosts.result", id: id, data: [
+                "model": data["model"] as? String ?? "",
+                "hosts": [["name": "Wafer", "tag": "wafer/us", "input": 0.038, "output": 0.5, "quantization": "mxfp4", "uptime": 99.7]],
+                "routing": routing], profileId: message["profile_id"] as? String, on: connection)
+
+        case "models.routing.set":
+            routing = ["mode": data["mode"] as? String ?? "", "hosts": data["hosts"] as? [String] ?? []]
+            var reply = routing
+            reply["backup"] = "/home/x/.hermes/lekora-backups/config/bruce/config.yaml.20261109-120000"
+            send(type: "models.routing.set.result", id: id, data: reply,
+                 profileId: message["profile_id"] as? String, on: connection)
 
         case "commands.list":
             send(type: "commands.list.result", id: id,

@@ -53,6 +53,41 @@ Cards as in `protocol.md` §6, with kinds `model` and `choice`; see §8.
   - the Model button sending `/model`.
 - **Simulator** against the real plugin. **Real Hermes** on your machine.
 
+## Prices, the full OpenRouter catalog, and hosts (owner's request, 2026-11-09)
+- **Every model shows its price** (input · output per 1M tokens), context size, and badges for reasoning, reading images, and free.
+  - OpenRouter prices come from OpenRouter.
+  - Other providers' prices come from Hermes' own price table (models.dev, `agent.models_dev.get_model_info`). Unknown prices are left blank, not shown as free.
+- **Browse all OpenRouter models:**
+  - Hermes' own OpenRouter list is hand-picked (about 60).
+  - The browser shows OpenRouter's whole catalog of models that can call tools (about 400; Hermes agents need tools, and Hermes hides tool-less models too).
+  - It's grouped by maker, with search, sorting (by maker, cheapest, newest, largest context) and filters (free, reasoning, reads images).
+  - Read from OpenRouter's public `/api/v1/models` by the plugin, cached an hour next to `lekora.db` (a stale copy is used if OpenRouter is unreachable).
+  - Picking any of them switches through Hermes as usual (the plugin accepts OpenRouter models from that catalog, not only Hermes' picks).
+- **A model's hosts** (the (i) button), from OpenRouter's public `/api/v1/models/<id>/endpoints`, cached ten minutes:
+  - every company hosting it, cheapest (input + output) first, with prices, discount, uptime, context;
+  - its setup (region, quantization, flex/priority tier) as badges, so same-named hosts can be told apart.
+  - OpenRouter's public data has no speed or latency figures, so none are shown.
+- **Routing:** which hosts OpenRouter may use for that model, saved in Hermes' own setting `provider_routing.models."<id>"` in the agent's `config.yaml`. Hermes re-reads it on every request.
+
+  | Choice | Saved as |
+  |---|---|
+  | Balanced (OpenRouter's default) | no entry |
+  | Cheapest | `sort: price` |
+  | Fastest | `sort: throughput` |
+  | Prefer these | `order: [tags…]` |
+  | Only these | `only: [tags…]` |
+
+  A setting written by hand that Lekora doesn't recognise shows as "Custom" and isn't changed unless you save something else.
+- **Backups (AGENTS.md rule 8, exception agreed 2026-11-09):**
+  - Before any routing change, the agent's `config.yaml` is copied to `<Hermes>/lekora-backups/config/<agent>/`.
+  - `config.yaml.original` (from before Lekora ever changed it) is kept forever, plus the ten newest dated copies.
+  - Writing uses Hermes' own config writer (`hermes_cli.config.atomic_config_replace`, keeps comments). Only that model's entry changes.
+  - The app asks before saving.
+- **In the app:**
+  - the host page's Save button stays at the bottom while you pick;
+  - the sheet can't be swiped away with unsaved picks;
+  - switching between "Prefer" and "Only" starts the picks over.
+
 ## Known limits
-- Hermes lists up to 50 models per provider. For others, type `/model <name> --provider <slug>` (the sheet says so).
 - The phone doesn't know the current model until the picker opens. Showing it in the chat header is a later polish (per-chat settings).
+- OpenRouter's public data has no host speed or latency; "Fastest" still works (OpenRouter measures it).

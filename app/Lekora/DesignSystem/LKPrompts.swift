@@ -9,13 +9,17 @@ public struct LKPromptActions {
     public var answer: (_ answers: [String]?, _ text: String?) async throws -> Void
     /// Model picker: returns the status, and Hermes' reason when it wants a confirmation first.
     public var pickModel: (_ model: String, _ provider: String, _ confirmed: Bool) async throws -> (String, String?)
+    /// Prices, hosts and routing for the model picker (nil: just Hermes' list).
+    public var models: LKModelSource?
 
     public init(approve: @escaping (String, String?) async throws -> Void,
                 answer: @escaping ([String]?, String?) async throws -> Void,
-                pickModel: @escaping (String, String, Bool) async throws -> (String, String?) = { _, _, _ in ("chosen", nil) }) {
+                pickModel: @escaping (String, String, Bool) async throws -> (String, String?) = { _, _, _ in ("chosen", nil) },
+                models: LKModelSource? = nil) {
         self.approve = approve
         self.answer = answer
         self.pickModel = pickModel
+        self.models = models
     }
 
     static let none = LKPromptActions(approve: { _, _ in }, answer: { _, _ in })
@@ -415,124 +419,6 @@ private struct LKModelCard: View {
         }
         .sheet(isPresented: $choosing) {
             LKModelPickerSheet(card: card, actions: actions)
-        }
-    }
-}
-
-/// Every model Hermes can switch this agent to, by provider, with search.
-struct LKModelPickerSheet: View {
-    let card: PromptCard
-    let actions: LKPromptActions
-    @Environment(\.dismiss) private var dismiss
-    @State private var search = ""
-    @State private var switching: String?
-    @State private var warning: (model: String, provider: String, message: String)?
-    @State private var failure: String?
-
-    private var sections: [PromptCard.ModelProvider] {
-        let query = search.trimmingCharacters(in: .whitespaces).lowercased()
-        let all = (card.providers ?? []).sorted { $0.isCurrent && !$1.isCurrent }
-        guard !query.isEmpty else { return all }
-        return all.compactMap { provider in
-            // A provider's whole list when its name starts with the search ("open" -> OpenRouter);
-            // otherwise only the models that match ("llama" doesn't pull in all of "Ollama").
-            let models = provider.name.lowercased().hasPrefix(query)
-                ? provider.models : provider.models.filter { $0.lowercased().contains(query) }
-            return models.isEmpty ? nil : PromptCard.ModelProvider(
-                slug: provider.slug, name: provider.name, models: models, isCurrent: provider.isCurrent,
-                totalModels: provider.totalModels, modelLabels: provider.modelLabels)
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if let failure {
-                    Text(failure).foregroundStyle(LK.Palette.danger).font(LK.Typography.footnote)
-                }
-                ForEach(sections, id: \.slug) { provider in
-                    Section {
-                        ForEach(provider.models, id: \.self) { model in
-                            row(model: model, provider: provider)
-                        }
-                    } header: {
-                        Text(provider.name)
-                    } footer: {
-                        if provider.totalModels > provider.models.count && search.isEmpty {
-                            Text("Showing \(provider.models.count) of \(provider.totalModels) models from \(provider.name).")
-                        }
-                    }
-                }
-            }
-            .overlay {
-                if sections.isEmpty {
-                    ContentUnavailableView.search(text: search)
-                }
-            }
-            .searchable(text: $search, prompt: "Search models")
-            .navigationTitle("Choose a Model")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-            .alert("Switch anyway?", isPresented: Binding(get: { warning != nil }, set: { if !$0 { warning = nil } })) {
-                Button("Switch Anyway") {
-                    if let warning { pick(warning.model, warning.provider, confirmed: true) }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(warning?.message ?? "")
-            }
-        }
-    }
-
-    private func row(model: String, provider: PromptCard.ModelProvider) -> some View {
-        let isCurrent = provider.slug == card.currentProvider && model == card.currentModel
-        return Button {
-            pick(model, provider.slug, confirmed: false)
-        } label: {
-            HStack {
-                Text(model)
-                    .foregroundStyle(.primary)
-                if let label = provider.modelLabels?[model] {
-                    Text(label)
-                        .font(LK.Typography.caption.weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(LK.Palette.accent.opacity(0.15), in: Capsule())
-                        .foregroundStyle(LK.Palette.accent)
-                }
-                Spacer()
-                if switching == model {
-                    ProgressView()
-                } else if isCurrent {
-                    Image(systemName: "checkmark").foregroundStyle(LK.Palette.accent)
-                }
-            }
-        }
-        .disabled(switching != nil)
-    }
-
-    private func pick(_ model: String, _ provider: String, confirmed: Bool) {
-        switching = model
-        failure = nil
-        Task {
-            do {
-                let (status, message) = try await actions.pickModel(model, provider, confirmed)
-                switching = nil
-                if status == "needs_confirmation" {
-                    warning = (model, provider, message ?? "Hermes flagged this model.")
-                } else {
-                    dismiss()
-                }
-            } catch {
-                switching = nil
-                failure = "Couldn't switch: \(error.localizedDescription)"
-            }
         }
     }
 }

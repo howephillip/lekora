@@ -33,10 +33,12 @@
 		9204696E33041E24602FA7C5 /* ReconnectingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F0CED43AE9F169638D5D29 /* ReconnectingView.swift */; };
 		989D398F4C0DCC50E9936694 /* AgentsHomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 354249C24E28051B0D46C7F7 /* AgentsHomeTests.swift */; };
 		9AE3FC3D1F24E1FCDEAD6CA9 /* LKControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D68937DEF313C782685EDF4 /* LKControls.swift */; };
+		A78DE47FDC922C87A96F9FAD /* ModelBrowserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11FE221EB3CC8C6C20826715 /* ModelBrowserTests.swift */; };
 		A7FABDA05D86D7F06AF087E5 /* LKTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F460D8439ADD0ACFDFE2A0C /* LKTheme.swift */; };
 		AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D236D28311188A8777EEA28 /* RouteProber.swift */; };
 		B3E1652F6BF2059C81EA8B5E /* AgentsHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71FE4330319847F703BD319 /* AgentsHomeView.swift */; };
 		B4BE360A187FB1147A43DC0E /* LKSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98E6C761189D7F9969880583 /* LKSurfaces.swift */; };
+		B4D5AB33121DF83AC0C4E222 /* LKModelBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0684A706179CCAB9BF30D05F /* LKModelBrowser.swift */; };
 		B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19C424E99FE08F51187724FC /* FakeHost.swift */; };
 		C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
@@ -59,8 +61,10 @@
 /* Begin PBXFileReference section */
 		00F0CED43AE9F169638D5D29 /* ReconnectingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectingView.swift; sourceTree = "<group>"; };
 		029415CB05BE8C4EC47DCBDE /* SavedHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedHost.swift; sourceTree = "<group>"; };
+		0684A706179CCAB9BF30D05F /* LKModelBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKModelBrowser.swift; sourceTree = "<group>"; };
 		08407DF491E075BA09148236 /* LKPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKPrompts.swift; sourceTree = "<group>"; };
 		0BF412341EDFBD9C0BD40EA1 /* ChatHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryTests.swift; sourceTree = "<group>"; };
+		11FE221EB3CC8C6C20826715 /* ModelBrowserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelBrowserTests.swift; sourceTree = "<group>"; };
 		1419813F14C562B1CFE0A201 /* LKCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKCommands.swift; sourceTree = "<group>"; };
 		19C424E99FE08F51187724FC /* FakeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeHost.swift; sourceTree = "<group>"; };
 		1C14F78E55A3258FA42F19E4 /* ChatCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCache.swift; sourceTree = "<group>"; };
@@ -136,6 +140,7 @@
 				A70D035010855C26CF7103C5 /* LKChat.swift */,
 				1419813F14C562B1CFE0A201 /* LKCommands.swift */,
 				3D68937DEF313C782685EDF4 /* LKControls.swift */,
+				0684A706179CCAB9BF30D05F /* LKModelBrowser.swift */,
 				73562A915817188C789BD926 /* LKPreviews.swift */,
 				08407DF491E075BA09148236 /* LKPrompts.swift */,
 				98E6C761189D7F9969880583 /* LKSurfaces.swift */,
@@ -169,6 +174,7 @@
 				5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */,
 				A1FA8B34B4CE7A6CD6671CD0 /* EncryptionTests.swift */,
 				19C424E99FE08F51187724FC /* FakeHost.swift */,
+				11FE221EB3CC8C6C20826715 /* ModelBrowserTests.swift */,
 				E950FA3284FD2DBC6C00F77F /* PromptCardTests.swift */,
 				8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */,
 				F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */,
@@ -307,6 +313,7 @@
 				D5E75A6364A09E0D8E76A561 /* LKChat.swift in Sources */,
 				85A48211426289A7ADE8D689 /* LKCommands.swift in Sources */,
 				9AE3FC3D1F24E1FCDEAD6CA9 /* LKControls.swift in Sources */,
+				B4D5AB33121DF83AC0C4E222 /* LKModelBrowser.swift in Sources */,
 				22BE641970CDB938F9E67B27 /* LKPreviews.swift in Sources */,
 				21EA61180ECA274F34F6B62C /* LKPrompts.swift in Sources */,
 				B4BE360A187FB1147A43DC0E /* LKSurfaces.swift in Sources */,
@@ -335,6 +342,7 @@
 				C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */,
 				391E8D2FBE5FB23C6E493A93 /* EncryptionTests.swift in Sources */,
 				B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */,
+				A78DE47FDC922C87A96F9FAD /* ModelBrowserTests.swift in Sources */,
 				48CE2E2B9C0DE7891BFAB400 /* PromptCardTests.swift in Sources */,
 				8D76C2F339D7D312B7F16C11 /* ProtocolMessagesTests.swift in Sources */,
 				79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */,

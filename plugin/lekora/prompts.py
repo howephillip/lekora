@@ -118,6 +118,8 @@ class Prompts:
         self._clock = clock
         self._live: dict[str, _Live] = {}
         self.last_warning: Optional[str] = None  # the warning behind a "needs_confirmation" answer
+        # Set by the service: whether a model is in OpenRouter's full catalog.
+        self.knows_openrouter_model: Callable[[str], bool] = lambda model: False
         # After a typed message, Hermes needs a moment to act on it before cards are rechecked.
         self.recheck_delay = 1.5
         self._tasks: set[asyncio.Task] = set()
@@ -245,7 +247,11 @@ class Prompts:
     async def _answer_model(self, live: _Live, data: dict) -> str:
         model, provider = data.get("model"), data.get("provider")
         rows = {p["slug"]: p for p in live.card.get("providers", [])}
-        if not (isinstance(model, str) and model and provider in rows and model in rows[provider]["models"]):
+        offered = provider in rows and isinstance(model, str) and (
+            model in rows[provider]["models"]
+            # OpenRouter: any tool-capable model from its full catalog, not just Hermes' picks.
+            or (provider == "openrouter" and self._safe(lambda: self.knows_openrouter_model(model))))
+        if not (isinstance(model, str) and model and offered):
             raise PromptError("INVALID_ANSWER", "That model isn't offered here")
         if not data.get("confirmed"):
             # Hermes may look up prices: off the event loop.

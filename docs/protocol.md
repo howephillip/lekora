@@ -325,3 +325,20 @@ Answers use `prompt.respond`:
 - choice: `{card_id, choice: value}`.
 
 Statuses: `pending`, `chosen` (model cards add `chosen: {model, provider, provider_name}`, choice cards add `answer`), `failed`, `closed`, `expired`.
+
+### Model details (owner's request, 2026-11-09)
+Plain requests, each answered with `<type>.result` (same `id`):
+- `models.catalog`
+  - Sent: `{provider, models?}` (`profile_id` set).
+  - Answer: `{provider, complete, models: [{id, name?, maker?, maker_name?, created?, context?, input?, output?, cache_read?, free?, reasoning?, vision?}]}`.
+  - Prices are USD per 1M tokens.
+  - For OpenRouter, `models` is the whole tool-capable catalog (`complete: true`); otherwise, details of the given ids where Hermes knows them.
+- `models.hosts`
+  - Sent: `{model}`.
+  - Answer: `{model, hosts: [{name, tag, input?, output?, cache_read?, discount?, context?, max_output?, quantization?, uptime?}], routing: {mode, hosts}}`.
+- `models.routing.set`
+  - Sent: `{model, mode: balanced|cheapest|fastest|prefer|only, hosts?: [tag…]}`.
+  - Answer: `{mode, hosts, backup}`, where `backup` is null when nothing changed.
+  - Errors: `INVALID_ROUTING` (no hosts for prefer/only, or a host not serving the model) and `UNKNOWN_MODEL`.
+
+`prompt.respond` for a model card also accepts any model from OpenRouter's catalog when the provider is `openrouter`.

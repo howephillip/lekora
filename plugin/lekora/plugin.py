@@ -115,8 +115,10 @@ class LekoraService:
         run_cli: RunCli = run_hermes_cli,
         resolvers: Optional["Resolvers"] = None,
         commands_provider: Optional[Callable[[str], list[dict]]] = None,
+        model_info: Optional[Callable[[str, str], Optional[dict]]] = None,
     ) -> None:
         self._commands_provider = commands_provider
+        self._model_info = model_info
         self._run_cli = run_cli
         # Approval and question cards (docs/prompts.md); Hermes' resolvers come from the adapter.
         from .prompts import Prompts
@@ -193,6 +195,9 @@ class LekoraService:
         )
         self.gateway.prompts = self.prompts
         self.gateway.commands_provider = self._commands_provider
+        self.gateway.models = self._models_service()
+        if self.gateway.models is not None:
+            self.prompts.knows_openrouter_model = self.gateway.models.knows_openrouter_model
         try:
             port = await self.gateway.start()
         except BaseException:
@@ -204,6 +209,20 @@ class LekoraService:
         except Exception:
             logging.getLogger(__name__).exception("Lekora: could not expire old cards")
         return port
+
+    def _models_service(self):
+        """Model picker details: OpenRouter's catalog (cached next to lekora.db) and routing."""
+        from .models_service import ModelsService
+        from .openrouter_catalog import OpenRouterCatalog
+        from .routing_config import RoutingConfig
+        root = Path(self.config.hermes_root) if self.config.hermes_root else _profiles.hermes_root()
+        db = str(self._store.path)
+        cache_dir = None if db == ":memory:" else Path(db).parent / "lekora-cache"
+        return ModelsService(
+            OpenRouterCatalog(cache_dir),
+            RoutingConfig(root / "lekora-backups" / "config"),
+            profile_home=lambda profile_id: _profiles.profile_home(profile_id, root),
+            **({"model_info": self._model_info} if self._model_info else {}))
 
     async def stop(self) -> None:
         if self.gateway is not None:

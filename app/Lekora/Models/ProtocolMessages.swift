@@ -252,6 +252,84 @@ public struct EmptyData: Codable, Equatable {
     public init() {}
 }
 
+// MARK: - Model picker details (docs/model-picker.md)
+/// A model with its prices (USD per million tokens) and abilities, where known.
+public struct CatalogModel: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let name: String?
+    public let maker: String?
+    public let maker_name: String?
+    public let created: Int?
+    public let context: Int?
+    public let input: Double?
+    public let output: Double?
+    public let cache_read: Double?
+    public let free: Bool?
+    public let reasoning: Bool?
+    public let vision: Bool?
+
+    public init(id: String, name: String? = nil, maker: String? = nil, maker_name: String? = nil, created: Int? = nil,
+                context: Int? = nil, input: Double? = nil, output: Double? = nil, cache_read: Double? = nil,
+                free: Bool? = nil, reasoning: Bool? = nil, vision: Bool? = nil) {
+        self.id = id
+        self.name = name
+        self.maker = maker
+        self.maker_name = maker_name
+        self.created = created
+        self.context = context
+        self.input = input
+        self.output = output
+        self.cache_read = cache_read
+        self.free = free
+        self.reasoning = reasoning
+        self.vision = vision
+    }
+}
+
+public struct CatalogResult: Codable, Equatable {
+    public let provider: String
+    public let models: [CatalogModel]
+    public let complete: Bool
+}
+
+/// A company hosting an OpenRouter model.
+public struct ModelHost: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public var id: String { tag }
+    public let name: String
+    public let tag: String
+    public let input: Double?
+    public let output: Double?
+    public let cache_read: Double?
+    public let discount: Double?
+    public let context: Int?
+    public let max_output: Int?
+    public let quantization: String?
+    public let uptime: Double?
+}
+
+public struct RoutingChoice: Codable, Equatable, Sendable {
+    /// balanced, cheapest, fastest, only, prefer (or custom: set by hand in Hermes' config)
+    public let mode: String
+    public let hosts: [String]
+    public let backup: String?
+
+    public init(mode: String, hosts: [String] = [], backup: String? = nil) {
+        self.mode = mode
+        self.hosts = hosts
+        self.backup = backup
+    }
+}
+
+public struct HostsResult: Codable, Equatable {
+    public let model: String
+    public let hosts: [ModelHost]
+    public let routing: RoutingChoice
+}
+
+struct CatalogRequestData: Codable { let provider: String; let models: [String] }
+struct ModelRequestData: Codable { let model: String }
+struct RoutingRequestData: Codable { let model: String; let mode: String; let hosts: [String] }
+
 // MARK: - Approval and question cards (docs/prompts.md)
 /// An agent asking for permission to do something risky, or asking you a question.
 public struct PromptCard: Codable, Equatable, Sendable {

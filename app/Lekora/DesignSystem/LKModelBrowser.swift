@@ -1,0 +1,577 @@
+import SwiftUI
+
+// The model picker's sheet (docs/model-picker.md): every model Hermes can switch to, with
+// prices and abilities; OpenRouter's whole tool-capable catalog to browse; and per model,
+// the companies hosting it and which of them OpenRouter may use.
+
+/// Where the picker gets details beyond Hermes' own list.
+public struct LKModelSource {
+    public var catalog: (_ provider: String, _ models: [String]) async throws -> [CatalogModel]
+    public var hosts: (_ model: String) async throws -> HostsResult
+    public var setRouting: (_ model: String, _ mode: String, _ hosts: [String]) async throws -> RoutingChoice
+
+    public init(catalog: @escaping (String, [String]) async throws -> [CatalogModel],
+                hosts: @escaping (String) async throws -> HostsResult,
+                setRouting: @escaping (String, String, [String]) async throws -> RoutingChoice) {
+        self.catalog = catalog
+        self.hosts = hosts
+        self.setRouting = setRouting
+    }
+}
+
+// MARK: - Formatting
+
+public enum LKModelText {
+    /// "$15" "$3.00" "$0.50" "$0.05" "$0.038" "$0.006" "Free"
+    public static func price(_ value: Double?) -> String? {
+        guard let value else { return nil }
+        if value == 0 { return "Free" }
+        if value >= 10 { return String(format: "$%.0f", value) }
+        // Two decimals, a third only when it matters ($0.038, not $0.050).
+        var text = String(format: "%.3f", value)
+        if text.hasSuffix("0") { text.removeLast() }
+        return "$" + text
+    }
+
+    /// "$0.08 in · $0.50 out per 1M tokens" (or "Free", or nil when unknown)
+    public static func prices(input: Double?, output: Double?) -> String? {
+        if input == 0, output == 0 { return "Free" }
+        guard let i = price(input), let o = price(output) else { return nil }
+        return "\(i) in · \(o) out"
+    }
+
+    /// 1048576 -> "1M", 131072 -> "131K"
+    public static func context(_ tokens: Int?) -> String? {
+        guard let tokens, tokens > 0 else { return nil }
+        if tokens >= 1_000_000 { return String(format: tokens % 1_000_000 < 50_000 ? "%.0fM" : "%.1fM", Double(tokens) / 1_000_000) }
+        return "\(tokens / 1000)K"
+    }
+}
+
+// MARK: - The sheet
+
+struct LKModelPickerSheet: View {
+    let card: PromptCard
+    let actions: LKPromptActions
+    @Environment(\.dismiss) private var dismiss
+    @State private var search = ""
+    @State private var details: [String: [String: CatalogModel]] = [:]   // provider -> model id -> details
+    @State private var openRouter: [CatalogModel] = []
+    @State private var switching: String?
+    @State private var warning: (model: String, provider: String, message: String)?
+    @State private var failure: String?
+    @State private var path: [LKModelRoute] = []
+
+    private var providers: [PromptCard.ModelProvider] {
+        (card.providers ?? []).sorted { $0.isCurrent && !$1.isCurrent }
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            List {
+                if let failure {
+                    Text(failure).foregroundStyle(LK.Palette.danger).font(LK.Typography.footnote)
+                }
+                ForEach(providers, id: \.slug) { provider in
+                    let models = filtered(provider)
+                    if !models.isEmpty || (provider.slug == "openrouter" && !openRouter.isEmpty) {
+                        Section {
+                            if provider.slug == "openrouter", actions.models != nil {
+                                NavigationLink(value: LKModelRoute.browse) {
+                                    Label(openRouter.isEmpty ? "Browse all OpenRouter models"
+                                                             : "Browse all \(openRouter.count) OpenRouter models",
+                                          systemImage: "square.grid.2x2")
+                                }
+                            }
+                            ForEach(models, id: \.self) { model in
+                                row(model, provider: provider)
+                            }
+                        } header: {
+                            Text(provider.slug == "openrouter" ? "OpenRouter — Hermes' picks" : provider.name)
+                        }
+                    }
+                }
+            }
+            .searchable(text: $search, prompt: "Search models")
+            .navigationTitle("Choose a Model")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .navigationDestination(for: LKModelRoute.self) { route in
+                switch route {
+                case .browse:
+                    LKOpenRouterBrowser(models: openRouter, current: card.currentModel, actions: actions,
+                                        pick: { pick($0, "openrouter", confirmed: false) }, switching: switching,
+                                        open: { path.append(.detail($0)) })
+                case .detail(let model):
+                    LKModelDetail(model: model, isCurrent: model.id == card.currentModel, actions: actions,
+                                  pick: { pick(model.id, "openrouter", confirmed: false) }, switching: switching)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .alert("Switch anyway?", isPresented: Binding(get: { warning != nil }, set: { if !$0 { warning = nil } })) {
+                Button("Switch Anyway") {
+                    if let warning { pick(warning.model, warning.provider, confirmed: true) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(warning?.message ?? "")
+            }
+            .task { await loadDetails() }
+        }
+    }
+
+    private func filtered(_ provider: PromptCard.ModelProvider) -> [String] {
+        let query = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !query.isEmpty else { return provider.models }
+        if provider.name.lowercased().hasPrefix(query) { return provider.models }
+        return provider.models.filter { $0.lowercased().contains(query) }
+    }
+
+    private func row(_ model: String, provider: PromptCard.ModelProvider) -> some View {
+        let info = details[provider.slug]?[model] ?? CatalogModel(id: model)
+        let isCurrent = provider.slug == card.currentProvider && model == card.currentModel
+        let openDetail: (() -> Void)? = provider.slug == "openrouter" && actions.models != nil
+            ? { path.append(.detail(info)) } : nil
+        return LKModelRow(model: info, label: provider.modelLabels?[model], isCurrent: isCurrent,
+                          busy: switching == model, openDetail: openDetail) {
+            pick(model, provider.slug, confirmed: false)
+        }
+    }
+
+    /// Prices and abilities for every listed model, and OpenRouter's full catalog.
+    private func loadDetails() async {
+        guard let source = actions.models else { return }
+        for provider in providers {
+            if let models = try? await source.catalog(provider.slug, provider.models) {
+                details[provider.slug] = Dictionary(models.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                if provider.slug == "openrouter" { openRouter = models }
+            }
+        }
+    }
+
+    private func pick(_ model: String, _ provider: String, confirmed: Bool) {
+        switching = model
+        failure = nil
+        Task {
+            do {
+                let (status, message) = try await actions.pickModel(model, provider, confirmed)
+                switching = nil
+                if status == "needs_confirmation" {
+                    warning = (model, provider, message ?? "Hermes flagged this model.")
+                } else {
+                    dismiss()
+                }
+            } catch {
+                switching = nil
+                failure = "Couldn't switch: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+enum LKModelRoute: Hashable {
+    case browse
+    case detail(CatalogModel)
+}
+
+// MARK: - One model
+
+struct LKModelRow: View {
+    let model: CatalogModel
+    var label: String? = nil
+    let isCurrent: Bool
+    let busy: Bool
+    /// Shows an (i) button to the model's hosts and details.
+    var openDetail: (() -> Void)? = nil
+    let pick: () -> Void
+
+    var body: some View {
+        HStack(spacing: LK.Spacing.sm) {
+            Button(action: pick) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: LK.Spacing.xs) {
+                        Text(model.name ?? model.id)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        if let label { LKBadge(label) }
+                        if model.free == true, label?.lowercased() != "free",
+                           !(model.name ?? "").lowercased().contains("free") { LKBadge("Free") }
+                    }
+                    if model.name != nil, model.name != model.id {
+                        Text(model.id)
+                            .font(LK.Typography.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    facts
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if busy {
+                ProgressView()
+            } else if isCurrent {
+                Image(systemName: "checkmark").foregroundStyle(LK.Palette.accent)
+            }
+            if let openDetail {
+                Button(action: openDetail) {
+                    Image(systemName: "info.circle")
+                        .font(.title3)
+                        .foregroundStyle(LK.Palette.accent)
+                        .accessibilityLabel("Details and hosts")
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .disabled(busy)
+    }
+
+    private var facts: some View {
+        HStack(spacing: LK.Spacing.sm) {
+            if model.free != true, let prices = LKModelText.prices(input: model.input, output: model.output) {
+                Text(prices)
+            }
+            if let context = LKModelText.context(model.context) {
+                Label(context, systemImage: "text.alignleft")
+                    .labelStyle(.titleAndIcon)
+                    .accessibilityLabel("\(context) tokens of context")
+            }
+            if model.reasoning == true {
+                Image(systemName: "brain").accessibilityLabel("Reasoning")
+            }
+            if model.vision == true {
+                Image(systemName: "eye").accessibilityLabel("Reads images")
+            }
+        }
+        .font(LK.Typography.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+    }
+}
+
+struct LKBadge: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(LK.Typography.caption.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(LK.Palette.accent.opacity(0.15), in: Capsule())
+            .foregroundStyle(LK.Palette.accent)
+    }
+}
+
+// MARK: - OpenRouter's whole catalog
+
+enum LKModelSort: String, CaseIterable, Identifiable {
+    case maker = "By Maker", cheapest = "Cheapest", newest = "Newest", context = "Largest Context"
+    var id: String { rawValue }
+}
+
+struct LKOpenRouterBrowser: View {
+    let models: [CatalogModel]
+    let current: String?
+    let actions: LKPromptActions
+    let pick: (String) -> Void
+    let switching: String?
+    let open: (CatalogModel) -> Void
+    @State private var search = ""
+    @State private var sort: LKModelSort = .maker
+    @State private var freeOnly = false
+    @State private var reasoningOnly = false
+    @State private var visionOnly = false
+
+    static func filter(_ models: [CatalogModel], search: String, freeOnly: Bool,
+                       reasoningOnly: Bool = false, visionOnly: Bool = false) -> [CatalogModel] {
+        let query = search.trimmingCharacters(in: .whitespaces).lowercased()
+        return models.filter { model in
+            (!freeOnly || model.free == true)
+                && (!reasoningOnly || model.reasoning == true)
+                && (!visionOnly || model.vision == true)
+                && (query.isEmpty || model.id.lowercased().contains(query)
+                    || (model.name ?? "").lowercased().contains(query)
+                    || (model.maker_name ?? "").lowercased().contains(query))
+        }
+    }
+
+    static func sorted(_ models: [CatalogModel], by sort: LKModelSort) -> [CatalogModel] {
+        switch sort {
+        case .maker: return models.sorted { ($0.name ?? $0.id).localizedCaseInsensitiveCompare($1.name ?? $1.id) == .orderedAscending }
+        case .cheapest: return models.sorted { (($0.input ?? .infinity) + ($0.output ?? .infinity)) < (($1.input ?? .infinity) + ($1.output ?? .infinity)) }
+        case .newest: return models.sorted { ($0.created ?? 0) > ($1.created ?? 0) }
+        case .context: return models.sorted { ($0.context ?? 0) > ($1.context ?? 0) }
+        }
+    }
+
+    /// Makers with the most models first.
+    static func byMaker(_ models: [CatalogModel]) -> [(name: String, models: [CatalogModel])] {
+        let groups = Dictionary(grouping: models) { $0.maker_name ?? $0.maker ?? "Other" }
+        return groups.map { ($0.key, $0.value) }
+            .sorted { $0.models.count != $1.models.count ? $0.models.count > $1.models.count : $0.name < $1.name }
+    }
+
+    var body: some View {
+        let shown = Self.sorted(Self.filter(models, search: search, freeOnly: freeOnly,
+                                            reasoningOnly: reasoningOnly, visionOnly: visionOnly), by: sort)
+        List {
+            if sort == .maker {
+                ForEach(Self.byMaker(shown), id: \.name) { group in
+                    Section("\(group.name) · \(group.models.count)") {
+                        ForEach(group.models) { row($0) }
+                    }
+                }
+            } else {
+                Section("\(shown.count) models") {
+                    ForEach(shown) { row($0) }
+                }
+            }
+        }
+        .overlay {
+            if models.isEmpty {
+                ProgressView("Loading OpenRouter's models…")
+            } else if shown.isEmpty {
+                ContentUnavailableView.search(text: search)
+            }
+        }
+        .searchable(text: $search, prompt: "Search models")
+        .navigationTitle("OpenRouter")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Picker("Sort", selection: $sort) {
+                        ForEach(LKModelSort.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    Section("Show only") {
+                        Toggle("Free", isOn: $freeOnly)
+                        Toggle("Reasoning", isOn: $reasoningOnly)
+                        Toggle("Reads Images", isOn: $visionOnly)
+                    }
+                } label: {
+                    Label("Sort and Filter", systemImage: freeOnly || reasoningOnly || visionOnly
+                          ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                }
+            }
+        }
+    }
+
+    private func row(_ model: CatalogModel) -> some View {
+        LKModelRow(model: model, isCurrent: model.id == current, busy: switching == model.id,
+                   openDetail: { open(model) }) { pick(model.id) }
+    }
+}
+
+// MARK: - A model's hosts and routing
+
+struct LKModelDetail: View {
+    let model: CatalogModel
+    let isCurrent: Bool
+    let actions: LKPromptActions
+    let pick: () -> Void
+    let switching: String?
+    @State private var hosts: [ModelHost] = []
+    @State private var mode = "balanced"
+    @State private var chosen: [String] = []
+    @State private var saved = RoutingChoice(mode: "balanced")
+    @State private var loading = true
+    @State private var failure: String?
+    @State private var saving = false
+    @State private var confirming = false
+    @State private var savedNote: String?
+
+    static let modes: [(value: String, title: String, detail: String)] = [
+        ("balanced", "Balanced", "OpenRouter's default: price and speed together."),
+        ("cheapest", "Cheapest", "Always the lowest price."),
+        ("fastest", "Fastest", "The host with the highest speed right now."),
+        ("prefer", "Prefer These", "Try the hosts you pick, in your order, then others."),
+        ("only", "Only These", "Only the hosts you pick; fails if none are available."),
+    ]
+
+    private var picksHosts: Bool { mode == "only" || mode == "prefer" }
+    private var changed: Bool { mode != saved.mode || (picksHosts && chosen != saved.hosts) }
+
+    var body: some View {
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: LK.Spacing.xs) {
+                    Text(model.name ?? model.id).font(LK.Typography.headline)
+                    Text(model.id).font(LK.Typography.caption.monospaced()).foregroundStyle(.secondary)
+                }
+                if let prices = LKModelText.prices(input: model.input, output: model.output) {
+                    LabeledContent("Price per 1M tokens", value: prices)
+                }
+                if let context = LKModelText.context(model.context) {
+                    LabeledContent("Context", value: "\(context) tokens")
+                }
+                let abilities = [model.reasoning == true ? "Reasoning" : nil, model.vision == true ? "Reads images" : nil, "Tools"]
+                    .compactMap { $0 }
+                LabeledContent("Can do", value: abilities.joined(separator: " · "))
+                Button {
+                    pick()
+                } label: {
+                    HStack {
+                        Text(isCurrent ? "In Use" : "Use This Model")
+                        if switching == model.id { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(isCurrent || switching != nil)
+            }
+
+            Section {
+                Picker("Routing", selection: $mode) {
+                    ForEach(Self.modes, id: \.value) { Text($0.title).tag($0.value) }
+                    if saved.mode == "custom" { Text("Custom (set in Hermes)").tag("custom") }
+                }
+                Text(Self.modes.first { $0.value == mode }?.detail ?? "Set by hand in Hermes' config.")
+                    .font(LK.Typography.footnote)
+                    .foregroundStyle(.secondary)
+                if let savedNote, !changed {
+                    Label(savedNote, systemImage: "checkmark.circle.fill")
+                        .font(LK.Typography.footnote)
+                        .foregroundStyle(LK.Palette.success)
+                }
+            } header: {
+                Text("Which hosts OpenRouter uses")
+            } footer: {
+                Text("Saved for this agent in your Hermes settings and used from its next message. A backup of the settings is kept first.")
+            }
+
+            Section {
+                if loading {
+                    ProgressView()
+                } else if hosts.isEmpty {
+                    Text("No hosts listed.").foregroundStyle(.secondary)
+                }
+                ForEach(hosts) { host in
+                    hostRow(host)
+                }
+            } header: {
+                Text(hosts.isEmpty ? "Hosts" : "\(hosts.count) hosts · cheapest first")
+            } footer: {
+                if picksHosts { Text(mode == "prefer" ? "Tap hosts in the order to try them." : "Tap the hosts to allow.") }
+            }
+            if let failure {
+                Text(failure).foregroundStyle(LK.Palette.danger).font(LK.Typography.footnote)
+            }
+        }
+        // Pinned at the bottom, so it's at hand after picking hosts further down.
+        .safeAreaInset(edge: .bottom) {
+            if changed {
+                Button {
+                    confirming = true
+                } label: {
+                    Text(saving ? "Saving…" : "Save Routing").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(LK.Palette.accent)
+                .controlSize(.large)
+                .disabled(saving || (picksHosts && chosen.isEmpty))
+                .padding(.horizontal, LK.Spacing.lg)
+                .padding(.vertical, LK.Spacing.sm)
+                .frame(maxWidth: .infinity)
+                .background(.bar)
+            }
+        }
+        // Unsaved host picks aren't lost to an accidental swipe down.
+        .interactiveDismissDisabled(changed)
+        .onChange(of: mode) { _, newMode in
+            chosen = newMode == saved.mode ? saved.hosts : []
+        }
+        .navigationTitle(model.maker_name ?? "Model")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .task { await load() }
+        .alert("Save routing for this model?", isPresented: $confirming) {
+            Button("Save") { save() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This changes your Hermes settings for \(model.name ?? model.id) (this agent only). A backup is kept, so it can be undone.")
+        }
+    }
+
+    private func hostRow(_ host: ModelHost) -> some View {
+        let position = chosen.firstIndex(of: host.tag)
+        return Button {
+            guard picksHosts else { return }
+            if let position { chosen.remove(at: position) } else { chosen.append(host.tag) }
+        } label: {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: LK.Spacing.xs) {
+                        Text(host.name).foregroundStyle(.primary)
+                        // Same company, different setups ("wafer/us", "inference-net/fp8"): tell them apart.
+                        ForEach(Self.variant(of: host), id: \.self) { LKBadge($0) }
+                        if let discount = host.discount, discount > 0 { LKBadge("\(Int(discount * 100))% off") }
+                    }
+                    HStack(spacing: LK.Spacing.sm) {
+                        if let prices = LKModelText.prices(input: host.input, output: host.output) { Text(prices) }
+                        if let uptime = host.uptime { Text(String(format: "%.1f%% up", uptime)) }
+                        if let context = LKModelText.context(host.context) { Text(context) }
+                    }
+                    .font(LK.Typography.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if picksHosts, let position {
+                    if mode == "prefer" {
+                        Text("\(position + 1)")
+                            .font(LK.Typography.captionStrong)
+                            .foregroundStyle(LK.Palette.onAccent)
+                            .frame(width: 22, height: 22)
+                            .background(LK.Palette.accent, in: Circle())
+                    } else {
+                        Image(systemName: "checkmark").foregroundStyle(LK.Palette.accent)
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// "wafer/us" + mxfp4 -> ["US", "MXFP4"]; "deepinfra/fp8/flex" -> ["FP8", "FLEX"].
+    static func variant(of host: ModelHost) -> [String] {
+        var parts = host.tag.split(separator: "/").dropFirst().map { $0.uppercased() }
+        if let quant = host.quantization?.uppercased(), !parts.contains(quant) { parts.append(quant) }
+        return parts
+    }
+
+    private func load() async {
+        guard let source = actions.models else { return }
+        do {
+            let result = try await source.hosts(model.id)
+            hosts = result.hosts
+            saved = result.routing
+            mode = result.routing.mode
+            chosen = result.routing.hosts
+        } catch {
+            failure = "Couldn't load the hosts: \(error.localizedDescription)"
+        }
+        loading = false
+    }
+
+    private func save() {
+        guard let source = actions.models else { return }
+        saving = true
+        failure = nil
+        Task {
+            do {
+                let result = try await source.setRouting(model.id, mode, picksHosts ? chosen : [])
+                saved = result
+                chosen = result.hosts
+                savedNote = result.backup == nil ? "Already set" : "Saved"
+            } catch {
+                failure = "Couldn't save: \(error.localizedDescription)"
+            }
+            saving = false
+        }
+    }
+}

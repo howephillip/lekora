@@ -404,7 +404,15 @@ public struct WalkingSkeletonPingView: View {
             },
             pickModel: { model, provider, confirmed in
                 try await gateway.pickModel(card, in: profileId, model: model, provider: provider, confirmed: confirmed)
-            })
+            },
+            models: LKModelSource(
+                catalog: { provider, models in
+                    try await gateway.modelCatalog(provider: provider, models: models, in: profileId).models
+                },
+                hosts: { model in try await gateway.modelHosts(model, in: profileId) },
+                setRouting: { model, mode, hosts in
+                    try await gateway.setRouting(model, mode: mode, hosts: hosts, in: profileId)
+                }))
     }
 
     private func delivery(for entry: ChatEntry) -> LKMessageBubble.Delivery {

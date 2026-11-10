@@ -100,6 +100,8 @@ class Gateway:
         self.prompts: Optional["Prompts"] = None
         # An agent's slash commands (docs/slash-commands.md); set by LekoraService.
         self.commands_provider: Optional[Callable[[str], list[dict]]] = None
+        # Model picker details: catalog, hosts, routing (docs/model-picker.md); set by LekoraService.
+        self.models: Optional[Any] = None
 
     # ---- lifecycle ---------------------------------------------------------
 
@@ -325,6 +327,8 @@ class Gateway:
             await self._history_fetch(conn, msg_id, env.get("profile_id"), data)
         elif type_ == "chat.read":
             await self._chat_read(conn, env.get("profile_id"), data)
+        elif type_ in ("models.catalog", "models.hosts", "models.routing.set"):
+            await self._models_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "commands.list":
             await self._commands_list(conn, msg_id, env.get("profile_id"))
         elif type_ == "prompt.respond":
@@ -492,6 +496,36 @@ class Gateway:
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
             msg_id=msg_id, profile_id=profile_id))
+
+    async def _models_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                              profile_id: Any, data: dict) -> None:
+        """The model picker's details (docs/model-picker.md). Network and disk: off the loop."""
+        from .routing_config import RoutingError
+        profile_id = self._known_profile(profile_id, msg_id)
+        if self.models is None:
+            raise _Reject("UNAVAILABLE", "Model details aren't available on this host", True, False, msg_id)
+        model = data.get("model")
+        try:
+            if type_ == "models.catalog":
+                provider = str(data.get("provider") or "")
+                ids = [str(m) for m in (data.get("models") or [])][:200]
+                result = await asyncio.to_thread(self.models.catalog, provider, ids)
+            elif not isinstance(model, str) or not model:
+                raise _Reject("INVALID_MESSAGE", "Which model?", True, False, msg_id)
+            elif type_ == "models.hosts":
+                result = await asyncio.to_thread(self.models.hosts, profile_id, model)
+            else:
+                hosts = data.get("hosts") if isinstance(data.get("hosts"), list) else []
+                result = await asyncio.to_thread(self.models.set_routing, profile_id, model,
+                                                 str(data.get("mode") or ""), [str(h) for h in hosts])
+        except RoutingError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except _Reject:
+            raise
+        except Exception:
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("UNAVAILABLE", "Couldn't get that from OpenRouter or Hermes right now", True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
     async def _commands_list(self, conn: _Conn, msg_id: Optional[str], profile_id: Any) -> None:
         """The slash commands this agent can use, read from Hermes (docs/slash-commands.md)."""
