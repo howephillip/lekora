@@ -305,17 +305,24 @@ public struct ModelHost: Codable, Equatable, Hashable, Identifiable, Sendable {
     public let max_output: Int?
     public let quantization: String?
     public let uptime: Double?
+    /// Where the company is based (ISO country code), and its policies.
+    public var country: String? = nil
+    public var privacy_url: String? = nil
+    public var terms_url: String? = nil
 }
 
 public struct RoutingChoice: Codable, Equatable, Sendable {
-    /// balanced, cheapest, fastest, only, prefer (or custom: set by hand in Hermes' config)
+    /// balanced, cheapest, fastest, one, prefer, only (or custom: set by hand in Hermes' config)
     public let mode: String
     public let hosts: [String]
+    /// OpenRouter only uses hosts that don't store or train on your prompts.
+    public let no_training: Bool?
     public let backup: String?
 
-    public init(mode: String, hosts: [String] = [], backup: String? = nil) {
+    public init(mode: String, hosts: [String] = [], no_training: Bool? = nil, backup: String? = nil) {
         self.mode = mode
         self.hosts = hosts
+        self.no_training = no_training
         self.backup = backup
     }
 }
@@ -328,7 +335,7 @@ public struct HostsResult: Codable, Equatable {
 
 struct CatalogRequestData: Codable { let provider: String; let models: [String] }
 struct ModelRequestData: Codable { let model: String }
-struct RoutingRequestData: Codable { let model: String; let mode: String; let hosts: [String] }
+struct RoutingRequestData: Codable { let model: String; let mode: String; let hosts: [String]; let no_training: Bool }
 
 // MARK: - Approval and question cards (docs/prompts.md)
 /// An agent asking for permission to do something risky, or asking you a question.

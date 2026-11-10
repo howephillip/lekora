@@ -291,9 +291,10 @@ public final class GatewayClient: ObservableObject {
     }
 
     /// Saves which hosts OpenRouter may use for a model (Hermes' provider_routing, backed up first).
-    public func setRouting(_ model: String, mode: String, hosts: [String] = [], in profileId: String) async throws -> RoutingChoice {
+    public func setRouting(_ model: String, mode: String, hosts: [String] = [], noTraining: Bool = false,
+                           in profileId: String) async throws -> RoutingChoice {
         try await request(type: "models.routing.set", profileId: profileId,
-                          data: RoutingRequestData(model: model, mode: mode, hosts: hosts),
+                          data: RoutingRequestData(model: model, mode: mode, hosts: hosts, no_training: noTraining),
                           reply: RoutingChoice.self, timeout: 30)
     }
 

@@ -337,8 +337,9 @@ Plain requests, each answered with `<type>.result` (same `id`):
   - Sent: `{model}`.
   - Answer: `{model, hosts: [{name, tag, input?, output?, cache_read?, discount?, context?, max_output?, quantization?, uptime?}], routing: {mode, hosts}}`.
 - `models.routing.set`
-  - Sent: `{model, mode: balanced|cheapest|fastest|prefer|only, hosts?: [tag…]}`.
-  - Answer: `{mode, hosts, backup}`, where `backup` is null when nothing changed.
+  - Sent: `{model, mode: balanced|cheapest|fastest|one|prefer|only, hosts?: [tag…], no_training?: bool}`.
+  - Answer: `{mode, hosts, no_training, backup}`, where `backup` is null when nothing changed.
+  - `models.hosts` routing also carries `no_training`, and hosts carry `country`, `privacy_url` and `terms_url`.
   - Errors: `INVALID_ROUTING` (no hosts for prefer/only, or a host not serving the model) and `UNKNOWN_MODEL`.
 
 `prompt.respond` for a model card also accepts any model from OpenRouter's catalog when the provider is `openrouter`.

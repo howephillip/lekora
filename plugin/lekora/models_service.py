@@ -73,7 +73,8 @@ class ModelsService:
         result["routing"] = self.routing.current(self._config(profile_id), model_id)
         return result
 
-    def set_routing(self, profile_id: str, model_id: str, mode: str, hosts: Optional[list[str]] = None) -> dict:
+    def set_routing(self, profile_id: str, model_id: str, mode: str, hosts: Optional[list[str]] = None,
+                    no_training: bool = False) -> dict:
         if not self.knows_openrouter_model(model_id):
             raise RoutingError("UNKNOWN_MODEL", "That isn't an OpenRouter model")
         chosen = list(dict.fromkeys(hosts or []))
@@ -82,7 +83,7 @@ class ModelsService:
             unknown = [h for h in chosen if h not in offered]
             if unknown:
                 raise RoutingError("INVALID_ROUTING", f"Not hosting this model: {', '.join(unknown)}")
-        setting = routing_for(mode, chosen)
+        setting = routing_for(mode, chosen, no_training)
         return self.routing.save(profile_id, self._config(profile_id), model_id, setting)
 
     def _config(self, profile_id: str) -> Path:

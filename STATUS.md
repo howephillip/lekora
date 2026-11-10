@@ -15,6 +15,13 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 - **How:** Hermes' own picker hooks (the ones Telegram, Discord and Slack use); Hermes does the switching and decides whether it's saved.
 - **Checked:** plugin 256 tests (6 new), app 132 (4 new); every Hermes hook checked against Hermes 0.22.5's source; in the simulator against the real plugin: the Model button, the searchable list, switching, the "Switch anyway?" check, and the /reasoning card.
 - **Your first look (2026-11-09): prices, all OpenRouter models, and their hosts.** Every model now shows its price, context size and badges (reasoning, images, free). "Browse all OpenRouter models" opens OpenRouter's whole tool-capable catalog (~400) with search, sorting and filters. The (i) on a model shows every company hosting it (prices, uptime, setup) and lets you choose Balanced / Cheapest / Fastest / Prefer these / Only these. That's saved in Hermes' own routing setting for that model (the rule-8 exception you agreed: one setting, backed up first to `lekora-backups/config/`, original kept forever plus the 10 newest). Plugin 270 tests (14 new), app 136 (4 new); checked in the simulator with OpenRouter's real catalog and the DeepSeek host list from your screenshot.
+- **Your second look (2026-11-09):**
+  - Tapping a model now asks Use This Model / Advanced… / Cancel (no more (i) button).
+  - The model page starts with a designed summary card.
+  - Routing adds "One Host" (just the host you tap) and "No training on my data". OpenRouter's public data doesn't say which hosts train on prompts, so this tells OpenRouter to skip any that do (Hermes' `data_collection: deny`).
+  - Hosts show where they're based, with their privacy policy and terms on a long press.
+  - Search matches every word.
+  - Plugin 270 tests, app 136; checked in the simulator with OpenRouter's real data.
 - **Waiting on:** the plugin update and your look with real Hermes.
 
 ## Done: slash commands (spec: `docs/slash-commands.md`)

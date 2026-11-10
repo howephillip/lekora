@@ -34,6 +34,13 @@ HOSTS = {"data": {"id": "deepseek/deepseek-v4.1-flash-1017", "endpoints": [
 ]}}
 
 
+PROVIDERS = {"data": [
+    {"name": "Wafer", "slug": "wafer", "headquarters": "US", "privacy_policy_url": "https://wafer.example/privacy",
+     "terms_of_service_url": "https://wafer.example/terms"},
+    {"name": "Together", "slug": "together", "headquarters": "US"},
+]}
+
+
 class FakeOpenRouter:
     def __init__(self):
         self.calls = []
@@ -43,6 +50,8 @@ class FakeOpenRouter:
         self.calls.append(url)
         if self.fail:
             raise OSError("offline")
+        if url.endswith("/providers"):
+            return PROVIDERS
         return HOSTS if url.endswith("/endpoints") else MODELS
 
 
@@ -99,11 +108,14 @@ def test_hosts_cheapest_first_and_cached(tmp_path):
     catalog = OpenRouterCatalog(None, fetch)
     result = catalog.hosts("deepseek/deepseek-v4.1-flash-1017")
     assert [h["name"] for h in result["hosts"]] == ["Wafer", "Together"]
-    assert fetch.calls[-1].endswith("/models/deepseek/deepseek-v4.1-flash-1017/endpoints")
+    assert fetch.calls[0].endswith("/models/deepseek/deepseek-v4.1-flash-1017/endpoints")
+    assert result["hosts"][0]["country"] == "US" and result["hosts"][0]["privacy_url"] == "https://wafer.example/privacy"
+    calls = len(fetch.calls)
     catalog.hosts("deepseek/deepseek-v4.1-flash-1017")
-    assert len(fetch.calls) == 1
+    assert len(fetch.calls) == calls, "cached"
     catalog.hosts("meta-llama/llama-4-scout:free")
-    assert fetch.calls[-1].endswith("/models/meta-llama/llama-4-scout/endpoints"), ":free shares the base model's page"
+    assert any(c.endswith("/models/meta-llama/llama-4-scout/endpoints") for c in fetch.calls), ":free shares the base model's page"
+    assert sum(c.endswith("/providers") for c in fetch.calls) == 1, "the company list is fetched once a day"
 
 
 # ---- routing in Hermes' config ------------------------------------------------------
@@ -132,10 +144,16 @@ def test_routing_choices():
     assert routing_for("fastest") == {"sort": "throughput"}
     assert routing_for("only", ["wafer/us"]) == {"only": ["wafer/us"]}
     assert routing_for("prefer", ["wafer/us", "together"]) == {"order": ["wafer/us", "together"]}
+    assert routing_for("one", ["wafer/us", "together"]) == {"only": ["wafer/us"]}
+    assert routing_for("balanced", no_training=True) == {"data_collection": "deny"}
+    assert routing_for("one", ["wafer/us"], no_training=True) == {"only": ["wafer/us"], "data_collection": "deny"}
     with pytest.raises(RoutingError):
         routing_for("only", [])
-    assert describe({"sort": "latency"}) == {"mode": "fastest", "hosts": []}
-    assert describe({"require_parameters": True}) == {"mode": "custom", "hosts": []}
+    assert describe({"sort": "latency"}) == {"mode": "fastest", "hosts": [], "no_training": False}
+    assert describe({"only": ["wafer/us"]}) == {"mode": "one", "hosts": ["wafer/us"], "no_training": False}
+    assert describe({"data_collection": "deny"}) == {"mode": "balanced", "hosts": [], "no_training": True}
+    assert describe({"order": ["a"], "data_collection": "deny"})["no_training"] is True
+    assert describe({"require_parameters": True}) == {"mode": "custom", "hosts": [], "no_training": False}
 
 
 def test_save_writes_only_that_models_entry_and_backs_up(tmp_path):
@@ -144,11 +162,11 @@ def test_save_writes_only_that_models_entry_and_backs_up(tmp_path):
     result = routing.save("bruce", cfg.path, "deepseek/v4", {"only": ["wafer/us"]})
     assert cfg.data == {"model": {"default": "x"},
                         "provider_routing": {"sort": "price", "models": {"deepseek/v4": {"only": ["wafer/us"]}}}}
-    assert result["mode"] == "only" and result["hosts"] == ["wafer/us"]
+    assert result["mode"] == "one" and result["hosts"] == ["wafer/us"]
     original = tmp_path / "backups" / "bruce" / "config.yaml.original"
     assert original.read_text() == "model: x\n# the user's comments\n", "the pre-Lekora file, kept"
     assert Path(result["backup"]).read_text() == "model: x\n# the user's comments\n"
-    assert routing.current(cfg.path, "deepseek/v4") == {"mode": "only", "hosts": ["wafer/us"]}
+    assert routing.current(cfg.path, "deepseek/v4") == {"mode": "one", "hosts": ["wafer/us"], "no_training": False}
 
 
 def test_balanced_removes_the_entry_and_unchanged_writes_nothing(tmp_path):
@@ -224,7 +242,7 @@ async def test_gateway_model_requests(gw, store, models):
     await ws.send(env(store, "models.hosts", {"model": "deepseek/deepseek-v4.1-flash-1017"}, profile_id="coder", msg_id="m2"))
     hosts = await recv(ws)
     assert [h["tag"] for h in hosts["data"]["hosts"]] == ["wafer/us", "together"]
-    assert hosts["data"]["routing"] == {"mode": "balanced", "hosts": []}
+    assert hosts["data"]["routing"] == {"mode": "balanced", "hosts": [], "no_training": False}
     await ws.send(env(store, "models.routing.set", {"model": "deepseek/deepseek-v4.1-flash-1017", "mode": "cheapest"},
                       profile_id="coder", msg_id="m3"))
     saved = await recv(ws)
@@ -232,6 +250,13 @@ async def test_gateway_model_requests(gw, store, models):
     await ws.send(env(store, "models.routing.set", {"model": "deepseek/deepseek-v4.1-flash-1017", "mode": "only", "hosts": []},
                       profile_id="coder", msg_id="m4"))
     assert (await recv(ws))["data"]["code"] == "INVALID_ROUTING"
+    await ws.send(env(store, "models.routing.set", {"model": "deepseek/deepseek-v4.1-flash-1017", "mode": "one",
+                                                     "hosts": ["wafer/us"], "no_training": True},
+                      profile_id="coder", msg_id="m5"))
+    one = await recv(ws)
+    assert one["data"]["mode"] == "one" and one["data"]["no_training"] is True
+    assert models.cfg.data["provider_routing"]["models"]["deepseek/deepseek-v4.1-flash-1017"] == {
+        "only": ["wafer/us"], "data_collection": "deny"}
     await ws.close()
 
 

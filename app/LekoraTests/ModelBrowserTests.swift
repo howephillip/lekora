@@ -30,6 +30,12 @@ final class ModelBrowserTests: XCTestCase {
         XCTAssertEqual(LKModelDetail.variant(of: host("wafer/us", "mxfp4")), ["US", "MXFP4"])
         XCTAssertEqual(LKModelDetail.variant(of: host("deepinfra/fp8/flex", "fp8")), ["FP8", "FLEX"])
         XCTAssertEqual(LKModelDetail.variant(of: host("together", nil)), [])
+        var us = host("wafer/us", "mxfp4")
+        us.country = "US"
+        XCTAssertEqual(LKModelDetail.variant(of: us), ["MXFP4"], "the flag already says US")
+        XCTAssertEqual(LKModelDetail.flag("US"), "🇺🇸")
+        XCTAssertEqual(LKModelDetail.flag("sg"), "🇸🇬")
+        XCTAssertNil(LKModelDetail.flag("EU-WEST"))
     }
 
     private let models = [
@@ -44,6 +50,9 @@ final class ModelBrowserTests: XCTestCase {
     func testFilteringAndSorting() {
         XCTAssertEqual(LKOpenRouterBrowser.filter(models, search: "", freeOnly: true).map(\.id), ["meta/llama:free"])
         XCTAssertEqual(LKOpenRouterBrowser.filter(models, search: "meta", freeOnly: false).map(\.id), ["meta/llama:free"])
+        XCTAssertEqual(LKOpenRouterBrowser.filter(models, search: "deepseek v4", freeOnly: false).map(\.id), ["deepseek/v4"],
+                       "every word, anywhere in the name or id")
+        XCTAssertTrue(LKModelText.matches("v4.1 flash", in: ["deepseek/deepseek-v4.1-flash-1017", nil]))
         XCTAssertEqual(LKOpenRouterBrowser.filter(models, search: "", freeOnly: false, reasoningOnly: true).map(\.id), ["deepseek/v4"])
         XCTAssertEqual(LKOpenRouterBrowser.sorted(models, by: .cheapest).map(\.id), ["meta/llama:free", "deepseek/v4", "deepseek/v3"])
         XCTAssertEqual(LKOpenRouterBrowser.sorted(models, by: .newest).map(\.id), ["deepseek/v4", "meta/llama:free", "deepseek/v3"])
@@ -72,12 +81,13 @@ final class ModelBrowserTests: XCTestCase {
         XCTAssertEqual(hosts.hosts.first?.quantization, "mxfp4")
         XCTAssertEqual(hosts.routing.mode, "balanced")
 
-        let saved = try await gateway.setRouting("deepseek/v4", mode: "only", hosts: ["wafer/us"], in: "assistant")
+        let saved = try await gateway.setRouting("deepseek/v4", mode: "only", hosts: ["wafer/us"], noTraining: true, in: "assistant")
         XCTAssertEqual(saved.mode, "only")
         XCTAssertEqual(saved.hosts, ["wafer/us"])
         XCTAssertNotNil(saved.backup)
         let sent = host.received(type: "models.routing.set").last?["data"] as? [String: Any]
         XCTAssertEqual(sent?["model"] as? String, "deepseek/v4")
         XCTAssertEqual(sent?["hosts"] as? [String], ["wafer/us"])
+        XCTAssertEqual(sent?["no_training"] as? Bool, true)
     }
 }

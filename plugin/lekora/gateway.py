@@ -517,7 +517,8 @@ class Gateway:
             else:
                 hosts = data.get("hosts") if isinstance(data.get("hosts"), list) else []
                 result = await asyncio.to_thread(self.models.set_routing, profile_id, model,
-                                                 str(data.get("mode") or ""), [str(h) for h in hosts])
+                                                 str(data.get("mode") or ""), [str(h) for h in hosts],
+                                                 bool(data.get("no_training")))
         except RoutingError as exc:
             raise _Reject(exc.code, exc.reason, True, False, msg_id)
         except _Reject:

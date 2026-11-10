@@ -410,8 +410,8 @@ public struct WalkingSkeletonPingView: View {
                     try await gateway.modelCatalog(provider: provider, models: models, in: profileId).models
                 },
                 hosts: { model in try await gateway.modelHosts(model, in: profileId) },
-                setRouting: { model, mode, hosts in
-                    try await gateway.setRouting(model, mode: mode, hosts: hosts, in: profileId)
+                setRouting: { model, mode, hosts, noTraining in
+                    try await gateway.setRouting(model, mode: mode, hosts: hosts, noTraining: noTraining, in: profileId)
                 }))
     }
 

@@ -74,8 +74,10 @@ Cards as in `protocol.md` §6, with kinds `model` and `choice`; see §8.
   | Balanced (OpenRouter's default) | no entry |
   | Cheapest | `sort: price` |
   | Fastest | `sort: throughput` |
+  | One host | `only: [tag]` |
   | Prefer these | `order: [tags…]` |
   | Only these | `only: [tags…]` |
+  | + No training on my data (any of the above) | `data_collection: deny` |
 
   A setting written by hand that Lekora doesn't recognise shows as "Custom" and isn't changed unless you save something else.
 - **Backups (AGENTS.md rule 8, exception agreed 2026-11-09):**
@@ -83,7 +85,14 @@ Cards as in `protocol.md` §6, with kinds `model` and `choice`; see §8.
   - `config.yaml.original` (from before Lekora ever changed it) is kept forever, plus the ten newest dated copies.
   - Writing uses Hermes' own config writer (`hermes_cli.config.atomic_config_replace`, keeps comments). Only that model's entry changes.
   - The app asks before saving.
-- **In the app:**
+- **Training on your data:**
+  - OpenRouter's public data doesn't say which hosts store or train on prompts (its website does), so the app can't flag them per host.
+  - Instead, "No training on my data" saves `data_collection: deny`, and OpenRouter itself then only uses hosts that don't. Hermes already supports this key.
+  - Each host shows where it's based (a flag, from OpenRouter's public `/api/v1/providers`, cached a day). Touch and hold a host for its privacy policy and terms.
+- **In the app (your second look, 2026-11-09):**
+  - tapping a model asks **Use This Model / Advanced… / Cancel**; Advanced (OpenRouter models) opens the model's page;
+  - the page starts with a summary card: maker, name, id, price and context tiles, ability chips, Use This Model;
+  - search matches every word anywhere in a model's name, id or maker;
   - the host page's Save button stays at the bottom while you pick;
   - the sheet can't be swiped away with unsaved picks;
   - switching between "Prefer" and "Only" starts the picks over.

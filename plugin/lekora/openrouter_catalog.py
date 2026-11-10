@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 
 API = "https://openrouter.ai/api/v1"
 CATALOG_TTL = 3600
+PROVIDERS_TTL = 86400  # where hosts are based and their policies change rarely
 HOSTS_TTL = 600
 Fetch = Callable[[str], Any]   # url -> parsed JSON
 
@@ -122,6 +123,8 @@ class OpenRouterCatalog:
         self._models: Optional[list[dict]] = None
         self._fetched_at = 0.0
         self._hosts: dict[str, tuple[float, dict]] = {}
+        self._companies: Optional[dict[str, dict]] = None
+        self._companies_at = 0.0
 
     def models(self) -> list[dict]:
         """Every tool-capable OpenRouter model (cached; a stale copy if OpenRouter is unreachable)."""
@@ -157,12 +160,33 @@ class OpenRouterCatalog:
         raw = self._fetch(f"{API}/models/{slug}/endpoints")
         data = (raw or {}).get("data") or {}
         hosts = [h for h in (parse_host(e) for e in data.get("endpoints") or []) if h]
+        companies = self.companies()
+        for host in hosts:
+            company = companies.get(host["tag"].split("/", 1)[0]) or {}
+            host["country"] = company.get("headquarters")
+            host["privacy_url"] = company.get("privacy_policy_url")
+            host["terms_url"] = company.get("terms_of_service_url")
         # Cheapest overall (input + output), unknown prices last.
         hosts.sort(key=lambda h: (h["input"] is None or h["output"] is None, (h["input"] or 0) + (h["output"] or 0)))
         result = {"model": model_id, "hosts": hosts}
         with self._lock:
             self._hosts[model_id] = (self._clock(), result)
         return result
+
+    def companies(self) -> dict[str, dict]:
+        """OpenRouter's list of hosting companies by slug: where they're based, their policies."""
+        with self._lock:
+            if self._companies is not None and self._clock() - self._companies_at < PROVIDERS_TTL:
+                return self._companies
+        try:
+            raw = self._fetch(f"{API}/providers")
+            rows = (raw or {}).get("data") if isinstance(raw, dict) else raw
+            companies = {str(r["slug"]): r for r in rows or [] if isinstance(r, dict) and r.get("slug")}
+            with self._lock:
+                self._companies, self._companies_at = companies, self._clock()
+        except Exception as exc:
+            log.debug("Lekora: OpenRouter's host list is unavailable: %s", exc)
+        return self._companies or {}
 
     def _load_disk(self) -> None:
         if not self._cache_file or not self._cache_file.is_file():

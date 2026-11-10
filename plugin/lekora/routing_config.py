@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 KEEP_BACKUPS = 10
-MODES = ("balanced", "cheapest", "fastest", "only", "prefer")
+MODES = ("balanced", "cheapest", "fastest", "one", "only", "prefer")
 
 Read = Callable[[Path], dict]
 Write = Callable[[Path, dict], None]
@@ -43,35 +43,47 @@ def hermes_write(path: Path, data: dict) -> None:
     atomic_config_replace(path, data)
 
 
-def routing_for(mode: str, hosts: Optional[list[str]] = None) -> Optional[dict]:
-    """The setting for a choice in the app (None = OpenRouter's default balancing)."""
+def routing_for(mode: str, hosts: Optional[list[str]] = None, no_training: bool = False) -> Optional[dict]:
+    """The setting for a choice in the app (None = OpenRouter's default balancing).
+    ``no_training``: OpenRouter only uses hosts that don't store or train on prompts."""
     if mode == "balanced":
-        return None
-    if mode == "cheapest":
-        return {"sort": "price"}
-    if mode == "fastest":
-        return {"sort": "throughput"}
-    if mode in ("only", "prefer"):
+        setting: dict = {}
+    elif mode == "cheapest":
+        setting = {"sort": "price"}
+    elif mode == "fastest":
+        setting = {"sort": "throughput"}
+    elif mode in ("one", "only", "prefer"):
         if not hosts:
             raise RoutingError("INVALID_ROUTING", "Choose at least one company")
-        return {"only": list(hosts)} if mode == "only" else {"order": list(hosts)}
-    raise RoutingError("INVALID_ROUTING", "Unknown routing choice")
+        if mode == "one":
+            setting = {"only": list(hosts)[:1]}
+        else:
+            setting = {"only": list(hosts)} if mode == "only" else {"order": list(hosts)}
+    else:
+        raise RoutingError("INVALID_ROUTING", "Unknown routing choice")
+    if no_training:
+        setting["data_collection"] = "deny"
+    return setting or None
 
 
 def describe(routing: Optional[dict]) -> dict:
     """The app's view of a saved setting: {mode, hosts}."""
     if not isinstance(routing, dict) or not routing:
-        return {"mode": "balanced", "hosts": []}
-    if routing.get("only"):
-        return {"mode": "only", "hosts": list(routing["only"])}
-    if routing.get("order"):
-        return {"mode": "prefer", "hosts": list(routing["order"])}
-    sort = routing.get("sort")
-    if sort == "price":
-        return {"mode": "cheapest", "hosts": []}
-    if sort in ("throughput", "latency"):
-        return {"mode": "fastest", "hosts": []}
-    return {"mode": "custom", "hosts": []}  # set by hand in config.yaml: shown, not overwritten silently
+        return {"mode": "balanced", "hosts": [], "no_training": False}
+    no_training = routing.get("data_collection") == "deny"
+    rest = {k: v for k, v in routing.items() if k != "data_collection"}
+    if not rest:
+        return {"mode": "balanced", "hosts": [], "no_training": no_training}
+    if set(rest) == {"only"} and isinstance(rest["only"], list):
+        return {"mode": "one" if len(rest["only"]) == 1 else "only", "hosts": list(rest["only"]), "no_training": no_training}
+    if set(rest) == {"order"} and isinstance(rest["order"], list):
+        return {"mode": "prefer", "hosts": list(rest["order"]), "no_training": no_training}
+    if set(rest) == {"sort"} and rest["sort"] == "price":
+        return {"mode": "cheapest", "hosts": [], "no_training": no_training}
+    if set(rest) == {"sort"} and rest["sort"] in ("throughput", "latency"):
+        return {"mode": "fastest", "hosts": [], "no_training": no_training}
+    # Set by hand in config.yaml: shown as such, not overwritten unless the user saves something else.
+    return {"mode": "custom", "hosts": [], "no_training": no_training}
 
 
 class RoutingConfig:
