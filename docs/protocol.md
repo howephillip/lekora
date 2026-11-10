@@ -343,3 +343,16 @@ Plain requests, each answered with `<type>.result` (same `id`):
   - Errors: `INVALID_ROUTING` (no hosts for prefer/only, or a host not serving the model) and `UNKNOWN_MODEL`.
 
 `prompt.respond` for a model card also accepts any model from OpenRouter's catalog when the provider is `openrouter`, and `scope`: `session` | `global`. With a scope, the host sends Hermes `/model <id> --provider <slug> --<scope>` as if typed, and `chosen` carries the `scope`.
+
+## 9. Per-chat settings (Phase 2; spec: `chat-settings.md`)
+Plain requests with `profile_id` set, each answered with `<type>.result` (same `id`):
+- `settings.get`
+  - Sent: `{}`.
+  - Answer (any part may be `null` = unknown): `{model: {model, provider, this_chat}, reasoning: {effort, this_chat}, show_reasoning, fast, yolo, personality: {current, options: [{name, description}]}, approvals, title, usage: {input_tokens, output_tokens, total_tokens, context_tokens, context_length, cost_usd}}`.
+- `settings.set`
+  - Sent: `{key, value}`. Keys: `reasoning` (none|minimal|low|medium|high|xhigh|max|ultra|reset), `show_reasoning` (bool), `fast` (normal|fast|auto|ultrafast), `yolo` (bool), `personality` (a listed name or `none`), `approvals` (manual|smart|off), `title` (text, max 100).
+  - Answer: `{key, command}`, the Hermes command sent, or `null` when nothing needed changing.
+- `settings.action`
+  - Sent: `{action: new|compress|undo|retry}`.
+  - Answer: `{action, command}`.
+- Errors: `INVALID_SETTING`.

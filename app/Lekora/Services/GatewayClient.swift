@@ -246,6 +246,66 @@ public final class GatewayClient: ObservableObject {
         }
     }
 
+    // MARK: - Chat settings (docs/chat-settings.md)
+
+    /// Each agent chat's settings as last read from Hermes.
+    @Published public private(set) var chatSettings: [String: ChatSettingsData] = [:]
+    private var settingsRefresh: [String: Task<Void, Never>] = [:]
+
+    /// Reads a chat's settings from Hermes. Keeps the last ones if the host can't answer.
+    public func loadSettings(for profileId: String) async {
+        guard let settings = try? await request(type: "settings.get", profileId: profileId, data: EmptyData(),
+                                                reply: ChatSettingsData.self, timeout: 20) else { return }
+        if chatSettings[profileId] != settings { chatSettings[profileId] = settings }
+    }
+
+    /// Changes a setting through Hermes' own command; shown straight away, then re-read.
+    public func changeSetting(_ key: String, to value: SettingValue, in profileId: String) async throws {
+        let before = chatSettings[profileId]
+        applyLocally(key, value, in: profileId)
+        do {
+            _ = try await request(type: "settings.set", profileId: profileId, data: SettingChangeData(key: key, value: value),
+                                  reply: SettingCommandResult.self, timeout: 20)
+        } catch {
+            chatSettings[profileId] = before  // refused or no answer: back to what Hermes had
+            throw error
+        }
+        refreshSettingsSoon(profileId)
+    }
+
+    /// New chat, compress, undo, retry: Hermes' own commands.
+    public func runChatAction(_ action: String, in profileId: String) async throws {
+        _ = try await request(type: "settings.action", profileId: profileId, data: SettingActionData(action: action),
+                              reply: SettingCommandResult.self, timeout: 20)
+        refreshSettingsSoon(profileId)
+    }
+
+    private func applyLocally(_ key: String, _ value: SettingValue, in profileId: String) {
+        guard var settings = chatSettings[profileId] else { return }
+        switch (key, value) {
+        case ("yolo", .flag(let on)): settings.yolo = on
+        case ("show_reasoning", .flag(let on)): settings.show_reasoning = on
+        case ("fast", .text(let mode)): settings.fast = mode
+        case ("approvals", .text(let mode)): settings.approvals = mode
+        case ("reasoning", .text(let effort)) where effort != "reset":
+            settings.reasoning = .init(effort: effort, this_chat: true)
+        case ("personality", .text(let name)): settings.personality?.current = name
+        case ("title", .text(let title)): settings.title = title
+        default: break
+        }
+        chatSettings[profileId] = settings
+    }
+
+    /// Hermes applies a command a moment after it arrives: read the settings again then.
+    private func refreshSettingsSoon(_ profileId: String) {
+        settingsRefresh[profileId]?.cancel()
+        settingsRefresh[profileId] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.loadSettings(for: profileId)
+        }
+    }
+
     // MARK: - Slash commands (docs/slash-commands.md)
 
     /// Each agent's commands, as its Hermes profile offers them (refreshed when its chat opens).
@@ -893,6 +953,9 @@ public final class GatewayClient: ObservableObject {
                 card: envelope.data.card
             )
             if profileId == activeProfileId { markActiveChatRead() }
+            if envelope.data.role == "system", chatSettings[profileId] != nil {
+                refreshSettingsSoon(profileId)  // e.g. a typed /yolo or /reasoning, answered by Hermes
+            }
         case "chat.read":
             // Read on another phone.
             guard let envelope = try? decoder.decode(Envelope<ChatReadData>.self, from: data),

@@ -252,6 +252,87 @@ public struct EmptyData: Codable, Equatable {
     public init() {}
 }
 
+// MARK: - Chat settings (docs/chat-settings.md)
+/// A chat's current settings, as Hermes has them. Any part can be nil (couldn't be read).
+public struct ChatSettingsData: Codable, Equatable, Sendable {
+    public struct Model: Codable, Equatable, Sendable {
+        public let model: String
+        public let provider: String?
+        /// Set for this chat only (else the agent's default).
+        public let this_chat: Bool?
+    }
+    public struct Reasoning: Codable, Equatable, Sendable {
+        public var effort: String
+        public let this_chat: Bool?
+    }
+    public struct Personality: Codable, Equatable, Sendable {
+        public struct Option: Codable, Equatable, Hashable, Sendable {
+            public let name: String
+            public let description: String?
+        }
+        public var current: String
+        public let options: [Option]
+    }
+    public struct Usage: Codable, Equatable, Sendable {
+        public let input_tokens: Int?
+        public let output_tokens: Int?
+        public let total_tokens: Int?
+        public let context_tokens: Int?
+        public let context_length: Int?
+        public let cost_usd: Double?
+    }
+
+    public var model: Model?
+    public var reasoning: Reasoning?
+    public var show_reasoning: Bool?
+    public var fast: String?
+    public var yolo: Bool?
+    public var personality: Personality?
+    public var approvals: String?
+    public var title: String?
+    public var usage: Usage?
+
+    public init(model: Model? = nil, reasoning: Reasoning? = nil, show_reasoning: Bool? = nil, fast: String? = nil,
+                yolo: Bool? = nil, personality: Personality? = nil, approvals: String? = nil, title: String? = nil,
+                usage: Usage? = nil) {
+        self.model = model
+        self.reasoning = reasoning
+        self.show_reasoning = show_reasoning
+        self.fast = fast
+        self.yolo = yolo
+        self.personality = personality
+        self.approvals = approvals
+        self.title = title
+        self.usage = usage
+    }
+
+    /// The agent runs risky commands without asking: auto-approve in this chat, or approvals off.
+    public var runsWithoutAsking: Bool { yolo == true || approvals == "off" }
+}
+
+/// A setting's new value: text or on/off.
+public enum SettingValue: Codable, Equatable, Sendable {
+    case text(String)
+    case flag(Bool)
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .text(let value): try container.encode(value)
+        case .flag(let value): try container.encode(value)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let flag = try? container.decode(Bool.self) { self = .flag(flag) } else { self = .text(try container.decode(String.self)) }
+    }
+}
+
+struct SettingChangeData: Codable { let key: String; let value: SettingValue }
+struct SettingActionData: Codable { let action: String }
+public struct SettingCommandResult: Codable, Equatable { public let command: String? }
+
 // MARK: - Model picker details (docs/model-picker.md)
 /// A model with its prices (USD per million tokens) and abilities, where known.
 public struct CatalogModel: Codable, Equatable, Hashable, Identifiable, Sendable {

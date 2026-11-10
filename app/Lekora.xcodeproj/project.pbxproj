@@ -36,6 +36,7 @@
 		A78DE47FDC922C87A96F9FAD /* ModelBrowserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11FE221EB3CC8C6C20826715 /* ModelBrowserTests.swift */; };
 		A7FABDA05D86D7F06AF087E5 /* LKTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F460D8439ADD0ACFDFE2A0C /* LKTheme.swift */; };
 		AA98ECBB36A5B2277F05431F /* RouteProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D236D28311188A8777EEA28 /* RouteProber.swift */; };
+		B29C03F457A769802A61497D /* ChatSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B4C842A13935CD6B9F443EA /* ChatSettingsView.swift */; };
 		B3E1652F6BF2059C81EA8B5E /* AgentsHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71FE4330319847F703BD319 /* AgentsHomeView.swift */; };
 		B4BE360A187FB1147A43DC0E /* LKSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98E6C761189D7F9969880583 /* LKSurfaces.swift */; };
 		B4D5AB33121DF83AC0C4E222 /* LKModelBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0684A706179CCAB9BF30D05F /* LKModelBrowser.swift */; };
@@ -43,6 +44,7 @@
 		C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
 		D5E75A6364A09E0D8E76A561 /* LKChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70D035010855C26CF7103C5 /* LKChat.swift */; };
+		D9BE1AE3B4D610F942E48436 /* ChatSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C8FFF0B35F4E68F6686564 /* ChatSettingsTests.swift */; };
 		DA6AC93C150CEF3A3051FD74 /* SlashCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C0252903486B4E2D6FB60B /* SlashCommandTests.swift */; };
 		E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */; };
 		F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */; };
@@ -66,6 +68,7 @@
 		0BF412341EDFBD9C0BD40EA1 /* ChatHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryTests.swift; sourceTree = "<group>"; };
 		11FE221EB3CC8C6C20826715 /* ModelBrowserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelBrowserTests.swift; sourceTree = "<group>"; };
 		1419813F14C562B1CFE0A201 /* LKCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKCommands.swift; sourceTree = "<group>"; };
+		16C8FFF0B35F4E68F6686564 /* ChatSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSettingsTests.swift; sourceTree = "<group>"; };
 		19C424E99FE08F51187724FC /* FakeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeHost.swift; sourceTree = "<group>"; };
 		1C14F78E55A3258FA42F19E4 /* ChatCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCache.swift; sourceTree = "<group>"; };
 		2CD6AF1AA6582890921BFB14 /* LekoraTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LekoraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -86,6 +89,7 @@
 		8CE2788B2A413807EA360DA7 /* ProtocolMessagesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolMessagesTests.swift; sourceTree = "<group>"; };
 		98E6C761189D7F9969880583 /* LKSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKSurfaces.swift; sourceTree = "<group>"; };
 		9AA0E7D3EB239925597D00D4 /* AgentLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLifecycleTests.swift; sourceTree = "<group>"; };
+		9B4C842A13935CD6B9F443EA /* ChatSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSettingsView.swift; sourceTree = "<group>"; };
 		9D236D28311188A8777EEA28 /* RouteProber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProber.swift; sourceTree = "<group>"; };
 		9D794BC3C71E3D5ABE524AFB /* ChooseProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChooseProfilesView.swift; sourceTree = "<group>"; };
 		9F460D8439ADD0ACFDFE2A0C /* LKTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKTheme.swift; sourceTree = "<group>"; };
@@ -171,6 +175,7 @@
 				536C65B6C9407858DCEC49A3 /* AgentSwitchingTests.swift */,
 				536416A3D691A83035A2FBAE /* AutoReconnectTests.swift */,
 				0BF412341EDFBD9C0BD40EA1 /* ChatHistoryTests.swift */,
+				16C8FFF0B35F4E68F6686564 /* ChatSettingsTests.swift */,
 				5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */,
 				A1FA8B34B4CE7A6CD6671CD0 /* EncryptionTests.swift */,
 				19C424E99FE08F51187724FC /* FakeHost.swift */,
@@ -210,6 +215,7 @@
 			isa = PBXGroup;
 			children = (
 				A71FE4330319847F703BD319 /* AgentsHomeView.swift */,
+				9B4C842A13935CD6B9F443EA /* ChatSettingsView.swift */,
 				3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */,
 			);
 			path = Chat;
@@ -304,6 +310,7 @@
 			files = (
 				B3E1652F6BF2059C81EA8B5E /* AgentsHomeView.swift in Sources */,
 				2988CBAEB83B34780FC8D41F /* ChatCache.swift in Sources */,
+				B29C03F457A769802A61497D /* ChatSettingsView.swift in Sources */,
 				1B51B78C457850705F4DEAFD /* ChatTimeline.swift in Sources */,
 				40CC469576F60182124E5293 /* ChooseProfilesView.swift in Sources */,
 				3E26C6FC055625CF828F3902 /* DeviceName.swift in Sources */,
@@ -339,6 +346,7 @@
 				989D398F4C0DCC50E9936694 /* AgentsHomeTests.swift in Sources */,
 				8A96BCD0023E5369B1FF002B /* AutoReconnectTests.swift in Sources */,
 				63D6F2FB67ACF2275D7D12DA /* ChatHistoryTests.swift in Sources */,
+				D9BE1AE3B4D610F942E48436 /* ChatSettingsTests.swift in Sources */,
 				C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */,
 				391E8D2FBE5FB23C6E493A93 /* EncryptionTests.swift in Sources */,
 				B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */,

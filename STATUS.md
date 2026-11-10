@@ -9,6 +9,13 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 
 **Phase 2 (complete chat) has started.**
 
+## Ready for your phone check: per-chat settings (spec: `docs/chat-settings.md`)
+- **What it does:** tap the agent at the top of a chat to open **Chat Settings**: chat name (tap to rename), model, how full the chat's memory is, cost so far; this session's Reasoning, Fast Mode and **Auto-Approve**; the agent's Personality, Approvals and Show Reasoning; and New Chat / Compress / Retry / Undo. The model now shows under the agent's name in the chat header.
+- **Auto-Approve (your Option A):** asks before turning on, and while it's on (or Approvals is "Never Ask") a small amber **Auto** badge sits in the chat header.
+- **How:** every change is Hermes' own command (`/reasoning high`, `/yolo`…), so Hermes applies and saves it and replies in the chat. Nothing in Hermes' config is written by the plugin for this.
+- **Checked:** plugin 291 tests (new ones for settings), app 142 (5 new); in the simulator against the real plugin with a stand-in Hermes: the sheet, the warning, the badge appearing and disappearing, reasoning/fast changes, compress. The simulator found the header badge staying after Auto-Approve was turned off; fixed and rechecked.
+- **Needs from you:** `hermes plugins update lekora`, restart Hermes, then try it on your phone.
+
 ## Done: model picker (spec: `docs/model-picker.md`)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-09 (after four rounds of your feedback).
 - **What it does:** a Model button in each chat (or typing `/model`) shows a card with the agent's current model and **Choose a Model…**: a searchable list of every model your Hermes computer can use, by provider. Tap one and Hermes switches and confirms. A model Hermes flags (e.g. expensive) asks "Switch anyway?" first. `/reasoning` and `/fast` get a card with one button per option.

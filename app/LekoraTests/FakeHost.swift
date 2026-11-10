@@ -32,6 +32,15 @@ final class FakeHost: @unchecked Sendable {
     /// The routing saved by models.routing.set (docs/model-picker.md).
     var routing: [String: Any] = ["mode": "balanced", "hosts": []]
 
+    /// What settings.get answers (docs/chat-settings.md); settings.set changes it like Hermes would.
+    var chatSettings: [String: Any] = [
+        "model": ["model": "anthropic/claude-opus-5-5", "provider": "openrouter", "this_chat": false],
+        "reasoning": ["effort": "medium", "this_chat": false], "show_reasoning": false, "fast": "normal",
+        "yolo": false, "approvals": "manual", "title": "Ramen plans",
+        "personality": ["current": "none", "options": [["name": "pirate", "description": "Talk like a pirate"]]],
+        "usage": ["context_tokens": 50000, "context_length": 200000, "cost_usd": 0.42],
+    ]
+
     /// What commands.list answers (docs/slash-commands.md).
     var slashCommands: [[String: Any]] = [
         ["name": "new", "description": "Start a new session", "args": "", "choices": [], "aliases": ["reset"],
@@ -299,6 +308,28 @@ final class FakeHost: @unchecked Sendable {
             var reply = routing
             reply["backup"] = "/home/x/.hermes/lekora-backups/config/bruce/config.yaml.20261109-120000"
             send(type: "models.routing.set.result", id: id, data: reply,
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "settings.get":
+            send(type: "settings.get.result", id: id, data: chatSettings,
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "settings.set":
+            let key = data["key"] as? String ?? ""
+            if key == "fast", let mode = data["value"] as? String, !["normal", "fast", "auto", "ultrafast"].contains(mode) {
+                send(type: "error", id: id, data: ["code": "INVALID_SETTING", "reason": "Unknown fast mode"],
+                     profileId: message["profile_id"] as? String, on: connection)
+                break
+            }
+            if let value = data["value"], ["yolo", "fast", "approvals", "show_reasoning"].contains(key) {
+                chatSettings[key] = value
+            }
+            send(type: "settings.set.result", id: id, data: ["key": key, "command": "/\(key)"],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "settings.action":
+            let action = data["action"] as? String ?? ""
+            send(type: "settings.action.result", id: id, data: ["action": action, "command": "/\(action)"],
                  profileId: message["profile_id"] as? String, on: connection)
 
         case "commands.list":

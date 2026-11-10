@@ -117,7 +117,9 @@ class LekoraService:
         resolvers: Optional["Resolvers"] = None,
         commands_provider: Optional[Callable[[str], list[dict]]] = None,
         model_info: Optional[Callable[[str, str], Optional[dict]]] = None,
+        settings_reader: Optional[Callable[[str], dict]] = None,
     ) -> None:
+        self._settings_reader = settings_reader
         self._commands_provider = commands_provider
         self._model_info = model_info
         self._run_cli = run_cli
@@ -200,6 +202,10 @@ class LekoraService:
             chat_id, text, "lekora-" + uuid.uuid4().hex[:12])
         self.gateway.commands_provider = self._commands_provider
         self.gateway.models = self._models_service()
+        from .chat_settings import ChatSettings
+        self.gateway.settings = ChatSettings(
+            self._settings_reader or (lambda profile_id: {}),
+            send_command=self.prompts.send_command)
         if self.gateway.models is not None:
             self.prompts.knows_openrouter_model = self.gateway.models.knows_openrouter_model
         try:

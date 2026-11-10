@@ -102,6 +102,8 @@ class Gateway:
         self.commands_provider: Optional[Callable[[str], list[dict]]] = None
         # Model picker details: catalog, hosts, routing (docs/model-picker.md); set by LekoraService.
         self.models: Optional[Any] = None
+        # Per-chat settings (docs/chat-settings.md); set by LekoraService.
+        self.settings: Optional[Any] = None
 
     # ---- lifecycle ---------------------------------------------------------
 
@@ -327,6 +329,8 @@ class Gateway:
             await self._history_fetch(conn, msg_id, env.get("profile_id"), data)
         elif type_ == "chat.read":
             await self._chat_read(conn, env.get("profile_id"), data)
+        elif type_ in ("settings.get", "settings.set", "settings.action"):
+            await self._settings_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("models.catalog", "models.hosts", "models.routing.set"):
             await self._models_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "commands.list":
@@ -496,6 +500,28 @@ class Gateway:
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
             msg_id=msg_id, profile_id=profile_id))
+
+    async def _settings_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                                profile_id: Any, data: dict) -> None:
+        """Read or change a chat's settings (docs/chat-settings.md)."""
+        from .chat_settings import SettingsError
+        profile_id = self._known_profile(profile_id, msg_id)
+        if self.settings is None:
+            raise _Reject("UNAVAILABLE", "Chat settings aren't available on this host", True, False, msg_id)
+        try:
+            if type_ == "settings.get":
+                result = await asyncio.to_thread(self.settings.read, profile_id)
+            elif type_ == "settings.set":
+                current = await asyncio.to_thread(self.settings.read, profile_id)
+                result = await self.settings.change(profile_id, str(data.get("key") or ""), data.get("value"), current)
+            else:
+                result = await self.settings.act(profile_id, str(data.get("action") or ""))
+        except SettingsError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except Exception:
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("UNAVAILABLE", "Couldn't reach Hermes' settings right now", True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
     async def _models_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
                               profile_id: Any, data: dict) -> None:

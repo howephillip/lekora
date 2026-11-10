@@ -30,6 +30,8 @@ public struct WalkingSkeletonPingView: View {
     /// Changed on every send: a fresh text box, so nothing the keyboard was still holding
     /// (an autocorrect or prediction) can write the sent text back into it.
     @State private var composerID = 0
+    /// Chat Settings sheet, opened by tapping the agent at the top.
+    @State private var showingSettings = false
 
     public init(gateway: GatewayClient, instanceName: String, profileName: String) {
         self.gateway = gateway
@@ -75,7 +77,7 @@ public struct WalkingSkeletonPingView: View {
         return false
     }
 
-    /// Only while not connected: what's happening ("Connecting…").
+    /// Only while not connected: what's happening ("Connecting…"). Connected, the header shows the model.
     private var subtitle: String? {
         if isConnected { return nil }
         return gateway.state == .disconnected ? "Not connected" : "Connecting…"
@@ -143,20 +145,12 @@ public struct WalkingSkeletonPingView: View {
                     .disabled(!isConnected)
                 }
                 ToolbarItem(placement: .title) {
-                    HStack(spacing: LK.Spacing.sm) {
-                        LKAgentAvatar(id: gateway.activeProfileId, palette: gateway.avatarPalettes[gateway.activeProfileId],
-                                      size: 28, working: activity != nil)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(profileName)
-                                .font(.headline)
-                            if let subtitle {
-                                Text(subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .lineLimit(1)
+                    Button { showingSettings = true } label: {
+                        ChatHeaderTitle(gateway: gateway, profileName: profileName, connection: subtitle,
+                                        working: activity != nil)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens chat settings")
                 }
             }
             #endif
@@ -174,7 +168,14 @@ public struct WalkingSkeletonPingView: View {
             }
             // This agent's commands; again once connected, if the chat opened offline.
             .task(id: "\(gateway.activeProfileId)|\(isConnected)") {
-                if isConnected { await gateway.loadCommands(for: gateway.activeProfileId) }
+                if isConnected {
+                    await gateway.loadSettings(for: gateway.activeProfileId)
+                    await gateway.loadCommands(for: gateway.activeProfileId)
+                }
+            }
+            .sheet(isPresented: $showingSettings) {
+                ChatSettingsView(gateway: gateway, profileId: gateway.activeProfileId, agentName: profileName)
+                    .presentationDetents([.large])
             }
             // Opened by a push: once it has slid in and the message bar is measured, show
             // the newest message in full.

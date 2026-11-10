@@ -136,6 +136,15 @@ class LekoraAdapter(BasePlatformAdapter):
         root = Path(self._cfg.hermes_root) if self._cfg.hermes_root else None
         return list_commands(profile_home(profile_id, root))
 
+    def _settings_for(self, profile_id: str) -> dict:
+        """A chat's current settings, read from Hermes (docs/chat-settings.md)."""
+        from .hermes_settings import read_settings
+        from .profiles import profile_home
+        source = self.build_source(chat_id=profile_id, chat_name=profile_id, chat_type="dm",
+                                   user_id="lekora-owner", user_name="Lekora")
+        root = Path(self._cfg.hermes_root) if self._cfg.hermes_root else None
+        return read_settings(self.gateway_runner, source, profile_home(profile_id, root))
+
     @property
     def name(self) -> str:
         return "Lekora"
@@ -167,7 +176,7 @@ class LekoraAdapter(BasePlatformAdapter):
         self._service = LekoraService(
             self, config=self._cfg, hermes_version=_hermes_version(),
             profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers(),
-            commands_provider=self._commands_for)
+            commands_provider=self._commands_for, settings_reader=self._settings_for)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()
