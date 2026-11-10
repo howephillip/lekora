@@ -141,16 +141,16 @@ struct LKModelPickerSheet: View {
         .alert(confirming.map { "Use \($0.model.name ?? $0.model.id)?" } ?? "",
                isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                presenting: confirming) { choice in
-            Button("Use in This Chat") { pick(choice.model.id, choice.provider, confirmed: false, scope: "session") }
-            Button("Use in All Chats") { pick(choice.model.id, choice.provider, confirmed: false, scope: "global") }
+            Button("This Session Only") { pick(choice.model.id, choice.provider, confirmed: false, scope: "session") }
+            Button("Always Use for \(agentName)") { pick(choice.model.id, choice.provider, confirmed: false, scope: "global") }
             if choice.provider == "openrouter", actions.models != nil {
                 Button("Advanced…") { path.append(.detail(choice.model)) }
             }
             Button("Cancel", role: .cancel) {}
         } message: { choice in
             Text(choice.provider == "openrouter"
-                 ? "This chat only, or for every chat with \(agentName). Advanced lets you choose which companies host it, and whether they may train on your data."
-                 : "This chat only, or for every chat with \(agentName).")
+                 ? "This session only, or saved as \(agentName)'s model from now on (other agents keep theirs). Advanced lets you choose which companies host it, and whether they may train on your data."
+                 : "This session only, or saved as \(agentName)'s model from now on (other agents keep theirs).")
         }
     }
 
@@ -676,8 +676,8 @@ struct LKModelHeader: View {
 
             if !isCurrent {  // the badge already says so for the model in use
                 Menu {
-                    Button("Use in This Chat", systemImage: "bubble.left") { use("session") }
-                    Button("Use in All Chats", systemImage: "star") { use("global") }
+                    Button("This Session Only", systemImage: "bubble.left") { use("session") }
+                    Button("Always Use for \(agentName)", systemImage: "star") { use("global") }
                 } label: {
                     HStack {
                         if busy { ProgressView().tint(LK.Palette.onAccent) }

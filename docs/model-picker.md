@@ -90,7 +90,7 @@ Cards as in `protocol.md` §6, with kinds `model` and `choice`; see §8.
   - Instead, "No training on my data" saves `data_collection: deny`, and OpenRouter itself then only uses hosts that don't. Hermes already supports this key.
   - Each host shows where it's based (a flag, from OpenRouter's public `/api/v1/providers`, cached a day). Touch and hold a host for its privacy policy and terms.
 - **In the app (your second look, 2026-11-09):**
-  - tapping a model asks **Use in This Chat / Use in All Chats / Advanced… / Cancel**. Advanced (OpenRouter models) opens the model's page. Its Use This Model button offers the same two choices.
+  - tapping a model asks **This Session Only / Always Use for <agent> / Advanced… / Cancel** (button wording from your fourth look: the buttons themselves say session vs permanent, and name the agent so it's clearly that agent only). Advanced (OpenRouter models) opens the model's page. Its Use This Model button offers the same two choices.
     - These send Hermes' own `/model <id> --provider <slug> --session` or `--global` (your third look, 2026-11-09).
     - `--global` makes Hermes save it as the agent's default model in its own config. That's Hermes writing at your request, like "Always allow".
     - On this path Hermes runs its own expensive-model check, as a confirmation card if needed.

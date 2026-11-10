@@ -416,7 +416,7 @@ private struct LKModelCard: View {
                     .buttonStyle(.borderedProminent)
                     .tint(LK.Palette.accent)
             } else {
-                LKPromptOutcome(LKPromptText.outcome(of: card))
+                LKPromptOutcome(LKPromptText.outcome(of: card, agentName: agentName))
             }
         }
         .sheet(isPresented: $choosing) {
@@ -508,7 +508,8 @@ public enum LKPromptText {
     }
 
     /// What a finished card says, its symbol, and whether it went ahead (nil = neither).
-    public static func outcome(of card: PromptCard, now: Date = Date()) -> (text: String, symbol: String, positive: Bool?) {
+    public static func outcome(of card: PromptCard, now: Date = Date(),
+                               agentName: String = "this agent") -> (text: String, symbol: String, positive: Bool?) {
         switch card.status {
         case "allowed_once": return ("Allowed once", "checkmark.circle.fill", true)
         case "allowed_session": return ("Allowed for this chat", "checkmark.circle.fill", true)
@@ -523,7 +524,8 @@ public enum LKPromptText {
         case "cancelled": return ("Cancelled", "xmark.circle.fill", false)
         case "chosen" where card.kind == .model:
             guard let chosen = card.chosen else { return ("Switched model", "checkmark.circle.fill", true) }
-            let scope = chosen.scope == "global" ? " · as the default" : chosen.scope == "session" ? " · this chat" : ""
+            let scope = chosen.scope == "global" ? " · always for \(agentName)"
+                : chosen.scope == "session" ? " · this session only" : ""
             return ("Switched to \(chosen.model)\non \(chosen.providerName ?? chosen.provider)\(scope)", "checkmark.circle.fill", true)
         case "chosen": return ("Chose: \(card.answer ?? "")", "checkmark.circle.fill", true)
         case "failed": return ("Hermes couldn't make that change", "exclamationmark.triangle.fill", false)

@@ -202,7 +202,7 @@ final class PromptCardTests: XCTestCase {
         let settled = await waitUntil { gateway.timeline.entries.first { $0.card?.kind == .model }?.card?.chosen?.scope == "global" }
         XCTAssertTrue(settled)
         let done = try XCTUnwrap(gateway.timeline.entries.first { $0.card?.kind == .model }?.card)
-        XCTAssertEqual(LKPromptText.outcome(of: done).text, "Switched to claude-sonnet-5-5\non anthropic · as the default")
+        XCTAssertEqual(LKPromptText.outcome(of: done, agentName: "Bruce").text, "Switched to claude-sonnet-5-5\non anthropic · always for Bruce")
     }
 
     func testExpensiveModelNeedsConfirming() async throws {
