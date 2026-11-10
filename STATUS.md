@@ -1,6 +1,8 @@
 # STATUS
 
-_Last updated: 2026-11-08_
+_Last updated: 2026-11-09_
+
+README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode steps, PolyForm Noncommercial LICENSE, screenshots in docs/screenshots (made with tools/demo_host.py, a fake Hermes with made-up agents). Not committed yet.
 
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.

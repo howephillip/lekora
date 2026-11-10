@@ -19,8 +19,6 @@ What each step does:
 4. Restarts the Hermes gateway so Lekora starts listening. If agents are busy, Hermes names the live work and asks before interrupting it.
 5. Prints the pairing QR code, a `lekora-pair://` link and the code. It works once and expires in 30 minutes.
 
-If the repo is private, the machine needs Git access to it (for example a logged-in `gh`, or an SSH key).
-
 ## Pairing the phone
 - The phone and the Hermes machine must be able to reach each other: same Wi-Fi, or both on Tailscale. Lekora advertises every route it finds (LAN and Tailscale) and the app uses whichever answers first.
 - In the Lekora app scan the QR code, or tap the link / use Paste Token.
