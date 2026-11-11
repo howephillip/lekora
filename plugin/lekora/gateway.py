@@ -39,7 +39,8 @@ RECENT_PER_PROFILE = 50   # a phone with no cache gets each agent's newest 50 me
 MAX_CHANGES_REPLAY = 1000  # more changes than this waiting: send the recent ones instead
 PAGE_LIMIT = 100           # history.fetch page size cap
 
-Dispatch = Callable[[str, str, str], Awaitable[None]]
+# (profile_id, text, message_id[, files=[{path, name, mime}]])
+Dispatch = Callable[..., Awaitable[None]]
 ProfilesProvider = Callable[[], list[dict]]
 EndpointsProvider = Callable[[int], list[str]]
 
@@ -90,6 +91,8 @@ class Gateway:
         self.store = store
         # Creates/deletes Hermes profiles (docs/agent-lifecycle.md); None = not offered.
         self._profile_admin = profile_admin
+        # Stored files (docs/files.md); set by LekoraService. None = files not offered.
+        self.files: Optional[Any] = None
         self._dispatch = dispatch
         self._profiles = profiles
         self._endpoints = endpoints
@@ -165,8 +168,11 @@ class Gateway:
     @staticmethod
     def _message_data(seq: int, role: str, text: str, rev: int,
                       client_id: Optional[str] = None, draft_id: Optional[str] = None,
-                      at: Optional[str] = None, card: Optional[dict] = None) -> dict:
+                      at: Optional[str] = None, card: Optional[dict] = None,
+                      files: Optional[list] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
+        if files:
+            data["files"] = files  # photos and files with the message (docs/files.md)
         if card:
             data["card"] = card  # an approval or question card (docs/prompts.md)
         if at:
@@ -180,7 +186,8 @@ class Gateway:
     def _event_json(self, ev) -> str:
         return self._envelope("chat.message", self._message_data(
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
-            ev.payload.get("client_id"), at=ev.created_at, card=ev.payload.get("card")),
+            ev.payload.get("client_id"), at=ev.created_at, card=ev.payload.get("card"),
+            files=ev.payload.get("files")),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
@@ -244,7 +251,8 @@ class Gateway:
             return
         payload = self._envelope("chat.message", self._message_data(
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
-            ev.payload.get("client_id"), draft_id, at=ev.created_at, card=ev.payload.get("card")),
+            ev.payload.get("client_id"), draft_id, at=ev.created_at, card=ev.payload.get("card"),
+            files=ev.payload.get("files")),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -338,6 +346,8 @@ class Gateway:
             await self._models_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "commands.list":
             await self._commands_list(conn, msg_id, env.get("profile_id"))
+        elif type_ in ("file.upload.begin", "file.upload.chunk", "file.upload.end", "file.read", "files.usage"):
+            await self._file_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "instance.rename":
             await self._instance_rename(conn, msg_id, data)
         elif type_ == "prompt.respond":
@@ -460,16 +470,22 @@ class Gateway:
         if not isinstance(profile_id, str) or profile_id not in known:
             raise _Reject("UNKNOWN_PROFILE", "Unknown profile", True, False, msg_id)
         text = data.get("text")
-        if not isinstance(text, str) or not text.strip():
+        if text is None and data.get("files"):
+            text = ""
+        file_ids = data.get("files") or []
+        if not isinstance(text, str) or (not text.strip() and not file_ids):
             raise _Reject("INVALID_MESSAGE", "chat.send needs non-empty text",
                           True, False, msg_id)
+        files = self._message_files(profile_id, file_ids, msg_id)
         if msg_id:  # commands are idempotent: ignore a repeated id
             if msg_id in conn.seen_ids:
                 return
             conn.seen_ids[msg_id] = None
             while len(conn.seen_ids) > SEEN_IDS_LIMIT:
                 conn.seen_ids.popitem(last=False)
-        payload = {"role": "user", "text": text}
+        payload: dict[str, Any] = {"role": "user", "text": text}
+        if files:
+            payload["files"] = [self.files.describe(row) for row in files]  # type: ignore[union-attr]
         if msg_id:
             payload["client_id"] = msg_id
         seq = self.store.append_event(profile_id, "chat.message", payload)
@@ -477,7 +493,9 @@ class Gateway:
         await self._broadcast(self.store.get_event(seq))
         if self.prompts is not None:  # a typed /approve or reply answers waiting cards
             await self.prompts.user_message(profile_id, text)
-        task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text))
+        attachments = [{"path": str(self.files.path_of(row)), "name": row["name"], "mime": row["mime"]}  # type: ignore[union-attr]
+                       for row in files]
+        task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -500,7 +518,7 @@ class Gateway:
         events, has_more = self.store.messages_before(profile_id, before, limit)
         messages = [self._message_data(e.seq, e.payload.get("role", "assistant"),
                                        e.payload.get("text", ""), e.rev, e.payload.get("client_id"),
-                                       at=e.created_at, card=e.payload.get("card"))
+                                       at=e.created_at, card=e.payload.get("card"), files=e.payload.get("files"))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
@@ -643,6 +661,58 @@ class Gateway:
             await self._send(conn, ack)
         await self.broadcast_profiles()
 
+    def _message_files(self, profile_id: str, file_ids: Any, msg_id: Optional[str]) -> list[dict]:
+        """The uploaded files a chat.send refers to (docs/files.md)."""
+        from .files import MAX_FILES_PER_MESSAGE, FileError
+        if not file_ids:
+            return []
+        if self.files is None:
+            raise _Reject("UNAVAILABLE", "Files aren't available on this host", True, False, msg_id)
+        if not isinstance(file_ids, list) or len(file_ids) > MAX_FILES_PER_MESSAGE:
+            raise _Reject("INVALID_FILE", f"Up to {MAX_FILES_PER_MESSAGE} files per message", True, False, msg_id)
+        try:
+            return [self.files.ready(str(f), profile_id) for f in file_ids]
+        except FileError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+
+    async def _file_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                            profile_id: Any, data: dict) -> None:
+        """Uploads in pieces, reading files back, and the space used (docs/files.md).
+        Disk work runs off the event loop."""
+        from .files import FileError
+        if self.files is None:
+            raise _Reject("UNAVAILABLE", "Files aren't available on this host", True, False, msg_id)
+        files = self.files
+        try:
+            if type_ == "files.usage":
+                result = await asyncio.to_thread(files.usage)
+            elif type_ == "file.read":
+                result = await asyncio.to_thread(files.read_chunk, data.get("file_id"), data.get("offset"))
+            else:
+                profile_id = self._known_profile(profile_id, msg_id)
+                if type_ == "file.upload.begin":
+                    result = await asyncio.to_thread(files.begin_upload, profile_id, str(data.get("name") or ""),
+                                                     data.get("mime"), data.get("size"))
+                elif type_ == "file.upload.chunk":
+                    received = await asyncio.to_thread(files.write_chunk, profile_id, data.get("file_id"),
+                                                       data.get("offset"), data.get("data"))
+                    result = {"file_id": data.get("file_id"), "received": received}
+                else:
+                    result = {"file": await asyncio.to_thread(files.finish_upload, profile_id, data.get("file_id"))}
+        except FileError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except OSError:
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("UNAVAILABLE", "Couldn't store the file on this host", True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
+
+    async def publish_files(self, profile_id: str, files: list[dict], text: str = "") -> int:
+        """Files from the agent, as one chat message (with its caption, if any)."""
+        seq = self.store.append_event(profile_id, "chat.message",
+                                      {"role": "assistant", "text": text, "files": files})
+        await self._broadcast(self.store.get_event(seq))
+        return seq
+
     async def _instance_rename(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
         """Rename this computer as the app shows it (docs/multiple-instances.md)."""
         name = " ".join(str(data.get("name") or "").split())
@@ -668,9 +738,12 @@ class Gateway:
                 await self._send(conn, payload)
 
     async def _run_dispatch(self, conn: _Conn, msg_id: Optional[str],
-                            profile_id: str, text: str) -> None:
+                            profile_id: str, text: str, files: Optional[list] = None) -> None:
         try:
-            await self._dispatch(profile_id, text, msg_id or str(uuid.uuid4()))
+            if files:  # only then: bridges from before files take (profile, text, id)
+                await self._dispatch(profile_id, text, msg_id or str(uuid.uuid4()), files=files)
+            else:
+                await self._dispatch(profile_id, text, msg_id or str(uuid.uuid4()))
         except asyncio.CancelledError:
             raise
         except Exception:

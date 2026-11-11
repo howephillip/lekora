@@ -927,28 +927,31 @@ public final class GatewayClient: ObservableObject {
     }
 
     // MARK: - Chat
-    public nonisolated static func makeChatSendEnvelope(text: String, instanceId: String, profileId: String) -> Envelope<ChatSendData> {
+    public nonisolated static func makeChatSendEnvelope(text: String, instanceId: String, profileId: String,
+                                                        files: [String]? = nil) -> Envelope<ChatSendData> {
         Envelope(
             type: "chat.send",
             instance_id: instanceId,
             profile_id: profileId,
-            data: ChatSendData(text: text)
+            data: ChatSendData(text: text, files: files)
         )
     }
 
     /// Sends `text` to the active profile. The message appears in the timeline straight
     /// away; a failed send is marked on that bubble instead of dropping the connection.
-    public func sendMessage(_ text: String) async {
+    public func sendMessage(_ text: String, files: [ChatFile] = []) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
+        guard !trimmed.isEmpty || !files.isEmpty,
               case .connected = state,
               let wsTask = webSocketTask,
               let instanceId = savedHost?.instanceId else {
             return
         }
 
-        let envelope = Self.makeChatSendEnvelope(text: trimmed, instanceId: instanceId, profileId: activeProfileId)
-        timeline.addOutgoing(id: envelope.id, profileId: activeProfileId, text: trimmed)
+        let envelope = Self.makeChatSendEnvelope(text: trimmed, instanceId: instanceId, profileId: activeProfileId,
+                                                 files: files.isEmpty ? nil : files.map(\.file_id))
+        timeline.addOutgoing(id: envelope.id, profileId: activeProfileId, text: trimmed,
+                             files: files.isEmpty ? nil : files)
 
         do {
             try await send(envelope, on: wsTask)
@@ -956,6 +959,110 @@ public final class GatewayClient: ObservableObject {
         } catch {
             timeline.markFailed(id: envelope.id, reason: error.localizedDescription)
         }
+    }
+
+    // MARK: - Files (docs/files.md)
+
+    /// Owner's decision: up to 100 MB per file, 10 per message.
+    public nonisolated static let maxFileBytes = 100 * 1024 * 1024
+    public nonisolated static let maxFilesPerMessage = 10
+
+    /// Where downloaded and sent files are kept on the phone (iOS may clear it; they're
+    /// fetched again from the instance).
+    public var fileCacheRoot: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Lekora/files", isDirectory: true)
+    private var downloads: [String: Task<URL, Error>] = [:]
+
+    /// Where this file is (or will be) kept on the phone.
+    public func localFileURL(_ file: ChatFile) -> URL {
+        let instance = (savedHost?.instanceId ?? "unpaired").replacingOccurrences(of: "/", with: "_")
+        let name = file.name.replacingOccurrences(of: "/", with: "_")
+        return fileCacheRoot.appendingPathComponent(instance, isDirectory: true)
+            .appendingPathComponent(file.file_id, isDirectory: true)
+            .appendingPathComponent(name.isEmpty ? "file" : name)
+    }
+
+    /// The file on the phone, if it's here already.
+    public func cachedFileURL(_ file: ChatFile) -> URL? {
+        let url = localFileURL(file)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// The file on the phone, fetched from the instance in pieces if needed.
+    public func fileURL(for file: ChatFile) async throws -> URL {
+        if let cached = cachedFileURL(file) { return cached }
+        if let running = downloads[file.file_id] { return try await running.value }
+        let task = Task { @MainActor [weak self] () throws -> URL in
+            guard let self else { throw CancellationError() }
+            return try await self.download(file)
+        }
+        downloads[file.file_id] = task
+        defer { downloads[file.file_id] = nil }
+        return try await task.value
+    }
+
+    private func download(_ file: ChatFile) async throws -> URL {
+        let target = localFileURL(file)
+        let folder = target.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let partial = folder.appendingPathComponent(".download")
+        FileManager.default.createFile(atPath: partial.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: partial)
+        defer { try? handle.close() }
+        var offset = 0
+        while true {
+            let piece = try await request(type: "file.read", data: FileReadData(file_id: file.file_id, offset: offset),
+                                          reply: FileReadResult.self, timeout: 30)
+            guard let bytes = Data(base64Encoded: piece.data) else {
+                throw HostError(code: "INVALID_FILE", reason: "The file arrived damaged.")
+            }
+            try handle.write(contentsOf: bytes)
+            offset += bytes.count
+            if piece.done || bytes.isEmpty { break }
+        }
+        try handle.close()
+        try? FileManager.default.removeItem(at: target)
+        try FileManager.default.moveItem(at: partial, to: target)
+        return target
+    }
+
+    /// Sends a file on the phone to the instance in pieces; it's then ready to go with a
+    /// message. A copy is kept so it shows straight away in the chat.
+    public func uploadFile(at source: URL, name: String, mime: String, to profileId: String,
+                           progress: @escaping (Double) -> Void = { _ in }) async throws -> ChatFile {
+        let size = (try FileManager.default.attributesOfItem(atPath: source.path)[.size] as? NSNumber)?.intValue ?? 0
+        guard size <= Self.maxFileBytes else {
+            throw HostError(code: "FILE_TOO_LARGE", reason: "Files can be up to 100 MB.")
+        }
+        let begun = try await request(type: "file.upload.begin", profileId: profileId,
+                                      data: FileUploadBeginData(name: name, mime: mime, size: size),
+                                      reply: FileUploadBeginResult.self, timeout: 20)
+        let handle = try FileHandle(forReadingFrom: source)
+        defer { try? handle.close() }
+        var offset = 0
+        progress(0)
+        while offset < size {
+            let bytes = try handle.read(upToCount: max(begun.chunk_size, 1)) ?? Data()
+            guard !bytes.isEmpty else { break }
+            let answer = try await request(type: "file.upload.chunk", profileId: profileId,
+                                           data: FileUploadChunkData(file_id: begun.file_id, offset: offset,
+                                                                     data: bytes.base64EncodedString()),
+                                           reply: FileUploadChunkResult.self, timeout: 30)
+            offset = answer.received
+            progress(size == 0 ? 1 : Double(offset) / Double(size))
+        }
+        let done = try await request(type: "file.upload.end", profileId: profileId, data: FileIdData(file_id: begun.file_id),
+                                     reply: FileUploadEndResult.self, timeout: 20)
+        progress(1)
+        let kept = localFileURL(done.file)
+        try? FileManager.default.createDirectory(at: kept.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.default.copyItem(at: source, to: kept)
+        return done.file
+    }
+
+    /// The space files take on this instance.
+    public func filesUsage() async -> FilesUsage? {
+        try? await request(type: "files.usage", data: EmptyData(), reply: FilesUsage.self, timeout: 15)
     }
 
     /// Connection check used by the walking-skeleton tests.
@@ -1002,7 +1109,8 @@ public final class GatewayClient: ObservableObject {
                 draftId: envelope.data.draft_id,
                 clientId: envelope.data.client_id,
                 date: envelope.data.date,
-                card: envelope.data.card
+                card: envelope.data.card,
+                files: envelope.data.files
             )
             if profileId == activeProfileId { markActiveChatRead() }
             if envelope.data.role == "system", chatSettings[profileId] != nil {

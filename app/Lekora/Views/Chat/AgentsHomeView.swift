@@ -247,6 +247,7 @@ public struct AgentsHomeView: View {
         var preview: String
         if let last {
             preview = LKChatText.preview(last.text)
+            if preview.isEmpty, let files = last.files { preview = LKFileText.preview(files) }
             if last.role == .user { preview = "You: " + preview }
         } else {
             preview = profile.description.map { "No messages yet · \($0)" } ?? "No messages yet"

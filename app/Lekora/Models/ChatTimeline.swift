@@ -32,9 +32,12 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
     public var date: Date?
     /// For `.prompt` entries.
     public var card: PromptCard?
+    /// Photos and files with the message (docs/files.md); nil = none.
+    public var files: [ChatFile]?
 
     public init(id: String, profileId: String, role: Role, text: String, seq: Int? = nil,
-                status: Status = .sent, date: Date? = nil, card: PromptCard? = nil) {
+                status: Status = .sent, date: Date? = nil, card: PromptCard? = nil, files: [ChatFile]? = nil) {
+        self.files = files
         self.id = id
         self.profileId = profileId
         self.role = role
@@ -85,7 +88,7 @@ public struct ChatTimeline: Equatable {
         for message in messages {
             applyIncoming(seq: message.seq, profileId: profileId, role: message.role,
                           text: message.text, clientId: message.client_id,
-                          date: message.date, card: message.card, isPage: true)
+                          date: message.date, card: message.card, files: message.files, isPage: true)
         }
         if !hasMore { completeProfiles.insert(profileId) }
     }
@@ -139,9 +142,9 @@ public struct ChatTimeline: Equatable {
         entries.removeAll { $0.status == .streaming }
     }
 
-    public mutating func addOutgoing(id: String, profileId: String, text: String) {
+    public mutating func addOutgoing(id: String, profileId: String, text: String, files: [ChatFile]? = nil) {
         entries.append(ChatEntry(id: id, profileId: profileId, role: .user, text: text,
-                                 status: .sending, date: Date()))
+                                 status: .sending, date: Date(), files: files))
     }
 
     public mutating func markSent(id: String) {
@@ -161,10 +164,12 @@ public struct ChatTimeline: Equatable {
     /// - Parameter isPage: from a page of older messages, which may come before what's here.
     public mutating func applyIncoming(seq: Int, profileId: String, role: String, text: String,
                                        draftId: String? = nil, clientId: String? = nil,
-                                       date: Date? = nil, card: PromptCard? = nil, isPage: Bool = false) {
+                                       date: Date? = nil, card: PromptCard? = nil, files: [ChatFile]? = nil,
+                                       isPage: Bool = false) {
         if let index = entries.firstIndex(where: { $0.seq == seq }) {
             // Seen before (replay) — or a correction the agent made after saving it.
             if entries[index].text != text { entries[index].text = text }
+            if let files, entries[index].files != files { entries[index].files = files }
             if let date, entries[index].date != date { entries[index].date = date }
             if let card, entries[index].card != card { entries[index].card = card }  // a card's new state
             return
@@ -174,6 +179,7 @@ public struct ChatTimeline: Equatable {
         if let draftId, let index = entries.firstIndex(where: { $0.id == draftId }) {
             entries[index].seq = seq
             entries[index].text = text
+            if let files { entries[index].files = files }
             entries[index].status = .sent
             if let date { entries[index].date = date }
             settle(at: index)
@@ -187,6 +193,7 @@ public struct ChatTimeline: Equatable {
                $0.role == .user && $0.seq == nil && $0.profileId == profileId && $0.text == text
            }) {
             entries[index].seq = seq
+            if let files { entries[index].files = files }
             if entries[index].status != .sent { entries[index].status = .sent }
             if let date { entries[index].date = date }
             settle(at: index)
@@ -207,7 +214,8 @@ public struct ChatTimeline: Equatable {
             text: text,
             seq: seq,
             date: date,
-            card: card
+            card: card,
+            files: files
         )
         entries.insert(entry, at: insertionIndex(for: seq))
     }

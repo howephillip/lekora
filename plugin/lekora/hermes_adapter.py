@@ -15,6 +15,7 @@ the platform is registered ``trusted_inbound`` (no second allow-list/pairing).
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 import uuid
@@ -26,6 +27,7 @@ from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
 from . import hermes_streaming
+from .hermes_files import TOOL_NAME, TOOL_SCHEMA, TOOLSET, inbound_media, send_file_tool
 from .hermes_routes import ProfileRouter, check_routed
 from .prompts import CARD_MESSAGE_PREFIX, Resolvers
 from .streaming import LiveReplies
@@ -85,6 +87,46 @@ def _hermes_version() -> Optional[str]:
         return str(hermes_cli.__version__)
     except Exception:  # pragma: no cover - depends on the Hermes install
         return None
+
+
+# The running adapter and its event loop, for the lekora_send_file tool (docs/files.md).
+_ACTIVE: Optional[tuple["LekoraAdapter", asyncio.AbstractEventLoop]] = None
+
+
+def _hermes_cache(data: bytes, name: str, mime: str):
+    """Hermes' own media cache (gateway.platforms.base.cache_media_bytes)."""
+    from gateway.platforms.base import cache_document_from_bytes, cache_media_bytes
+    cached = cache_media_bytes(data, filename=name, mime_type=mime)
+    if cached is None:  # an "image" Hermes can't read: still give it to the agent, as a file
+        return cache_document_from_bytes(data, name), mime or "application/octet-stream", "document"
+    return cached.path, cached.media_type, cached.kind
+
+
+def _local_path(url: str) -> Optional[str]:
+    if url.startswith("file://"):
+        from urllib.parse import unquote, urlparse
+        return unquote(urlparse(url).path)
+    if url.startswith("/"):
+        return url
+    return None
+
+
+def _lekora_session() -> bool:
+    """The tool is only offered in Lekora chats."""
+    try:
+        from gateway.session_context import get_session_env
+        return get_session_env("HERMES_SESSION_PLATFORM") == PLATFORM_NAME
+    except Exception:
+        return False
+
+
+def _send_file_handler(args: dict, **_kwargs) -> str:
+    from gateway.session_context import get_session_env
+    active = _ACTIVE
+    return send_file_tool(
+        args, platform=get_session_env("HERMES_SESSION_PLATFORM"), chat_id=get_session_env("HERMES_SESSION_CHAT_ID"),
+        deliver=active[0]._tool_deliver if active else None, loop=active[1] if active else None,
+        validate=BasePlatformAdapter.validate_media_delivery_path)
 
 
 class LekoraAdapter(BasePlatformAdapter):
@@ -150,7 +192,8 @@ class LekoraAdapter(BasePlatformAdapter):
         return "Lekora"
 
     # -- AgentBridge: phone -> agent -----------------------------------------
-    async def deliver_to_agent(self, profile_id: str, text: str, message_id: str) -> None:
+    async def deliver_to_agent(self, profile_id: str, text: str, message_id: str,
+                               files: Optional[list[dict]] = None) -> None:
         if not self._message_handler:
             return
         # Routes were refreshed when the gateway checked this profile (offered_profiles),
@@ -159,9 +202,18 @@ class LekoraAdapter(BasePlatformAdapter):
             chat_id=profile_id, chat_name=profile_id, chat_type="dm",
             user_id="lekora-owner", user_name="Lekora")
         check_routed(source, profile_id)
-        await self.handle_message(MessageEvent(
+        event = MessageEvent(
             text=text, message_type=MessageType.TEXT, source=source,
-            message_id=message_id, timestamp=datetime.datetime.now()))
+            message_id=message_id, timestamp=datetime.datetime.now())
+        if files:
+            # Photos and files (docs/files.md): into Hermes' own media cache, as Telegram does.
+            media = await asyncio.to_thread(inbound_media, text, files, _hermes_cache)
+            event.text = media.text
+            event.message_type = MessageType(media.message_kind)
+            event.media_urls = media.media_urls
+            event.media_types = media.media_types
+            event.media_text_inlined = media.media_text_inlined
+        await self.handle_message(event)
 
     # -- lifecycle -----------------------------------------------------------
     async def connect(self, *, is_reconnect: bool = False) -> bool:
@@ -194,16 +246,73 @@ class LekoraAdapter(BasePlatformAdapter):
             self._set_fatal_error("start_failed", str(exc), retryable=True)
             return False
         hermes_streaming.install(self.gateway_runner)  # streaming on for Lekora only, in memory
+        global _ACTIVE
+        _ACTIVE = (self, asyncio.get_running_loop())  # for the lekora_send_file tool
         self._mark_connected()
         logger.info("Lekora: listening on port %s", port)
         self._wire_plugin_handlers(None)
         return True
 
     async def disconnect(self) -> None:
+        global _ACTIVE
+        if _ACTIVE is not None and _ACTIVE[0] is self:
+            _ACTIVE = None
         self._mark_disconnected()
         if self._service is not None:
             await self._service.stop()
             self._service = None
+
+    # -- files from the agent (docs/files.md) --------------------------------------
+    # Hermes sends MEDIA: files (from its image, speech and other tools) through these.
+    async def _send_local_file(self, chat_id: str, path: str, caption: Optional[str] = None,
+                               file_name: Optional[str] = None) -> SendResult:
+        if self._service is None:
+            return SendResult(success=False, error="Lekora is not running")
+        safe = self.validate_media_delivery_path(path)
+        if safe is None:
+            return SendResult(success=False, error="That file can't be sent")
+        try:
+            seq = await self._service.handle_agent_file(chat_id, Path(safe), caption or "", file_name)
+        except Exception as exc:
+            return SendResult(success=False, error=getattr(exc, "reason", None) or str(exc))
+        return SendResult(success=True, message_id=str(seq))
+
+    async def send_image_file(self, chat_id: str, image_path: str, caption: Optional[str] = None,
+                              reply_to: Optional[str] = None, metadata=None, **kwargs) -> SendResult:
+        return await self._send_local_file(chat_id, image_path, caption)
+
+    async def send_document(self, chat_id: str, file_path: str, caption: Optional[str] = None,
+                            file_name: Optional[str] = None, reply_to: Optional[str] = None,
+                            metadata=None, **kwargs) -> SendResult:
+        return await self._send_local_file(chat_id, file_path, caption, file_name)
+
+    async def send_video(self, chat_id: str, video_path: str, caption: Optional[str] = None,
+                         reply_to: Optional[str] = None, metadata=None, **kwargs) -> SendResult:
+        return await self._send_local_file(chat_id, video_path, caption)
+
+    async def send_voice(self, chat_id: str, audio_path: str, caption: Optional[str] = None,
+                         reply_to: Optional[str] = None, metadata=None, **kwargs) -> SendResult:
+        return await self._send_local_file(chat_id, audio_path, caption)
+
+    async def send_image(self, chat_id: str, image_url: str, caption: Optional[str] = None,
+                         reply_to: Optional[str] = None, metadata=None) -> SendResult:
+        local = _local_path(image_url)
+        if local is not None:
+            return await self._send_local_file(chat_id, local, caption)
+        return await super().send_image(chat_id, image_url, caption, reply_to, metadata)  # a link stays a link
+
+    async def send_animation(self, chat_id: str, animation_url: str, caption: Optional[str] = None,
+                             reply_to: Optional[str] = None, metadata=None) -> SendResult:
+        local = _local_path(animation_url)
+        if local is not None:
+            return await self._send_local_file(chat_id, local, caption)
+        return await super().send_animation(chat_id, animation_url, caption, reply_to, metadata)
+
+    async def _tool_deliver(self, chat_id: str, path: str, caption: str, name: Optional[str]) -> None:
+        """For the lekora_send_file tool (on the gateway's loop); raises with a reason."""
+        if self._service is None:
+            raise RuntimeError("Lekora is not running")
+        await self._service.handle_agent_file(chat_id, Path(path), caption, name)
 
     # -- agent -> phone ------------------------------------------------------
     async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None,
@@ -360,3 +469,11 @@ def register(ctx) -> None:
         display_overrides={"streaming": hermes_streaming.STREAMING_MARK, "tool_progress": "off"},
         pii_safe=False,
     )
+    # Agents send files with a real tool (rule 7), offered only in Lekora chats (docs/files.md).
+    try:
+        from tools.registry import no_cache_check_fn
+        check = no_cache_check_fn(_lekora_session)  # per chat: never reuse another platform's answer
+    except ImportError:
+        check = _lekora_session
+    ctx.register_tool(name=TOOL_NAME, toolset=TOOLSET, schema=TOOL_SCHEMA, handler=_send_file_handler,
+                      check_fn=check, description=TOOL_SCHEMA["description"], emoji="📎")

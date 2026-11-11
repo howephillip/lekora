@@ -110,6 +110,8 @@ private struct ComputerDetailView: View {
     @State private var failure: String?
     @State private var confirmingForget = false
     @State private var forgetMessage: String?
+    /// Space this instance's files take (docs/files.md).
+    @State private var usage: FilesUsage?
 
     private var name: String { gateway.savedHost?.instanceName ?? "Hermes" }
 
@@ -132,6 +134,14 @@ private struct ComputerDetailView: View {
                                  : "Connect to this instance to rename it.")
             }
             Section {
+                LabeledContent("Files") {
+                    Text(usage.map { "\(LKFileText.size($0.bytes)) · \($0.count == 1 ? "1 file" : "\($0.count) files")" }
+                         ?? (isConnected ? "…" : "—"))
+                }
+            } footer: {
+                Text("Photos and files from your chats, kept on this instance like the chats themselves.")
+            }
+            Section {
                 ComputerStatus(gateway: gateway)
                 if case .error(let reason) = gateway.state {
                     Text(reason).font(LK.Typography.footnote).foregroundStyle(.secondary)
@@ -148,6 +158,9 @@ private struct ComputerDetailView: View {
             } footer: {
                 Text("Only this instance is removed from the phone; your others stay. Its chats stay on the instance.")
             }
+        }
+        .task(id: isConnected) {
+            if isConnected { usage = await gateway.filesUsage() }
         }
         .navigationTitle(name)
         #if os(iOS)

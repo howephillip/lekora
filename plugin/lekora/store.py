@@ -56,6 +56,23 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_profile_seq ON events (instance_id, profile_id, seq);
 """
 
+# Files (docs/files.md): what each stored file is; the bytes live in lekora-files/.
+FILES = """
+CREATE TABLE IF NOT EXISTS files (
+    file_id     TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    profile_id  TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    mime        TEXT NOT NULL,
+    size        INTEGER NOT NULL,
+    received    INTEGER NOT NULL DEFAULT 0,
+    origin      TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    created_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS files_profile ON files (instance_id, profile_id);
+"""
+
 # Read markers (docs/chat-history.md): per agent, "read up to seq N", shared by all phones.
 READ_MARKERS = """
 CREATE TABLE IF NOT EXISTS read_markers (
@@ -146,6 +163,8 @@ class Store:
         self._salt = self._get_or_create_salt()
         with self._lock:
             self._create_read_markers()
+            self._db.executescript(FILES)
+            self._db.commit()
 
     def _migrate_events(self) -> None:
         """Databases from before chat history: add change numbers (``rev = seq``)."""
@@ -500,6 +519,62 @@ class Store:
                 "SELECT * FROM events WHERE instance_id = ? AND profile_id = ? ORDER BY seq",
                 (self.instance_id, profile_id)).fetchall()
         return [self._event(r) for r in rows]
+
+    # ---- files (docs/files.md) ----------------------------------------------
+
+    def now(self) -> datetime:
+        return self._clock()
+
+    def add_file(self, file_id: str, profile_id: str, name: str, mime: str, size: int,
+                 origin: str, status: str, received: int = 0) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO files (file_id, instance_id, profile_id, name, mime, size, received, origin, status, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (file_id, self.instance_id, profile_id, name, mime, size, received, origin, status, _iso(self._clock())))
+            self._db.commit()
+
+    def get_file(self, file_id: str) -> Optional[dict]:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM files WHERE file_id = ? AND instance_id = ?", (file_id, self.instance_id)).fetchone()
+        return dict(row) if row else None
+
+    def update_file(self, file_id: str, **fields: Any) -> None:
+        keys = [k for k in fields if k in ("received", "status", "size")]
+        if not keys:
+            return
+        with self._lock:
+            self._db.execute(
+                f"UPDATE files SET {', '.join(k + ' = ?' for k in keys)} WHERE file_id = ? AND instance_id = ?",
+                (*[fields[k] for k in keys], file_id, self.instance_id))
+            self._db.commit()
+
+    def files_usage(self) -> dict:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM files"
+                " WHERE instance_id = ? AND status = 'ready'", (self.instance_id,)).fetchone()
+        return {"bytes": int(row["bytes"]), "count": int(row["n"])}
+
+    def stale_uploads(self, older_than: datetime) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM files WHERE instance_id = ? AND status = 'uploading' AND created_at < ?",
+                (self.instance_id, _iso(older_than))).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_files(self, file_ids: list[str]) -> None:
+        with self._lock:
+            self._db.executemany("DELETE FROM files WHERE file_id = ? AND instance_id = ?",
+                                 [(f, self.instance_id) for f in file_ids])
+            self._db.commit()
+
+    def delete_profile_files(self, profile_id: str) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM files WHERE instance_id = ? AND profile_id = ?",
+                             (self.instance_id, profile_id))
+            self._db.commit()
 
     def delete_profile_events(self, profile_id: str) -> int:
         """Remove a deleted agent's events and read marker, so a new agent with the same

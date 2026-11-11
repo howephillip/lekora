@@ -8,6 +8,8 @@ lives in ``hermes_adapter.py`` and implements that bridge.
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 import re
 import uuid
@@ -62,6 +64,7 @@ class AgentBridge(Protocol):
     """What Lekora needs from Hermes: hand a phone message to an agent profile."""
 
     async def deliver_to_agent(self, profile_id: str, text: str, message_id: str) -> None: ...
+    # With photos or files (docs/files.md), also ``files=[{"path", "name", "mime"}]``.
 
 
 @dataclass
@@ -184,7 +187,9 @@ class LekoraService:
             admin = ProfileAdmin(
                 self._store,
                 hermes_root=lambda: Path(self.config.hermes_root) if self.config.hermes_root else _profiles.hermes_root(),
-                run_cli=self._run_cli)
+                run_cli=self._run_cli,
+                move_files=lambda profile_id, to: self.gateway.files.move_profile(profile_id, to)
+                if self.gateway is not None and self.gateway.files is not None else None)
         self.gateway = Gateway(
             self._store,
             dispatch=self._bridge.deliver_to_agent,
@@ -196,6 +201,7 @@ class LekoraService:
             ssl_context=self.tls.server_context(),
             **kwargs,
         )
+        self.gateway.files = self._file_store()
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(
@@ -219,6 +225,30 @@ class LekoraService:
         except Exception:
             logging.getLogger(__name__).exception("Lekora: could not expire old cards")
         return port
+
+    def _file_store(self):
+        """Files both ways (docs/files.md): kept in ``<Hermes>/lekora-files``."""
+        from .files import FileStore
+        if str(self._store.path) == ":memory:":
+            import tempfile
+            root = Path(tempfile.mkdtemp(prefix="lekora-files-"))
+        else:
+            root = (Path(self.config.hermes_root) if self.config.hermes_root else _profiles.hermes_root()) / "lekora-files"
+        files = FileStore(root, self._store)
+        try:
+            files.clean_stale_uploads()
+        except OSError:
+            logging.getLogger(__name__).exception("Lekora: could not clean unfinished uploads")
+        return files
+
+    async def handle_agent_file(self, profile_id: str, path: Path, caption: str = "",
+                                name: Optional[str] = None, mime: Optional[str] = None) -> int:
+        """A file from the agent: a copy is kept and sent to every phone; returns its seq."""
+        if self.gateway is None or self.gateway.files is None:
+            raise RuntimeError("Lekora is not running")
+        files = self.gateway.files
+        described = await asyncio.to_thread(files.add_agent_file, profile_id, Path(path), name, mime)
+        return await self.gateway.publish_files(profile_id, [described], caption or "")
 
     def _models_service(self):
         """Model picker details: OpenRouter's catalog (cached next to lekora.db) and routing."""

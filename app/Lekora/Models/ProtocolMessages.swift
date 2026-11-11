@@ -166,10 +166,51 @@ public struct HelloAckData: Codable, Equatable {
 // MARK: - Walking Skeleton Chat Payloads
 public struct ChatSendData: Codable, Equatable {
     public let text: String
+    /// Uploaded files sent with the message (docs/files.md).
+    public let files: [String]?
 
-    public init(text: String) {
+    public init(text: String, files: [String]? = nil) {
         self.text = text
+        self.files = files
     }
+}
+
+// MARK: - Files (docs/files.md)
+
+/// A photo or file in a message, kept on the Hermes instance.
+public struct ChatFile: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public let file_id: String
+    public let name: String
+    public let mime: String
+    public let size: Int
+    /// image | video | audio | document
+    public let kind: String
+
+    public var id: String { file_id }
+    public var isImage: Bool { kind == "image" }
+
+    public init(file_id: String, name: String, mime: String, size: Int, kind: String) {
+        self.file_id = file_id
+        self.name = name
+        self.mime = mime
+        self.size = size
+        self.kind = kind
+    }
+}
+
+struct FileUploadBeginData: Codable { let name: String; let mime: String; let size: Int }
+struct FileUploadBeginResult: Codable { let file_id: String; let chunk_size: Int }
+struct FileUploadChunkData: Codable { let file_id: String; let offset: Int; let data: String }
+struct FileUploadChunkResult: Codable { let file_id: String; let received: Int }
+struct FileIdData: Codable { let file_id: String }
+struct FileUploadEndResult: Codable { let file: ChatFile }
+struct FileReadData: Codable { let file_id: String; let offset: Int }
+struct FileReadResult: Codable { let file_id: String; let offset: Int; let data: String; let size: Int; let done: Bool }
+
+/// Space the files take on a Hermes instance.
+public struct FilesUsage: Codable, Equatable, Sendable {
+    public let bytes: Int
+    public let count: Int
 }
 
 public struct ChatMessageData: Codable, Equatable {
@@ -186,9 +227,13 @@ public struct ChatMessageData: Codable, Equatable {
     public let at: String?
     /// An approval or question card (docs/prompts.md).
     public let card: PromptCard?
+    /// Photos and files with the message (docs/files.md).
+    public let files: [ChatFile]?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
-                rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil) {
+                rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
+                files: [ChatFile]? = nil) {
+        self.files = files
         self.seq = seq
         self.role = role
         self.text = text

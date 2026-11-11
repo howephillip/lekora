@@ -96,19 +96,23 @@ public struct LKComposer: View {
     private let canSend: Bool
     private let onSend: () -> Void
     private var focus: FocusState<Bool>.Binding
+    /// Before the text field, e.g. the + for photos and files (docs/files.md).
+    private let accessory: AnyView?
 
     public init(_ placeholder: String, text: Binding<String>, canSend: Bool,
-                focus: FocusState<Bool>.Binding, onSend: @escaping () -> Void) {
+                focus: FocusState<Bool>.Binding, accessory: AnyView? = nil, onSend: @escaping () -> Void) {
         self.placeholder = placeholder
         self._text = text
         self.canSend = canSend
         self.focus = focus
+        self.accessory = accessory
         self.onSend = onSend
     }
 
     public var body: some View {
         GlassEffectContainer(spacing: LK.Spacing.sm) {
             HStack(alignment: .bottom, spacing: LK.Spacing.sm) {
+                if let accessory { accessory }
                 LKTextField(placeholder, text: $text, style: .glass, axis: .vertical)
                     .focused(focus)
 

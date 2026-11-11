@@ -35,6 +35,22 @@ final class FakeHost: @unchecked Sendable {
     /// The routing saved by models.routing.set (docs/model-picker.md).
     var routing: [String: Any] = ["mode": "balanced", "hosts": []]
 
+    /// Files (docs/files.md): what was uploaded, by id; pieces of this size.
+    var storedFiles: [String: (meta: [String: Any], data: Data)] = [:]
+    var fileChunk = 4
+    var failUploads = false
+    /// The file ids each chat.send carried.
+    var sentFiles: [[String]] = []
+
+    /// Adds a file as if the agent had sent it.
+    func storeFile(_ data: Data, name: String, mime: String) -> [String: Any] {
+        let fileId = "f_\(storedFiles.count + 1)"
+        let kind = ["image", "video", "audio"].first { mime.hasPrefix($0 + "/") } ?? "document"
+        let meta: [String: Any] = ["file_id": fileId, "name": name, "mime": mime, "size": data.count, "kind": kind]
+        storedFiles[fileId] = (meta, data)
+        return meta
+    }
+
     /// What settings.get answers (docs/chat-settings.md); settings.set changes it like Hermes would.
     var chatSettings: [String: Any] = [
         "model": ["model": "anthropic/claude-opus-5-5", "provider": "openrouter", "this_chat": false],
@@ -99,8 +115,20 @@ final class FakeHost: @unchecked Sendable {
     private func messageData(_ event: (seq: Int, role: String, text: String, profile: String)) -> [String: Any] {
         var data: [String: Any] = ["seq": event.seq, "role": event.role, "text": event.text, "rev": rev(of: event.seq)]
         if let card = cards[event.seq] { data["card"] = card }
+        if let files = messageFiles[event.seq] { data["files"] = files }
         if let messageTime { data["at"] = messageTime }
         return data
+    }
+
+    /// Files on saved messages, by seq.
+    var messageFiles: [Int: [[String: Any]]] = [:]
+
+    /// The agent sends files now.
+    func sendFiles(profile: String, files: [[String: Any]], text: String = "") {
+        let seq = (history.last?.seq ?? 0) + 1
+        history.append((seq, "assistant", text, profile))
+        messageFiles[seq] = files
+        broadcast(seq: seq)
     }
 
     /// An agent corrects a saved message (e.g. while the phone is away).
@@ -454,6 +482,55 @@ final class FakeHost: @unchecked Sendable {
                 broadcastProfiles()
             }
 
+        case "file.upload.begin":
+            let size = data["size"] as? Int ?? 0
+            guard size <= 100 * 1024 * 1024 else {
+                send(error: "FILE_TOO_LARGE", reason: "Files can be up to 100 MB", id: id, on: connection, close: false)
+                return
+            }
+            let fileId = "f_\(storedFiles.count + 1)"
+            let name = data["name"] as? String ?? "file"
+            let mime = data["mime"] as? String ?? "application/octet-stream"
+            let kind = ["image", "video", "audio"].first { mime.hasPrefix($0 + "/") } ?? "document"
+            storedFiles[fileId] = (["file_id": fileId, "name": name, "mime": mime, "size": size, "kind": kind], Data())
+            send(type: "file.upload.begin.result", id: id, data: ["file_id": fileId, "chunk_size": fileChunk], on: connection)
+
+        case "file.upload.chunk":
+            let fileId = data["file_id"] as? String ?? ""
+            if failUploads {
+                send(error: "UNAVAILABLE", reason: "Disk full", id: id, on: connection, close: false)
+                return
+            }
+            guard var stored = storedFiles[fileId], let piece = Data(base64Encoded: data["data"] as? String ?? "") else {
+                send(error: "UNKNOWN_FILE", reason: "That upload isn't here", id: id, on: connection, close: false)
+                return
+            }
+            stored.data.append(piece)
+            storedFiles[fileId] = stored
+            send(type: "file.upload.chunk.result", id: id, data: ["file_id": fileId, "received": stored.data.count], on: connection)
+
+        case "file.upload.end":
+            let fileId = data["file_id"] as? String ?? ""
+            guard let stored = storedFiles[fileId] else { return }
+            send(type: "file.upload.end.result", id: id, data: ["file": stored.meta], on: connection)
+
+        case "file.read":
+            let fileId = data["file_id"] as? String ?? ""
+            let offset = data["offset"] as? Int ?? 0
+            guard let stored = storedFiles[fileId] else {
+                send(error: "UNKNOWN_FILE", reason: "That file isn't here", id: id, on: connection, close: false)
+                return
+            }
+            let end = min(offset + fileChunk, stored.data.count)
+            let piece = stored.data.subdata(in: offset..<end)
+            send(type: "file.read.result", id: id, data: [
+                "file_id": fileId, "offset": offset, "data": piece.base64EncodedString(),
+                "size": stored.data.count, "done": end >= stored.data.count], on: connection)
+
+        case "files.usage":
+            send(type: "files.usage.result", id: id, data: [
+                "bytes": storedFiles.values.reduce(0) { $0 + $1.data.count }, "count": storedFiles.count], on: connection)
+
         case "chat.send":
             // Like the plugin: unknown agents are rejected; replies come from the agent addressed.
             let profile = message["profile_id"] as? String ?? ""
@@ -469,6 +546,10 @@ final class FakeHost: @unchecked Sendable {
             // Like the plugin: the sender gets its own message back with its seq and client_id.
             var echo = messageData(history[history.count - 2])
             if let id { echo["client_id"] = id }
+            if let ids = data["files"] as? [String] {
+                echo["files"] = ids.compactMap { storedFiles[$0]?.meta }
+                sentFiles.append(ids)
+            }
             send(type: "chat.message", data: echo, profileId: profile, on: connection)
             send(type: "chat.message", data: messageData(history[history.count - 1]),
                  profileId: profile, on: connection)

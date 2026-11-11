@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import QuickLook
 
 /// A chat with one agent, opened from the agents list (docs/agents-home.md).
 public struct WalkingSkeletonPingView: View {
@@ -32,6 +34,17 @@ public struct WalkingSkeletonPingView: View {
     @State private var composerID = 0
     /// Chat Settings sheet, opened by tapping the agent at the top.
     @State private var showingSettings = false
+    // Photos and files (docs/files.md).
+    @State private var attachments: [LKPendingAttachment] = []
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var choosingPhotos = false
+    @State private var choosingFiles = false
+    @State private var takingPhoto = false
+    @State private var uploading = false
+    @State private var attachmentProblem: String?
+    /// The file shown in Quick Look, and the one being fetched to show.
+    @State private var previewURL: URL?
+    @State private var openingFile: String?
 
     /// Agents on your other computers with unread replies (docs/multiple-instances.md).
     private let unreadElsewhere: Int
@@ -81,7 +94,8 @@ public struct WalkingSkeletonPingView: View {
     }
 
     private var canSend: Bool {
-        isConnected && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isConnected && !uploading
+            && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
     }
 
     private var isConnected: Bool {
@@ -130,8 +144,14 @@ public struct WalkingSkeletonPingView: View {
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
+                    if !attachments.isEmpty {
+                        LKAttachmentStrip(attachments) { removed in
+                            attachments.removeAll { $0.id == removed.id }
+                        }
+                        .disabled(uploading)
+                    }
                     LKComposer("Message \(profileName)", text: $draft, canSend: canSend,
-                               focus: $inputFocused, onSend: send)
+                               focus: $inputFocused, accessory: AnyView(attachMenu), onSend: send)
                         .id(composerID)
                 }
                 .animation(.easeOut(duration: 0.15), value: draft.hasPrefix("/"))
@@ -198,6 +218,155 @@ public struct WalkingSkeletonPingView: View {
             }
             .onDisappear { isOnScreen = false; updateVisibility() }
             .onChange(of: scenePhase) { _, _ in updateVisibility() }
+            .photosPicker(isPresented: $choosingPhotos, selection: $photoItems,
+                          maxSelectionCount: max(GatewayClient.maxFilesPerMessage - attachments.count, 1),
+                          matching: .any(of: [.images, .videos]))
+            .onChange(of: photoItems) { _, items in
+                guard !items.isEmpty else { return }
+                photoItems = []
+                Task {
+                    for (index, item) in items.enumerated() {
+                        do { addAttachment(try await AttachmentImport.fromPhotos(item, index: index)) }
+                        catch { attachmentProblem = error.localizedDescription }
+                    }
+                }
+            }
+            .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                switch result {
+                case .success(let urls):
+                    for url in urls {
+                        do { addAttachment(try AttachmentImport.fromFile(url)) }
+                        catch { attachmentProblem = error.localizedDescription }
+                    }
+                case .failure(let error):
+                    attachmentProblem = error.localizedDescription
+                }
+            }
+            #if os(iOS)
+            .fullScreenCover(isPresented: $takingPhoto) {
+                CameraPicker { image in
+                    do { addAttachment(try AttachmentImport.fromCamera(image)) }
+                    catch { attachmentProblem = error.localizedDescription }
+                }
+                .ignoresSafeArea()
+            }
+            #endif
+            .quickLookPreview($previewURL)
+            .alert("Can't attach that", isPresented: Binding(get: { attachmentProblem != nil },
+                                                            set: { if !$0 { attachmentProblem = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(attachmentProblem ?? "")
+            }
+    }
+
+    // MARK: - Photos and files (docs/files.md)
+
+    private var attachMenu: some View {
+        Menu {
+            Button("Photo Library", systemImage: "photo.on.rectangle") { choosingPhotos = true }
+            #if os(iOS)
+            if CameraPicker.isAvailable {
+                Button("Take Photo", systemImage: "camera") { takingPhoto = true }
+            }
+            #endif
+            Button("Choose Files", systemImage: "folder") { choosingFiles = true }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 30, height: 30)
+        }
+        .menuOrder(.fixed)  // same order every time: Photo Library at the top
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .disabled(!isConnected || uploading || attachments.count >= GatewayClient.maxFilesPerMessage)
+        .accessibilityLabel("Add photos or files")
+    }
+
+    private func addAttachment(_ item: LKPendingAttachment) {
+        guard attachments.count < GatewayClient.maxFilesPerMessage else {
+            attachmentProblem = "Up to \(GatewayClient.maxFilesPerMessage) photos or files per message."
+            return
+        }
+        attachments.append(item)
+    }
+
+    /// "Sending…" / "Not delivered" under a message that is only photos or files.
+    @ViewBuilder
+    private func fileOnlyStatus(for entry: ChatEntry) -> some View {
+        switch delivery(for: entry) {
+        case .sending:
+            Text("Sending…").font(LK.Typography.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        case .failed(let reason):
+            Label("Not delivered: \(reason)", systemImage: "exclamationmark.circle")
+                .font(LK.Typography.caption).foregroundStyle(LK.Palette.danger)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        default:
+            EmptyView()
+        }
+    }
+
+    /// Opens a photo or file in Quick Look (fetching it from the instance first if needed).
+    private func openFile(_ file: ChatFile) {
+        if let cached = gateway.cachedFileURL(file) {
+            previewURL = cached
+            return
+        }
+        openingFile = file.file_id
+        Task {
+            defer { openingFile = nil }
+            do {
+                previewURL = try await gateway.fileURL(for: file)
+            } catch {
+                attachmentProblem = "Couldn't open \(file.name): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Uploads every attachment (keeping the text until they're all there), then sends.
+    private func sendWithAttachments(_ text: String) {
+        uploading = true
+        let profileId = gateway.activeProfileId
+        Task {
+            defer { uploading = false }
+            var sent: [ChatFile] = []
+            for index in attachments.indices {
+                if let done = attachments[index].uploaded {
+                    sent.append(done)
+                    continue
+                }
+                attachments[index].failure = nil
+                attachments[index].progress = 0
+                let item = attachments[index]
+                do {
+                    let file = try await gateway.uploadFile(at: item.url, name: item.name, mime: item.mime, to: profileId) { value in
+                        Task { @MainActor in
+                            if let i = attachments.firstIndex(where: { $0.id == item.id }) { attachments[i].progress = value }
+                        }
+                    }
+                    if let i = attachments.firstIndex(where: { $0.id == item.id }) { attachments[i].uploaded = file }
+                    sent.append(file)
+                } catch {
+                    if let i = attachments.firstIndex(where: { $0.id == item.id }) {
+                        attachments[i].failure = error.localizedDescription
+                        attachments[i].progress = nil
+                    }
+                    attachmentProblem = "\(item.name) didn't upload: \(error.localizedDescription). Tap send to try again."
+                    return
+                }
+            }
+            for item in attachments { try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent()) }
+            attachments = []
+            if draft == text {
+                draft = ""
+                gateway.drafts[profileId] = nil
+                composerID += 1
+            }
+            isAtBottom = true
+            scrollToBottom(animated: true)
+            await gateway.sendMessage(text, files: sent)
+        }
     }
 
     private func updateVisibility() {
@@ -241,20 +410,30 @@ public struct WalkingSkeletonPingView: View {
                         } else if let card = entry.card {
                             LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
                         } else {
-                            LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
-                                            delivery: delivery(for: entry))
-                                .offset(x: -timeReveal)
-                                .overlay(alignment: .trailing) {
-                                    if let date = entry.date {
-                                        Text(date.formatted(date: .omitted, time: .shortened))
-                                            .font(LK.Typography.caption)
-                                            .foregroundStyle(.secondary)
-                                            .fixedSize()
-                                            .offset(x: Self.timeRevealWidth - timeReveal)
-                                            .opacity(timeReveal / Self.timeRevealWidth)
-                                            .accessibilityHidden(true)
+                            if let files = entry.files, !files.isEmpty {
+                                LKMessageFiles(files, fromUser: entry.role == .user, opening: openingFile,
+                                               load: { file in try? await gateway.fileURL(for: file) },
+                                               open: openFile)
+                                    .offset(x: -timeReveal)
+                            }
+                            if entry.files?.isEmpty == false && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                fileOnlyStatus(for: entry)  // just photos or files: no empty text bubble
+                            } else {
+                                LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
+                                                delivery: delivery(for: entry))
+                                    .offset(x: -timeReveal)
+                                    .overlay(alignment: .trailing) {
+                                        if let date = entry.date {
+                                            Text(date.formatted(date: .omitted, time: .shortened))
+                                                .font(LK.Typography.caption)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize()
+                                                .offset(x: Self.timeRevealWidth - timeReveal)
+                                                .opacity(timeReveal / Self.timeRevealWidth)
+                                                .accessibilityHidden(true)
+                                        }
                                     }
-                                }
+                            }
                         }
                     }
                     .id(entry.id)
@@ -441,6 +620,10 @@ public struct WalkingSkeletonPingView: View {
 
     private func send() {
         guard canSend else { return }
+        if !attachments.isEmpty {
+            sendWithAttachments(draft)
+            return
+        }
         let text = draft
         draft = ""
         gateway.drafts[gateway.activeProfileId] = nil

@@ -365,3 +365,15 @@ Plain requests with `profile_id` set, each answered with `<type>.result` (same `
   - Answer: `instance.rename.result` `{instance_name}`.
   - Errors: `INVALID_NAME`.
 - `instance.changed` (Host -> Client): `{instance_name}`, sent to the other connected phones after a rename.
+
+## 11. Files (Phase 3; spec: `files.md`)
+A file: `{file_id, name, mime, size, kind: image|video|audio|document}`.
+- `chat.message` may carry `files: [file…]` (text may then be empty).
+- `chat.send` accepts `files: [file_id…]` (max 10, uploaded to the same agent; `text` may be empty when files are given).
+- Upload (Client -> Host, `profile_id` set), each answered with `<type>.result`:
+  - `file.upload.begin` `{name, mime, size}` → `{file_id, chunk_size}`.
+  - `file.upload.chunk` `{file_id, offset, data}` (base64, at most `chunk_size` bytes, in order) → `{file_id, received}`.
+  - `file.upload.end` `{file_id}` → `{file}`.
+- `file.read` `{file_id, offset}` → `{file_id, offset, data, size, done}` (up to 384 KB per answer).
+- `files.usage` `{}` → `{bytes, count}`.
+- Errors: `FILE_TOO_LARGE` (over 100 MB), `UNKNOWN_FILE`, `INVALID_FILE` (bad offset, size mismatch, too many files).

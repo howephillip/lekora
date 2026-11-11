@@ -35,6 +35,6 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Lekora uses the camera only to scan the pairing QR code shown on your Hermes computer.</string>
+	<string>Lekora uses the camera to scan the pairing QR code on your Hermes computer, and to take photos you send to your agents.</string>
 </dict>
 </plist>

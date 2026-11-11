@@ -13,6 +13,7 @@ Hermes confirms the delete.
 from __future__ import annotations
 
 import asyncio
+import logging
 import json
 import os
 import re
@@ -32,6 +33,9 @@ BACKUP_DIR = Path("lekora-backups") / "profiles"
 
 # (args) -> (exit code, combined output)
 RunCli = Callable[[Sequence[str]], Awaitable[tuple[int, str]]]
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProfileAdminError(Exception):
@@ -81,10 +85,13 @@ def _last_line(output: str) -> str:
 class ProfileAdmin:
     def __init__(self, store: Store, hermes_root: Callable[[], Path],
                  run_cli: RunCli = run_hermes_cli,
+                 move_files: Optional[Callable[[str, Path], None]] = None,
                  clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
         self._store = store
         self._root = hermes_root
         self._run = run_cli
+        # Moves a deleted agent's Lekora files into its backup (docs/files.md).
+        self._move_files = move_files
         self._clock = clock
         self._lock = asyncio.Lock()
 
@@ -149,4 +156,9 @@ class ProfileAdmin:
                 raise ProfileAdminError("PROFILE_OP_FAILED",
                                         f"Hermes could not delete the agent (backup kept): {_last_line(output)}")
             self._store.delete_profile_events(profile_id)
+            if self._move_files is not None:
+                try:
+                    self._move_files(profile_id, backups / f"{profile_id}-{stamp}-lekora-files")
+                except OSError as exc:  # the agent is gone; its files stay where they were
+                    logger.warning("Lekora: couldn't move %s's files into the backup: %s", profile_id, exc)
             return str(archive.relative_to(root))

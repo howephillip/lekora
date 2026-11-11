@@ -7,7 +7,16 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Next: Phase 3, files both ways** (plan awaiting your approval).
+**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is built**, waiting for your phone check.
+
+## Ready for your phone check: files both ways (spec: `docs/files.md`)
+- **What it does:** a **+** next to the message box: Photo Library (up to 10), Take Photo, Choose Files. Attachments show as small previews (× to remove) and upload with a progress ring; then the message is sent. Photos show as pictures in the chat, other files as a row with icon, name and size; tap any to open Apple's preview (zoom, read, play, share or save). Agents send files back two ways: Hermes' own file sending (e.g. generated images) and a real `lekora_send_file` tool offered only in Lekora chats. The instance page shows "Files: 11.2 MB · 5 files".
+- **Your choices (2026-11-10):** files kept forever on the instance (`<Hermes>/lekora-files/`), 100 MB per file, voice notes in Phase 4. Deleting an agent moves its files into that agent's backup, next to its chats.
+- **How:** files go to Hermes the way Telegram's do (Hermes' own media cache), so Hermes handles photos (vision), small text files (read directly) and other documents as usual. iPhone HEIC photos are sent as JPEG.
+- **Checked:** plugin 309 tests (14 new), app 159 (6 new); in the simulator with the real plugin and a stand-in Hermes: photo with text and back, PDF from the agent opened in the preview, two photos with one removed, photo-only messages, agents list preview, storage line. Fixed from that: photos ran a few points off the screen edge.
+- **Not yet checked with real Hermes:** that its vision model sees your photo, and that the agent uses `lekora_send_file`. That's your phone test.
+- **Please check on the phone:** in the + menu, "Choose Files" (the bottom item) ignored the simulator's taps; Photo Library and Take Photo worked. Likely a simulator quirk.
+- **Needs from you:** `hermes plugins update lekora` and restart Hermes on each instance.
 
 ## Done: multiple Hermes instances (spec: `docs/multiple-instances.md`)
 ✅ Confirmed on your iPhone 2026-11-10 with the Pi and omacron (you'll do deeper testing later; anything found gets fixed as a follow-up). Since then the app says "Hermes instance" instead of "computer" everywhere in this feature (your request).
