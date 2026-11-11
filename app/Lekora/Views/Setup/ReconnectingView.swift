@@ -60,7 +60,7 @@ public struct ReconnectingView: View {
 
             Spacer()
 
-            LKSecondaryButton("Forget Host", systemImage: "xmark.circle", role: .destructive) {
+            LKSecondaryButton("Forget This Computer", systemImage: "xmark.circle", role: .destructive) {
                 confirmingForget = true
             }
         }
@@ -72,15 +72,16 @@ public struct ReconnectingView: View {
             isPresented: $confirmingForget,
             titleVisibility: .visible
         ) {
-            Button("Forget Host", role: .destructive) {
+            Button("Disconnect and Forget", role: .destructive) {
                 Task { await gateway.forgetHost() }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This phone will stop connecting to it and ask the host to remove it from its device list. To connect again you'll need a new pairing code from the Hermes machine.")
+            Text("This phone will stop connecting to it and ask it to remove this phone from its device list. To connect again you'll need a new pairing code from that computer.")
         }
         .overlay {
             if gateway.isForgetting {
-                LKBlockingProgress("Forgetting host…")
+                LKBlockingProgress("Forgetting \(host.instanceName)…")
             }
         }
     }

@@ -54,7 +54,7 @@ final class AgentSwitchingTests: XCTestCase {
         let gateway = await pairedGateway(store)
         XCTAssertFalse(gateway.needsProfileChoice)
         XCTAssertEqual(gateway.enabledProfiles.map(\.profile_id), ["default"])
-        XCTAssertEqual(store.values["enabled_profiles"], "default")
+        XCTAssertEqual(store.values["host.\(host.instanceId).enabled_profiles"], "default")
     }
 
     func testChoiceKeepsHostOrderAndIsSavedForNextLaunch() async {
@@ -139,7 +139,7 @@ final class AgentSwitchingTests: XCTestCase {
 
         XCTAssertEqual(gateway.enabledProfiles.map(\.profile_id), ["work"])
         XCTAssertEqual(gateway.activeProfileId, "work")
-        XCTAssertEqual(store.values["enabled_profiles"], "work")
+        XCTAssertEqual(store.values["host.\(host.instanceId).enabled_profiles"], "work")
     }
 
     func testAllChosenAgentsDeletedAsksAgain() async {
@@ -187,8 +187,8 @@ final class AgentSwitchingTests: XCTestCase {
 
         await gateway.forgetHost()
 
-        XCTAssertNil(store.values["enabled_profiles"])
-        XCTAssertNil(store.values["active_profile"])
+        XCTAssertNil(store.values["host.\(host.instanceId).enabled_profiles"])
+        XCTAssertNil(store.values["host.\(host.instanceId).active_profile"])
     }
 
     // MARK: - Protocol

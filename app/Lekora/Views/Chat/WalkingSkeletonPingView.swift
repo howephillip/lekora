@@ -33,11 +33,23 @@ public struct WalkingSkeletonPingView: View {
     /// Chat Settings sheet, opened by tapping the agent at the top.
     @State private var showingSettings = false
 
-    public init(gateway: GatewayClient, instanceName: String, profileName: String) {
+    /// Agents on your other computers with unread replies (docs/multiple-computers.md).
+    private let unreadElsewhere: Int
+
+    /// The computer's name in the header, once there are several (docs/multiple-computers.md).
+    private let computerName: String?
+
+    public init(gateway: GatewayClient, instanceName: String, profileName: String, unreadElsewhere: Int = 0,
+                computerName: String? = nil) {
         self.gateway = gateway
         self.instanceName = instanceName
         self.fallbackProfileName = profileName
+        self.unreadElsewhere = unreadElsewhere
+        self.computerName = computerName
     }
+
+    /// How many other agents have unread replies (the count by the back button).
+    private var unreadOthers: Int { gateway.otherAgentsWithUnread + unreadElsewhere }
 
     private var messages: [ChatEntry] {
         gateway.timeline.entries(for: gateway.activeProfileId)
@@ -130,7 +142,7 @@ public struct WalkingSkeletonPingView: View {
             .toolbar {
                 // Next to the standard back button (which keeps the swipe-back gestures):
                 // how many other agents have unread replies — docs/agents-home.md.
-                if gateway.otherAgentsWithUnread > 0 {
+                if unreadOthers > 0 {
                     ToolbarItem(placement: .topBarLeading) {
                         unreadBadge
                     }
@@ -146,7 +158,7 @@ public struct WalkingSkeletonPingView: View {
                 }
                 ToolbarItem(placement: .title) {
                     Button { showingSettings = true } label: {
-                        ChatHeaderTitle(gateway: gateway, profileName: profileName, connection: subtitle,
+                        ChatHeaderTitle(gateway: gateway, profileName: profileName, computer: computerName, connection: subtitle,
                                         working: activity != nil)
                     }
                     .buttonStyle(.plain)
@@ -193,7 +205,7 @@ public struct WalkingSkeletonPingView: View {
     }
 
     private var unreadBadge: some View {
-        Text("\(gateway.otherAgentsWithUnread)")
+        Text("\(unreadOthers)")
             .font(LK.Typography.captionStrong)
             .foregroundStyle(LK.Palette.onAccent)
             .padding(.horizontal, 7)

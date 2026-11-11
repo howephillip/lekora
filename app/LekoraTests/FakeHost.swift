@@ -5,8 +5,11 @@ import Network
 /// A tiny local WebSocket server that answers like the Lekora host plugin
 /// (pair.request, hello, chat.send), for testing the app's connection flow.
 final class FakeHost: @unchecked Sendable {
-    let instanceId = "inst_test"
-    let instanceName = "Test Host"
+    let instanceId: String
+    /// The computer's name; `instance.rename` changes it (docs/multiple-computers.md).
+    var instanceName: String
+    /// Sends everything as if from this other computer (to check the app ignores it).
+    var pretendInstanceId: String?
     let validPairingToken = "pair_ok"
     let acceptedDeviceToken = "tok_good"
     /// The agents (Hermes profiles) this host offers, in order.
@@ -55,6 +58,15 @@ final class FakeHost: @unchecked Sendable {
     var respondStatusOverride: String?
 
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+
+    /// The agent says something now.
+    @discardableResult
+    func say(profile: String, text: String) -> Int {
+        let seq = (history.last?.seq ?? 0) + 1
+        history.append((seq, "assistant", text, profile))
+        broadcast(seq: seq)
+        return seq
+    }
 
     /// An agent asks for permission (an approval card) or asks a question.
     @discardableResult
@@ -154,6 +166,13 @@ final class FakeHost: @unchecked Sendable {
     }
 
     /// Like the plugin's `profiles.changed`: every live connection hears about agent changes.
+    /// Renamed from another phone: tell every connected phone.
+    func renameElsewhere(_ name: String) {
+        instanceName = name
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open { send(type: "instance.changed", data: ["instance_name": name], on: connection) }
+    }
+
     func broadcastProfiles() {
         lock.lock(); let open = connections; lock.unlock()
         for connection in open where connection.state == .ready {
@@ -173,7 +192,9 @@ final class FakeHost: @unchecked Sendable {
         received.filter { $0["type"] as? String == type }
     }
 
-    init() throws {
+    init(instanceId: String = "inst_test", instanceName: String = "Test Host") throws {
+        self.instanceId = instanceId
+        self.instanceName = instanceName
         let parameters = NWParameters.tcp
         let webSocket = NWProtocolWebSocket.Options()
         webSocket.autoReplyPing = true  // the app's route probe is a WebSocket ping
@@ -309,6 +330,10 @@ final class FakeHost: @unchecked Sendable {
             reply["backup"] = "/home/x/.hermes/lekora-backups/config/bruce/config.yaml.20261109-120000"
             send(type: "models.routing.set.result", id: id, data: reply,
                  profileId: message["profile_id"] as? String, on: connection)
+
+        case "instance.rename":
+            instanceName = data["name"] as? String ?? instanceName
+            send(type: "instance.rename.result", id: id, data: ["instance_name": instanceName], on: connection)
 
         case "settings.get":
             send(type: "settings.get.result", id: id, data: chatSettings,
@@ -456,7 +481,7 @@ final class FakeHost: @unchecked Sendable {
     private func send(type: String, id: String? = nil, data: [String: Any], profileId: String? = nil, on connection: NWConnection) {
         var envelope: [String: Any] = [
             "v": 1, "id": id ?? UUID().uuidString, "type": type,
-            "instance_id": instanceId, "ts": "2026-11-07T21:05:00Z", "data": data,
+            "instance_id": pretendInstanceId ?? instanceId, "ts": "2026-11-07T21:05:00Z", "data": data,
         ]
         if let profileId { envelope["profile_id"] = profileId }
         guard let body = try? JSONSerialization.data(withJSONObject: envelope) else { return }

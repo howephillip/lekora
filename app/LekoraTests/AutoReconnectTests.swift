@@ -137,7 +137,7 @@ final class AutoReconnectTests: XCTestCase {
         await gateway.resumeSavedSession()
 
         XCTAssertNotNil(gateway.savedHost)
-        XCTAssertEqual(store.values["device_token"], host.acceptedDeviceToken)
+        XCTAssertEqual(store.values["host.\(host.instanceId).device_token"], host.acceptedDeviceToken)
         guard case .error(let message) = gateway.state else {
             return XCTFail("expected an error, got \(gateway.state)")
         }

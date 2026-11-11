@@ -34,6 +34,8 @@ public struct EnvelopeHeader: Codable {
     public let type: String
     public let id: String
     public let profile_id: String?
+    /// The computer it came from; a message for another computer is ignored.
+    public let instance_id: String?
 }
 
 // MARK: - Pairing Payloads
@@ -696,6 +698,11 @@ public struct ProfileDeleteAckData: Codable, Equatable {
 }
 
 /// Broadcast to every phone when agents are created or deleted.
+/// `instance.rename` (Client -> Host) and its result / `instance.changed` (Host -> Client)
+/// (docs/multiple-computers.md).
+struct InstanceRenameData: Codable { let name: String }
+public struct InstanceNameData: Codable, Equatable { public let instance_name: String }
+
 public struct ProfilesChangedData: Codable, Equatable {
     public let profiles: [ProfileData]
 }

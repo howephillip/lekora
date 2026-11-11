@@ -356,3 +356,12 @@ Plain requests with `profile_id` set, each answered with `<type>.result` (same `
   - Sent: `{action: new|compress|undo|retry}`.
   - Answer: `{action, command}`.
 - Errors: `INVALID_SETTING`.
+
+## 10. Several computers (Phase 2; spec: `multiple-computers.md`)
+- Each computer is its own connection; every envelope's `instance_id` says which computer it's from. The app ignores envelopes whose `instance_id` isn't the connection's.
+- `hello.ack` / `pair.response` `instance_name`: the name chosen in the app, else the `instance_name` plugin setting, else the machine's network name.
+- `instance.rename` (Client -> Host)
+  - Sent: `{name}` (1–40 characters, spaces collapsed).
+  - Answer: `instance.rename.result` `{instance_name}`.
+  - Errors: `INVALID_NAME`.
+- `instance.changed` (Host -> Client): `{instance_name}`, sent to the other connected phones after a rename.

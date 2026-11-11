@@ -85,20 +85,36 @@ public final class GatewayClient: ObservableObject {
     private let cacheStore: ChatCacheStore?
     private var cacheSaveTask: Task<Void, Never>?
 
+    /// Which paired computer a client is for (docs/multiple-computers.md).
+    public enum Start {
+        /// The first paired computer (one-computer code and tests).
+        case firstSaved
+        /// This paired computer.
+        case saved(SavedHost)
+        /// None yet: for pairing a new computer.
+        case fresh
+    }
+
     public init(
         keychain: CredentialStore = KeychainManager.shared,
         requireTLS: Bool = true,
         sessionFactory: @escaping (String?) -> URLSession = { PinnedSession.make(pin: $0) },
-        cacheStore: ChatCacheStore? = nil
+        cacheStore: ChatCacheStore? = nil,
+        start: Start = .firstSaved
     ) {
         self.keychain = keychain
         self.requireTLS = requireTLS
         self.sessionFactory = sessionFactory
         self.cacheStore = cacheStore
-        let saved = SavedHost.load(from: keychain)
+        let saved: SavedHost?
+        switch start {
+        case .firstSaved: saved = SavedHost.load(from: keychain)
+        case .saved(let host): saved = host
+        case .fresh: saved = nil
+        }
         if requireTLS, let saved, saved.certPin == nil {
             // Paired before connections were encrypted: that pairing can't be used any more.
-            SavedHost.clear(from: keychain)
+            SavedHost.clear(instanceId: saved.instanceId, from: keychain)
             self.savedHost = nil
             self.state = .error("Lekora now encrypts the connection to \(saved.instanceName), so this iPhone needs to pair again. On your Hermes computer, run hermes lekora pair and scan the new code.")
         } else {
@@ -165,10 +181,17 @@ public final class GatewayClient: ObservableObject {
         enabledProfiles.filter { $0.profile_id != activeProfileId && hasUnread($0.profile_id) }.count
     }
 
-    /// Each agent's avatar colours, unique among the host's agents.
+    /// Each agent's avatar colours, unique among the host's agents (and, while there are
+    /// colours left, different from the agents of computers paired earlier).
     public var avatarPalettes: [String: Int] {
-        LKAgentLook.assignPalettes(profiles.map(\.profile_id))
+        LKAgentLook.assignPalettes(profiles.map(\.profile_id), avoiding: palettesTakenElsewhere())
     }
+
+    /// Called once pairing succeeded and the computer is saved (`HostsModel` adds it).
+    var onPaired: ((GatewayClient) -> Void)?
+
+    /// Colours used by the agents of computers paired before this one (set by `HostsModel`).
+    var palettesTakenElsewhere: () -> Set<Int> = { [] }
 
     /// Unsent text per agent, kept while switching between chats (as Messages does).
     public var drafts: [String: String] = [:]
@@ -185,6 +208,12 @@ public final class GatewayClient: ObservableObject {
             let right = newest[b.element.profile_id] ?? Int.min
             return left != right ? left > right : a.offset < b.offset
         }.map(\.element)
+    }
+
+    /// When an agent's chat last changed, for ordering agents across computers (seq numbers
+    /// are per computer). An unsent message counts as now; nil = no dated messages.
+    public func newestActivity(for profileId: String) -> Date? {
+        timeline.entries(for: profileId).compactMap { $0.seq == nil ? Date() : $0.date }.max()
     }
 
     /// The chat screen tells the client when it's on screen with the app in front.
@@ -477,7 +506,11 @@ public final class GatewayClient: ObservableObject {
         // A new pairing replaces whatever this phone was connected to before, and starts
         // from the host's copy of the chats.
         closeSocket()
-        if let old = savedHost { cacheStore?.delete(instanceId: old.instanceId) }
+        if let old = savedHost {
+            cacheStore?.delete(instanceId: old.instanceId)
+            if old.instanceId != instanceId { SavedHost.clear(instanceId: old.instanceId, from: keychain) }
+            savedHost = nil
+        }
         cacheStore?.delete(instanceId: instanceId)
         resetSessionData()
         state = .probing
@@ -520,6 +553,7 @@ public final class GatewayClient: ObservableObject {
             )
             try host.save(to: keychain)
             savedHost = host
+            onPaired?(self)
 
             await completeSessionHandshake(wsTask: wsTask, host: host)
         } catch {
@@ -578,6 +612,7 @@ public final class GatewayClient: ObservableObject {
             }
 
             self.profiles = ack.profiles
+            applyInstanceName(ack.instance_name)
             reconcileProfileChoice()
             // Live bubbles from before the reconnect are previews; the replay is the truth.
             timeline.dropUnfinishedReplies()
@@ -689,8 +724,10 @@ public final class GatewayClient: ObservableObject {
     /// Clears the saved host and everything shown for it, without contacting the host.
     private func forgetLocally() {
         closeSocket()
-        if let host = savedHost { cacheStore?.delete(instanceId: host.instanceId) }
-        SavedHost.clear(from: keychain)
+        if let host = savedHost {
+            cacheStore?.delete(instanceId: host.instanceId)
+            SavedHost.clear(instanceId: host.instanceId, from: keychain)
+        }
         savedHost = nil
         resetSessionData()
         state = .disconnected
@@ -933,7 +970,14 @@ public final class GatewayClient: ObservableObject {
             return
         }
 
+        // Each computer has its own connection: anything addressed to another one is ignored.
+        if let from = header.instance_id, let host = savedHost, from != host.instanceId { return }
+
         switch header.type {
+        case "instance.changed":
+            // Renamed from another phone.
+            guard let envelope = try? decoder.decode(Envelope<InstanceNameData>.self, from: data) else { return }
+            applyInstanceName(envelope.data.instance_name)
         case "profiles.changed":
             guard let envelope = try? decoder.decode(Envelope<ProfilesChangedData>.self, from: data) else { return }
             applyProfiles(envelope.data.profiles)
@@ -1034,6 +1078,32 @@ public final class GatewayClient: ObservableObject {
         heartbeatTimer?.invalidate()
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
+    }
+
+    /// Stops this client for good without forgetting anything (its computer was paired
+    /// again on a new client).
+    public func shutDown() {
+        cacheSaveTask?.cancel()
+        cacheSaveTask = nil
+        closeSocket()
+        state = .disconnected
+    }
+
+    // MARK: - The computer's name (docs/multiple-computers.md)
+
+    /// Renames the computer on the host, so every phone sees the new name.
+    public func renameInstance(_ name: String) async throws {
+        let result = try await request(type: "instance.rename", profileId: nil, data: InstanceRenameData(name: name),
+                                       reply: InstanceNameData.self, timeout: 10)
+        applyInstanceName(result.instance_name)
+    }
+
+    private func applyInstanceName(_ name: String) {
+        guard var host = savedHost, !name.isEmpty, host.instanceName != name else { return }
+        host.instanceName = name
+        try? host.saveName(to: keychain)
+        savedHost = host
+        if case .connected(_, let profileName) = state { state = .connected(instanceName: name, profileName: profileName) }
     }
 
     /// Drops the connection but keeps the saved host, so the app can reconnect later.

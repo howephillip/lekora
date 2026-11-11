@@ -68,6 +68,13 @@ CREATE TABLE IF NOT EXISTS read_markers (
 """
 
 
+
+def machine_name() -> str:
+    """This computer's network name ("omacron", "raspberrypi"), without ".local"."""
+    import socket
+    name = socket.gethostname().split(".")[0].strip()
+    return name or "Hermes"
+
 class TokenInvalid(Exception):
     """Pairing token unknown or already used (wire code TOKEN_INVALID)."""
 
@@ -196,14 +203,25 @@ class Store:
             self._db.commit()
             return new_id
 
-    def get_instance_name(self, default: str = "Hermes") -> str:
+    def get_instance_name(self, default: Optional[str] = None) -> str:
+        """The computer's name in the app: the one chosen in the app, else the plugin
+        setting ``instance_name``, else the machine's own name (docs/multiple-computers.md)."""
         with self._lock:
-            return self._meta_get("instance_name") or default
+            chosen = self._meta_get("instance_name_user") or self._meta_get("instance_name")
+        return chosen or default or machine_name()
 
     def set_instance_name(self, name: str) -> None:
+        """From the plugin setting (applied at every start; a name chosen in the app wins)."""
         with self._lock:
             self._meta_set("instance_name", name)
             self._db.commit()
+
+    def rename_instance(self, name: str) -> str:
+        """A name chosen in the app; kept on this computer so every phone sees it."""
+        with self._lock:
+            self._meta_set("instance_name_user", name)
+            self._db.commit()
+        return name
 
     def get_persisted_port(self) -> Optional[int]:
         with self._lock:

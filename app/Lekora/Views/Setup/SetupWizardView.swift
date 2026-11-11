@@ -2,11 +2,18 @@ import SwiftUI
 
 public struct SetupWizardView: View {
     @ObservedObject public var gateway: GatewayClient
+    /// Why the wizard is showing again (e.g. a computer no longer knows this phone).
+    public var notice: String?
+    /// Pairing another computer (from Computers), shown as a sheet with Cancel.
+    public var addingComputer = false
+    @Environment(\.dismiss) private var dismiss
     @State private var pairingCodeInput: String = ""
     @State private var showingScanner: Bool = false
 
-    public init(gateway: GatewayClient) {
+    public init(gateway: GatewayClient, notice: String? = nil, addingComputer: Bool = false) {
         self.gateway = gateway
+        self.notice = notice
+        self.addingComputer = addingComputer
     }
 
     private var isWorking: Bool {
@@ -41,6 +48,13 @@ public struct SetupWizardView: View {
             .sheet(isPresented: $showingScanner) {
                 scannerSheet
             }
+            .toolbar {
+                if addingComputer {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                }
+            }
         }
     }
 
@@ -52,9 +66,10 @@ public struct SetupWizardView: View {
                 .font(.system(size: LK.Size.heroIcon))
                 .foregroundStyle(LK.Palette.accent.gradient)
                 .padding(.bottom, LK.Spacing.xs)
-            Text("Pair with Hermes")
+            Text(addingComputer ? "Add a Computer" : "Pair with Hermes")
                 .font(LK.Typography.largeTitle)
-            Text("Connect this iPhone to the computer running Hermes.")
+            Text(addingComputer ? "Connect this iPhone to another computer running Hermes. Your other computers stay connected."
+                                : "Connect this iPhone to the computer running Hermes.")
                 .font(LK.Typography.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -134,7 +149,7 @@ public struct SetupWizardView: View {
         case .error(let reason):
             LKNotice(.warning, reason)
         default:
-            EmptyView()
+            if let notice { LKNotice(.warning, notice) }
         }
     }
 

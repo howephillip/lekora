@@ -273,8 +273,10 @@ public struct LKAgentLook: Equatable {
 
     /// Colours for each of a host's agents, so no two share them (until there are more
     /// agents than colours). Same ids give the same result on every phone.
-    public static func assignPalettes(_ ids: [String]) -> [String: Int] {
-        var taken: Set<Int> = []
+    /// - avoiding: colours already used by another computer's agents (docs/multiple-computers.md),
+    ///   skipped while there are colours left.
+    public static func assignPalettes(_ ids: [String], avoiding: Set<Int> = []) -> [String: Int] {
+        var taken: Set<Int> = avoiding.count < palette.count ? avoiding : []
         var result: [String: Int] = [:]
         for id in Set(ids).sorted() {
             let preferred = Int(stableHash(id) % UInt64(palette.count))
@@ -401,10 +403,13 @@ public struct LKAgentRow: View {
         public var working: String?
         /// What it needs from you ("Needs your approval"), shown above everything else.
         public var attention: String?
+        /// The computer it's on, shown after the name once there are several (docs/multiple-computers.md).
+        public var computer: String?
 
         public init(id: String, palette: Int? = nil, name: String, preview: String, date: Date?,
-                    unread: Bool, working: String?, attention: String? = nil) {
+                    unread: Bool, working: String?, attention: String? = nil, computer: String? = nil) {
             self.attention = attention
+            self.computer = computer
             self.id = id
             self.palette = palette
             self.name = name
@@ -433,6 +438,13 @@ public struct LKAgentRow: View {
                     Text(content.name)
                         .font(LK.Typography.headline.weight(content.unread ? .bold : .semibold))
                         .lineLimit(1)
+                        .layoutPriority(1)
+                    if let computer = content.computer {
+                        Text("· \(computer)")
+                            .font(LK.Typography.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     Spacer(minLength: LK.Spacing.sm)
                     if let date = content.date {
                         Text(LKTime.listLabel(date))

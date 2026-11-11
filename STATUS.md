@@ -7,7 +7,14 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Phase 2 (complete chat) has started.**
+**Phase 2 (complete chat) has started.** All seven features are built; multiple computers is waiting for your phone check.
+
+## Ready for your phone check: multiple Hermes computers (spec: `docs/multiple-computers.md`)
+- **What it does:** pair more than one Hermes computer. "…" → **Computers…** lists them (connected or not), with **Add Computer**, **Rename…** and **Forget This Computer** for each. The agents list shows every computer's agents: **Sort by Recent** (default, with a small grey computer name after each agent once you have two) or **Group by Computer** (a section per computer), switchable in the "…" menu. + asks which computer to add an agent on; the chat header shows the computer's name.
+- **Your choices (2026-11-10):** both layouts, recent first by default; computers can be renamed, and the name is saved on the computer so every phone sees it.
+- **Also:** a computer without a name now shows its own network name (e.g. "omacron") instead of "Hermes". Your current Pi pairing moves over by itself; nothing to redo. One computer being off doesn't affect the others.
+- **Checked:** plugin 295 tests (4 new), app 153 (11 new); in the simulator with the real plugin and two stand-in computers (adding, renaming, both layouts, chats kept apart, relaunch).
+- **Needs from you:** on the Pi, `hermes plugins update lekora` and restart Hermes. On omacron, install the plugin with the one command in `docs/install.md` (it ends by showing a pairing code). Then on your phone: "…" → Computers… → Add Computer, and scan omacron's code.
 
 ## Done: per-chat settings (spec: `docs/chat-settings.md`)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-10.

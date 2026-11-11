@@ -48,6 +48,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+MAX_INSTANCE_NAME = 40
+
+
 @dataclass(eq=False)  # identity hashing: connections live in a set
 class _Conn:
     ws: ServerConnection
@@ -335,6 +338,8 @@ class Gateway:
             await self._models_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "commands.list":
             await self._commands_list(conn, msg_id, env.get("profile_id"))
+        elif type_ == "instance.rename":
+            await self._instance_rename(conn, msg_id, data)
         elif type_ == "prompt.respond":
             await self._prompt_respond(conn, msg_id, env.get("profile_id"), data)
         elif type_ in ("profile.create", "profile.delete"):
@@ -637,6 +642,21 @@ class Gateway:
         with contextlib.suppress(ConnectionClosed):
             await self._send(conn, ack)
         await self.broadcast_profiles()
+
+    async def _instance_rename(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
+        """Rename this computer as the app shows it (docs/multiple-computers.md)."""
+        name = " ".join(str(data.get("name") or "").split())
+        if not name or len(name) > MAX_INSTANCE_NAME or any(ord(c) < 32 for c in name):
+            raise _Reject("INVALID_NAME", f"Use 1 to {MAX_INSTANCE_NAME} characters", True, False, msg_id)
+        self.store.rename_instance(name)
+        await self._send(conn, self._envelope("instance.rename.result", {"instance_name": name}, msg_id=msg_id))
+        # Every other phone shows the new name straight away.
+        payload = self._envelope("instance.changed", {"instance_name": name})
+        for other in list(self._conns):
+            if other is conn or not other.authed or not self.store.is_device_active(other.device_id):
+                continue
+            with contextlib.suppress(ConnectionClosed):
+                await self._send(other, payload)
 
     async def broadcast_profiles(self) -> None:
         """Tell every connected phone the agent list changed."""

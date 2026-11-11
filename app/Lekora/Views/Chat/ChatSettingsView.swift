@@ -307,12 +307,16 @@ struct LKAutoApproveBadge: View {
 struct ChatHeaderTitle: View {
     @ObservedObject var gateway: GatewayClient
     let profileName: String
+    /// The computer it's on, once there are several.
+    let computer: String?
     /// What's happening while not connected; nil = connected (shows the model).
     let connection: String?
     let working: Bool
 
     private var subtitle: String? {
-        connection ?? gateway.chatSettings[gateway.activeProfileId]?.model?.model.components(separatedBy: "/").last
+        let detail = connection ?? gateway.chatSettings[gateway.activeProfileId]?.model?.model.components(separatedBy: "/").last
+        guard let computer else { return detail }
+        return detail.map { "\(computer) · \($0)" } ?? computer
     }
 
     private var runsWithoutAsking: Bool {
