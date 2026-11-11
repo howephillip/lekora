@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Home: your agents, like conversations in Messages; tap one to open its chat
 /// (docs/agents-home.md). With several computers, every computer's agents are here,
-/// newest conversation first or grouped by computer (docs/multiple-computers.md).
+/// newest conversation first or grouped by computer (docs/multiple-instances.md).
 public struct AgentsHomeView: View {
     /// How the list is arranged once there are several computers.
     public enum Layout: String {
@@ -52,7 +52,7 @@ public struct AgentsHomeView: View {
         if offline.count == 1 {
             return isDown(first) ? "\(name(of: first)) not connected" : "Connecting to \(name(of: first))…"
         }
-        return offline.allSatisfy(isDown) ? "\(offline.count) computers not connected" : "Connecting…"
+        return offline.allSatisfy(isDown) ? "\(offline.count) instances not connected" : "Connecting…"
     }
 
     private var connectedClients: [GatewayClient] {
@@ -113,7 +113,7 @@ public struct AgentsHomeView: View {
                 ComputersView(hosts: hosts)
             }
             // A computer just paired (e.g. from a link) whose agents haven't been chosen yet.
-            // "Add Computer" shows this itself.
+            // "Add Hermes Instance" shows this itself.
             .sheet(item: Binding(get: { showingComputers ? nil : hosts.clients.first { $0.needsProfileChoice } },
                                  set: { _ in })) { client in
                 ChooseProfilesView(gateway: client, mode: .setup)
@@ -180,7 +180,7 @@ public struct AgentsHomeView: View {
             if hosts.hasSeveral {
                 Picker("Arrange", selection: $layoutChoice) {
                     Text("Sort by Recent").tag(Layout.recent.rawValue)
-                    Text("Group by Computer").tag(Layout.byComputer.rawValue)
+                    Text("Group by Instance").tag(Layout.byComputer.rawValue)
                 }
                 .pickerStyle(.inline)
                 // No icon: with the submenu arrow it would wrap.
@@ -195,7 +195,7 @@ public struct AgentsHomeView: View {
                 }
             }
             Divider()
-            Button("Computers…", systemImage: "desktopcomputer") {
+            Button("Hermes Instances…", systemImage: "server.rack") {
                 showingComputers = true
             }
         } label: {
@@ -276,7 +276,7 @@ extension GatewayClient: Identifiable {
     public nonisolated var id: ObjectIdentifier { ObjectIdentifier(self) }
 }
 
-/// A computer's heading in "Group by Computer": its name, and whether it's connected.
+/// A Hermes instance's heading in "Group by Instance": its name, and whether it's connected.
 private struct ComputerSectionHeader: View {
     @ObservedObject var gateway: GatewayClient
 
@@ -290,7 +290,7 @@ private struct ComputerSectionHeader: View {
 
     var body: some View {
         HStack(spacing: LK.Spacing.sm) {
-            Image(systemName: "desktopcomputer")
+            Image(systemName: "server.rack")
             Text(gateway.savedHost?.instanceName ?? "Hermes")
             if let status {
                 Text("· \(status)").foregroundStyle(.secondary)

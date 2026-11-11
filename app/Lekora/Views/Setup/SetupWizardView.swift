@@ -66,9 +66,9 @@ public struct SetupWizardView: View {
                 .font(.system(size: LK.Size.heroIcon))
                 .foregroundStyle(LK.Palette.accent.gradient)
                 .padding(.bottom, LK.Spacing.xs)
-            Text(addingComputer ? "Add a Computer" : "Pair with Hermes")
+            Text(addingComputer ? "Add a Hermes Instance" : "Pair with Hermes")
                 .font(LK.Typography.largeTitle)
-            Text(addingComputer ? "Connect this iPhone to another computer running Hermes. Your other computers stay connected."
+            Text(addingComputer ? "Connect this iPhone to another Hermes instance. Your other instances stay connected."
                                 : "Connect this iPhone to the computer running Hermes.")
                 .font(LK.Typography.callout)
                 .foregroundStyle(.secondary)

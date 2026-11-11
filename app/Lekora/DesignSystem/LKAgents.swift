@@ -273,7 +273,7 @@ public struct LKAgentLook: Equatable {
 
     /// Colours for each of a host's agents, so no two share them (until there are more
     /// agents than colours). Same ids give the same result on every phone.
-    /// - avoiding: colours already used by another computer's agents (docs/multiple-computers.md),
+    /// - avoiding: colours already used by another computer's agents (docs/multiple-instances.md),
     ///   skipped while there are colours left.
     public static func assignPalettes(_ ids: [String], avoiding: Set<Int> = []) -> [String: Int] {
         var taken: Set<Int> = avoiding.count < palette.count ? avoiding : []
@@ -403,7 +403,7 @@ public struct LKAgentRow: View {
         public var working: String?
         /// What it needs from you ("Needs your approval"), shown above everything else.
         public var attention: String?
-        /// The computer it's on, shown after the name once there are several (docs/multiple-computers.md).
+        /// The computer it's on, shown after the name once there are several (docs/multiple-instances.md).
         public var computer: String?
 
         public init(id: String, palette: Int? = nil, name: String, preview: String, date: Date?,

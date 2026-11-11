@@ -10,7 +10,7 @@ public protocol CredentialStore: AnyObject {
 extension KeychainManager: CredentialStore {}
 
 /// Everything needed to reconnect to a paired host without the setup wizard.
-/// The phone can be paired with several Hermes computers (docs/multiple-computers.md):
+/// The phone can be paired with several Hermes computers (docs/multiple-instances.md):
 /// each one's details are kept under its own keys, `host.<instance id>.<field>`, and the
 /// key `hosts` lists them in the order they were paired.
 public struct SavedHost: Equatable {

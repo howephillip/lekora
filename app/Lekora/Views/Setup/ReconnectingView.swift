@@ -60,7 +60,7 @@ public struct ReconnectingView: View {
 
             Spacer()
 
-            LKSecondaryButton("Forget This Computer", systemImage: "xmark.circle", role: .destructive) {
+            LKSecondaryButton("Forget This Instance", systemImage: "xmark.circle", role: .destructive) {
                 confirmingForget = true
             }
         }
@@ -77,7 +77,7 @@ public struct ReconnectingView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This phone will stop connecting to it and ask it to remove this phone from its device list. To connect again you'll need a new pairing code from that computer.")
+            Text("This phone will stop connecting to it and ask it to remove this phone from its device list. To connect again you'll need a new pairing code from that Hermes instance.")
         }
         .overlay {
             if gateway.isForgetting {

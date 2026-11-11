@@ -33,10 +33,10 @@ public struct WalkingSkeletonPingView: View {
     /// Chat Settings sheet, opened by tapping the agent at the top.
     @State private var showingSettings = false
 
-    /// Agents on your other computers with unread replies (docs/multiple-computers.md).
+    /// Agents on your other computers with unread replies (docs/multiple-instances.md).
     private let unreadElsewhere: Int
 
-    /// The computer's name in the header, once there are several (docs/multiple-computers.md).
+    /// The computer's name in the header, once there are several (docs/multiple-instances.md).
     private let computerName: String?
 
     public init(gateway: GatewayClient, instanceName: String, profileName: String, unreadElsewhere: Int = 0,

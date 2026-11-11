@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Your paired Hermes computers: whether each is connected, add another, rename or forget
-/// one (docs/multiple-computers.md). Opened from "Computers…" on the agents list.
+/// one (docs/multiple-instances.md). Opened from "Hermes Instances…" on the agents list.
 struct ComputersView: View {
     @ObservedObject var hosts: HostsModel
     @Environment(\.dismiss) private var dismiss
@@ -19,19 +19,19 @@ struct ComputersView: View {
                         }
                     }
                 } footer: {
-                    Text("Each computer connects on its own: if one is off, the others keep working.")
+                    Text("Each Hermes instance connects on its own: if one is offline, the others keep working.")
                 }
                 Section {
                     Button {
                         adding = true
                     } label: {
-                        Label("Add Computer", systemImage: "plus.circle.fill")
+                        Label("Add Hermes Instance", systemImage: "plus.circle.fill")
                             .font(LK.Typography.headline)
                             .foregroundStyle(LK.Palette.accent)
                     }
                 }
             }
-            .navigationTitle("Computers")
+            .navigationTitle("Hermes Instances")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -51,7 +51,7 @@ private struct ComputerRow: View {
 
     var body: some View {
         HStack(spacing: LK.Spacing.md) {
-            Image(systemName: "desktopcomputer")
+            Image(systemName: "server.rack")
                 .font(.title3)
                 .foregroundStyle(LK.Palette.accent)
                 .frame(width: 32)
@@ -128,8 +128,8 @@ private struct ComputerDetailView: View {
                 }
                 .disabled(!isConnected)
             } footer: {
-                Text(isConnected ? "The name is saved on the computer, so all your phones show it."
-                                 : "Connect to this computer to rename it.")
+                Text(isConnected ? "The name is saved on the Hermes instance, so all your phones show it."
+                                 : "Connect to this instance to rename it.")
             }
             Section {
                 ComputerStatus(gateway: gateway)
@@ -144,16 +144,16 @@ private struct ComputerDetailView: View {
                 Text(failure).font(LK.Typography.footnote).foregroundStyle(LK.Palette.danger)
             }
             Section {
-                Button("Forget This Computer", role: .destructive) { confirmingForget = true }
+                Button("Forget This Instance", role: .destructive) { confirmingForget = true }
             } footer: {
-                Text("Only this computer is removed from the phone; your others stay. Its chats stay on the computer.")
+                Text("Only this instance is removed from the phone; your others stay. Its chats stay on the instance.")
             }
         }
         .navigationTitle(name)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .alert("Rename Computer", isPresented: $renaming) {
+        .alert("Rename Instance", isPresented: $renaming) {
             TextField("Name", text: $newName)
             Button("Save") { rename() }
             Button("Cancel", role: .cancel) {}
@@ -166,7 +166,7 @@ private struct ComputerDetailView: View {
                 }
             }
         } message: {
-            Text("This phone will disconnect from \(name) and be removed from its device list. To connect again you'll need a new pairing code from that computer. Your other computers stay connected.")
+            Text("This phone will disconnect from \(name) and be removed from its device list. To connect again you'll need a new pairing code from that Hermes instance. Your other instances stay connected.")
         }
         .alert("Forgotten", isPresented: Binding(get: { forgetMessage != nil }, set: { if !$0 { forgetMessage = nil; dismiss() } })) {
             Button("OK") {}

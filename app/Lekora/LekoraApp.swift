@@ -39,7 +39,7 @@ public struct LekoraApp: App {
 
 /// No computer yet: the setup wizard. One computer: as before (its agents, or choosing
 /// agents, or reconnecting). Several: the agents list, which copes with any of them
-/// being offline (docs/multiple-computers.md).
+/// being offline (docs/multiple-instances.md).
 public struct ContentView: View {
     @ObservedObject public var hosts: HostsModel
 

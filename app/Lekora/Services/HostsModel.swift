@@ -7,13 +7,13 @@ public struct AgentKey: Hashable, Codable, Sendable {
     public let profileId: String
 }
 
-/// Every paired Hermes computer, each with its own connection (docs/multiple-computers.md).
+/// Every paired Hermes computer, each with its own connection (docs/multiple-instances.md).
 /// One computer going offline doesn't affect the others.
 @MainActor
 public final class HostsModel: ObservableObject {
     /// Paired computers, oldest pairing first.
     @Published public private(set) var clients: [GatewayClient] = []
-    /// A client for pairing the next computer (setup, or "Add Computer").
+    /// A client for pairing the next computer (setup, or "Add Hermes Instance").
     @Published public private(set) var pairing: GatewayClient
     /// Something to tell the user about a computer that was removed (e.g. it no longer
     /// knows this phone).
@@ -91,11 +91,11 @@ public final class HostsModel: ObservableObject {
     /// when the computer couldn't be reached.
     @discardableResult
     public func forget(_ client: GatewayClient) async -> String? {
-        let name = client.savedHost?.instanceName ?? "the computer"
+        let name = client.savedHost?.instanceName ?? "the Hermes instance"
         let outcome = await client.forgetHost()
         remove(client)
         if outcome == .hostUnreachable {
-            return "This phone forgot \(name), but couldn't reach it to remove this phone from its list. On that computer, `hermes lekora devices` can revoke it."
+            return "This phone forgot \(name), but couldn't reach it to remove this phone from its list. Running `hermes lekora devices` where it runs can revoke it."
         }
         return nil
     }

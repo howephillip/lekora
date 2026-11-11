@@ -699,7 +699,7 @@ public struct ProfileDeleteAckData: Codable, Equatable {
 
 /// Broadcast to every phone when agents are created or deleted.
 /// `instance.rename` (Client -> Host) and its result / `instance.changed` (Host -> Client)
-/// (docs/multiple-computers.md).
+/// (docs/multiple-instances.md).
 struct InstanceRenameData: Codable { let name: String }
 public struct InstanceNameData: Codable, Equatable { public let instance_name: String }
 

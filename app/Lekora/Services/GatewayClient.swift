@@ -85,7 +85,7 @@ public final class GatewayClient: ObservableObject {
     private let cacheStore: ChatCacheStore?
     private var cacheSaveTask: Task<Void, Never>?
 
-    /// Which paired computer a client is for (docs/multiple-computers.md).
+    /// Which paired computer a client is for (docs/multiple-instances.md).
     public enum Start {
         /// The first paired computer (one-computer code and tests).
         case firstSaved
@@ -1097,7 +1097,7 @@ public final class GatewayClient: ObservableObject {
         state = .disconnected
     }
 
-    // MARK: - The computer's name (docs/multiple-computers.md)
+    // MARK: - The computer's name (docs/multiple-instances.md)
 
     /// Renames the computer on the host, so every phone sees the new name.
     public func renameInstance(_ name: String) async throws {
