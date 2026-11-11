@@ -205,7 +205,7 @@ class Store:
 
     def get_instance_name(self, default: Optional[str] = None) -> str:
         """The computer's name in the app: the one chosen in the app, else the plugin
-        setting ``instance_name``, else the machine's own name (docs/multiple-computers.md)."""
+        setting ``instance_name``, else the machine's own name (docs/multiple-instances.md)."""
         with self._lock:
             chosen = self._meta_get("instance_name_user") or self._meta_get("instance_name")
         return chosen or default or machine_name()

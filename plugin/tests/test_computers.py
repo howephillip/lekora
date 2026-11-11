@@ -1,4 +1,4 @@
-"""Several Hermes computers in one app: the computer's name (docs/multiple-computers.md)."""
+"""Several Hermes computers in one app: the computer's name (docs/multiple-instances.md)."""
 
 from lekora import store as store_module
 from tests.test_gateway import env, gw, recv  # noqa: F401  (gw fixture)

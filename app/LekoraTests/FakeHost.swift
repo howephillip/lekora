@@ -6,7 +6,7 @@ import Network
 /// (pair.request, hello, chat.send), for testing the app's connection flow.
 final class FakeHost: @unchecked Sendable {
     let instanceId: String
-    /// The computer's name; `instance.rename` changes it (docs/multiple-computers.md).
+    /// The computer's name; `instance.rename` changes it (docs/multiple-instances.md).
     var instanceName: String
     /// Sends everything as if from this other computer (to check the app ignores it).
     var pretendInstanceId: String?

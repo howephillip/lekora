@@ -644,7 +644,7 @@ class Gateway:
         await self.broadcast_profiles()
 
     async def _instance_rename(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
-        """Rename this computer as the app shows it (docs/multiple-computers.md)."""
+        """Rename this computer as the app shows it (docs/multiple-instances.md)."""
         name = " ".join(str(data.get("name") or "").split())
         if not name or len(name) > MAX_INSTANCE_NAME or any(ord(c) < 32 for c in name):
             raise _Reject("INVALID_NAME", f"Use 1 to {MAX_INSTANCE_NAME} characters", True, False, msg_id)

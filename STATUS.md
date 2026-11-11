@@ -7,16 +7,15 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Phase 2 (complete chat) has started.** All seven features are built; multiple Hermes instances awaits your in-depth check.
+**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Next: Phase 3, files both ways** (plan awaiting your approval).
 
-## Ready for your in-depth check: multiple Hermes instances (spec: `docs/multiple-instances.md`)
-✅ First try on your iPhone 2026-11-10 with the Pi and omacron: everything works; in-depth testing to follow. Since then the app says "Hermes instance" instead of "computer" everywhere in this feature (your request).
+## Done: multiple Hermes instances (spec: `docs/multiple-instances.md`)
+✅ Confirmed on your iPhone 2026-11-10 with the Pi and omacron (you'll do deeper testing later; anything found gets fixed as a follow-up). Since then the app says "Hermes instance" instead of "computer" everywhere in this feature (your request).
 - **What it does:** pair more than one Hermes instance. "…" → **Hermes Instances…** lists them (connected or not), with **Add Hermes Instance**, **Rename…** and **Forget This Instance** for each. The agents list shows every instance's agents: **Sort by Recent** (default, with a small grey instance name after each agent once you have two) or **Group by Instance** (a section per instance), switchable in the "…" menu. + asks which instance to add an agent on; the chat header shows the instance's name.
 - **Your choices (2026-11-10):** both layouts, recent first by default; instances can be renamed, and the name is saved on the instance so every phone sees it.
 - **Also:** an instance without a name now shows its own network name (e.g. "omacron") instead of "Hermes". Your current Pi pairing moves over by itself; nothing to redo. One instance being off doesn't affect the others.
 - **Checked:** plugin 295 tests (4 new), app 153 (11 new); in the simulator with the real plugin and two stand-in instances (adding, renaming, both layouts, chats kept apart, relaunch).
 - **Fixed 2026-11-10 (your first try):** when an instance dropped (e.g. Hermes restarting), the app retried it many times a second, flooding it and making the phone sluggish. Cause: the every-20-seconds retry also fired the moment the agents list closed, which (with one instance) reopened it. Fixed, plus a safety net: after a failed attempt an instance is retried at most once every 2 seconds. Checked in the simulator: one or two attempts in 40 s instead of thousands.
-- **Needs from you:** in-depth testing when you're ready.
 
 ## Done: per-chat settings (spec: `docs/chat-settings.md`)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-10.

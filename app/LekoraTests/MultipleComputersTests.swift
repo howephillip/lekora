@@ -1,7 +1,7 @@
 import XCTest
 @testable import Lekora
 
-/// Several Hermes computers in one app (docs/multiple-computers.md).
+/// Several Hermes computers in one app (docs/multiple-instances.md).
 @MainActor
 final class MultipleComputersTests: XCTestCase {
     private var pi: FakeHost!
