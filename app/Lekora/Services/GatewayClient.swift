@@ -562,11 +562,17 @@ public final class GatewayClient: ObservableObject {
         }
     }
 
+    /// When the last reconnect attempt failed, and how long to wait before the next one.
+    private var lastFailedAttempt: Date?
+    var minimumRetryInterval: TimeInterval = 2
+
     /// Reconnects to the saved host, if there is one. Safe to call repeatedly: does
     /// nothing while a connection attempt is running or already connected.
     public func resumeSavedSession() async {
         guard let host = savedHost else { return }
         guard !isBusy, !isForgetting else { return }
+        // A safety net: never hammer a computer that just refused, whatever asks to retry.
+        if let failed = lastFailedAttempt, Date().timeIntervalSince(failed) < minimumRetryInterval { return }
 
         state = .probing
         do {
@@ -579,9 +585,11 @@ public final class GatewayClient: ObservableObject {
             await completeSessionHandshake(wsTask: wsTask, host: host)
         } catch RouteProberError.certificateMismatch {
             closeSocket()
+            lastFailedAttempt = Date()
             state = .error(RouteProberError.certificateMismatch.localizedDescription)
         } catch {
             closeSocket()
+            lastFailedAttempt = Date()
             state = .error("Can't reach \(host.instanceName) right now. Check that the computer is on and that this phone is on the same network or Tailscale.")
         }
     }

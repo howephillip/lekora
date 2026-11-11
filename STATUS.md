@@ -14,6 +14,7 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 - **Your choices (2026-11-10):** both layouts, recent first by default; computers can be renamed, and the name is saved on the computer so every phone sees it.
 - **Also:** a computer without a name now shows its own network name (e.g. "omacron") instead of "Hermes". Your current Pi pairing moves over by itself; nothing to redo. One computer being off doesn't affect the others.
 - **Checked:** plugin 295 tests (4 new), app 153 (11 new); in the simulator with the real plugin and two stand-in computers (adding, renaming, both layouts, chats kept apart, relaunch).
+- **Fixed 2026-11-10 (your first try):** when a computer dropped (e.g. Hermes restarting), the app retried it many times a second, flooding it and making the phone sluggish. Cause: the every-20-seconds retry also fired the moment the agents list closed, which (with one computer) reopened it. Fixed, plus a safety net: after a failed attempt a computer is retried at most once every 2 seconds. Checked in the simulator: one or two attempts in 40 s instead of thousands.
 - **Needs from you:** on the Pi, `hermes plugins update lekora` and restart Hermes. On omacron, install the plugin with the one command in `docs/install.md` (it ends by showing a pairing code). Then on your phone: "…" → Computers… → Add Computer, and scan omacron's code.
 
 ## Done: per-chat settings (spec: `docs/chat-settings.md`)
