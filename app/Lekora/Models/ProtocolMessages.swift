@@ -168,10 +168,24 @@ public struct ChatSendData: Codable, Equatable {
     public let text: String
     /// Uploaded files sent with the message (docs/files.md).
     public let files: [String]?
+    /// Set for a voice note (its one file is the recording; docs/voice.md).
+    public let voice: VoiceDetails?
 
-    public init(text: String, files: [String]? = nil) {
+    public init(text: String, files: [String]? = nil, voice: VoiceDetails? = nil) {
         self.text = text
         self.files = files
+        self.voice = voice
+    }
+}
+
+/// A voice note's length (seconds) and waveform (levels 0…1), for its bubble.
+public struct VoiceDetails: Codable, Equatable, Hashable, Sendable {
+    public let duration: Double
+    public let waveform: [Double]
+
+    public init(duration: Double, waveform: [Double]) {
+        self.duration = duration
+        self.waveform = waveform
     }
 }
 
@@ -229,11 +243,16 @@ public struct ChatMessageData: Codable, Equatable {
     public let card: PromptCard?
     /// Photos and files with the message (docs/files.md).
     public let files: [ChatFile]?
+    /// A voice note, and what Hermes heard (docs/voice.md).
+    public let voice: VoiceDetails?
+    public let transcript: String?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
                 rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
-                files: [ChatFile]? = nil) {
+                files: [ChatFile]? = nil, voice: VoiceDetails? = nil, transcript: String? = nil) {
         self.files = files
+        self.voice = voice
+        self.transcript = transcript
         self.seq = seq
         self.role = role
         self.text = text

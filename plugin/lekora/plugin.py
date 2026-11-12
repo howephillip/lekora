@@ -241,6 +241,15 @@ class LekoraService:
             logging.getLogger(__name__).exception("Lekora: could not clean unfinished uploads")
         return files
 
+    async def take_transcript(self, profile_id: str, content: str) -> bool:
+        """Hermes' 🎙️ "…" line after a voice note: put it on the voice bubble instead of
+        showing it (docs/voice.md). False for anything else."""
+        from .hermes_files import transcript_from_echo
+        text = transcript_from_echo(content)
+        if text is None or self.gateway is None:
+            return False
+        return await self.gateway.attach_transcript(profile_id, text)
+
     async def handle_agent_file(self, profile_id: str, path: Path, caption: str = "",
                                 name: Optional[str] = None, mime: Optional[str] = None) -> int:
         """A file from the agent: a copy is kept and sent to every phone; returns its seq."""

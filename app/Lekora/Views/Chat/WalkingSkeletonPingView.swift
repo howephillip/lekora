@@ -42,6 +42,14 @@ public struct WalkingSkeletonPingView: View {
     @State private var takingPhoto = false
     @State private var uploading = false
     @State private var attachmentProblem: String?
+    // Voice notes (docs/voice.md).
+    @StateObject private var recorder = VoiceRecorder()
+    @StateObject private var player = VoicePlayer()
+    @State private var recordingCancels = false
+    /// The finger is on the mic. Recording only starts (after the permission question) if it
+    /// still is, so a quick tap or a released press never leaves the mic on.
+    @State private var micHeld = false
+    @State private var loadingVoice: String?
     /// The file shown in Quick Look, and the one being fetched to show.
     @State private var previewURL: URL?
     @State private var openingFile: String?
@@ -151,7 +159,13 @@ public struct WalkingSkeletonPingView: View {
                         .disabled(uploading)
                     }
                     LKComposer("Message \(profileName)", text: $draft, canSend: canSend,
-                               focus: $inputFocused, accessory: AnyView(attachMenu), onSend: send)
+                               focus: $inputFocused, accessory: AnyView(attachMenu),
+                               replacement: recorder.isRecording
+                                   ? AnyView(LKRecordingBar(elapsed: recorder.elapsed, levels: recorder.levels,
+                                                            cancelling: recordingCancels))
+                                   : nil,
+                               action: showsMic ? AnyView(micButton) : nil,
+                               onSend: send)
                         .id(composerID)
                 }
                 .animation(.easeOut(duration: 0.15), value: draft.hasPrefix("/"))
@@ -216,7 +230,12 @@ public struct WalkingSkeletonPingView: View {
                 isAtBottom = true
                 scrollToBottom(animated: false)
             }
-            .onDisappear { isOnScreen = false; updateVisibility() }
+            .onDisappear {
+                isOnScreen = false
+                updateVisibility()
+                player.stop()
+                recorder.cancel()
+            }
             .onChange(of: scenePhase) { _, _ in updateVisibility() }
             .photosPicker(isPresented: $choosingPhotos, selection: $photoItems,
                           maxSelectionCount: max(GatewayClient.maxFilesPerMessage - attachments.count, 1),
@@ -258,6 +277,82 @@ public struct WalkingSkeletonPingView: View {
             } message: {
                 Text(attachmentProblem ?? "")
             }
+    }
+
+    // MARK: - Voice notes (docs/voice.md)
+
+    /// The mic replaces Send while there's nothing typed or attached (and while recording).
+    private var showsMic: Bool {
+        recorder.isRecording
+            || (isConnected && !uploading && attachments.isEmpty
+                && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private var micButton: some View {
+        LKMicButton(isRecording: recorder.isRecording, onStart: startRecording,
+                    onSlide: { far in recordingCancels = far },
+                    onEnd: { send in finishRecording(send: send) })
+    }
+
+    private func startRecording() {
+        recordingCancels = false
+        micHeld = true
+        player.stop()
+        Task {
+            guard await recorder.requestPermission() else {
+                attachmentProblem = "Lekora needs the microphone for voice notes. You can allow it in Settings › Lekora."
+                return
+            }
+            guard micHeld else { return }  // let go while iPhone asked, or a quick tap: no recording
+            do {
+                try recorder.start()
+                #if os(iOS)
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                #endif
+            } catch {
+                attachmentProblem = "Couldn't start recording: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func finishRecording(send: Bool) {
+        micHeld = false
+        guard recorder.isRecording else { return }
+        guard send, !recordingCancels else {
+            recorder.cancel()
+            recordingCancels = false
+            return
+        }
+        guard let recording = recorder.finish() else { return }  // too short to be meant
+        isAtBottom = true
+        scrollToBottom(animated: true)
+        Task {
+            do {
+                try await gateway.sendVoiceNote(at: recording.url, duration: recording.duration,
+                                                waveform: recording.waveform)
+            } catch {
+                attachmentProblem = "The voice note didn't send: \(error.localizedDescription)"
+            }
+            try? FileManager.default.removeItem(at: recording.url)
+        }
+    }
+
+    /// Plays a voice note (fetching it from the instance first if needed), or pauses it.
+    private func toggleVoice(_ entry: ChatEntry, file: ChatFile) {
+        if let url = gateway.cachedFileURL(file) {
+            player.toggle(id: entry.id, url: url)
+            return
+        }
+        loadingVoice = entry.id
+        Task {
+            defer { loadingVoice = nil }
+            if let url = try? await gateway.fileURL(for: file) { player.toggle(id: entry.id, url: url) }
+        }
+    }
+
+    private func seekVoice(_ entry: ChatEntry, file: ChatFile, to fraction: Double) {
+        guard let url = gateway.cachedFileURL(file) else { return }
+        player.seek(id: entry.id, url: url, to: fraction)
     }
 
     // MARK: - Photos and files (docs/files.md)
@@ -410,13 +505,24 @@ public struct WalkingSkeletonPingView: View {
                         } else if let card = entry.card {
                             LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
                         } else {
-                            if let files = entry.files, !files.isEmpty {
+                            if let voice = entry.voice, let file = entry.files?.first {
+                                LKVoiceBubble(voice, fromUser: entry.role == .user, transcript: entry.transcript,
+                                              isPlaying: player.currentId == entry.id && player.isPlaying,
+                                              progress: player.currentId == entry.id ? player.progress : 0,
+                                              loading: loadingVoice == entry.id,
+                                              onToggle: { toggleVoice(entry, file: file) },
+                                              onSeek: { seekVoice(entry, file: file, to: $0) })
+                                    .offset(x: -timeReveal)
+                                fileOnlyStatus(for: entry)
+                            } else if let files = entry.files, !files.isEmpty {
                                 LKMessageFiles(files, fromUser: entry.role == .user, opening: openingFile,
                                                load: { file in try? await gateway.fileURL(for: file) },
                                                open: openFile)
                                     .offset(x: -timeReveal)
                             }
-                            if entry.files?.isEmpty == false && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            if entry.voice != nil {
+                                EmptyView()
+                            } else if entry.files?.isEmpty == false && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 fileOnlyStatus(for: entry)  // just photos or files: no empty text bubble
                             } else {
                                 LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,

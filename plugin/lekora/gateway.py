@@ -93,6 +93,8 @@ class Gateway:
         self._profile_admin = profile_admin
         # Stored files (docs/files.md); set by LekoraService. None = files not offered.
         self.files: Optional[Any] = None
+        # The voice note waiting for Hermes' transcript, per chat (docs/voice.md).
+        self._awaiting_transcript: dict[str, int] = {}
         self._dispatch = dispatch
         self._profiles = profiles
         self._endpoints = endpoints
@@ -169,10 +171,15 @@ class Gateway:
     def _message_data(seq: int, role: str, text: str, rev: int,
                       client_id: Optional[str] = None, draft_id: Optional[str] = None,
                       at: Optional[str] = None, card: Optional[dict] = None,
-                      files: Optional[list] = None) -> dict:
+                      files: Optional[list] = None, voice: Optional[dict] = None,
+                      transcript: Optional[str] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
         if files:
             data["files"] = files  # photos and files with the message (docs/files.md)
+        if voice:
+            data["voice"] = voice  # a voice note: {duration, waveform} (docs/voice.md)
+        if transcript:
+            data["transcript"] = transcript  # what Hermes heard
         if card:
             data["card"] = card  # an approval or question card (docs/prompts.md)
         if at:
@@ -187,7 +194,8 @@ class Gateway:
         return self._envelope("chat.message", self._message_data(
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
             ev.payload.get("client_id"), at=ev.created_at, card=ev.payload.get("card"),
-            files=ev.payload.get("files")),
+            files=ev.payload.get("files"), voice=ev.payload.get("voice"),
+            transcript=ev.payload.get("transcript")),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
@@ -252,7 +260,8 @@ class Gateway:
         payload = self._envelope("chat.message", self._message_data(
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
             ev.payload.get("client_id"), draft_id, at=ev.created_at, card=ev.payload.get("card"),
-            files=ev.payload.get("files")),
+            files=ev.payload.get("files"), voice=ev.payload.get("voice"),
+            transcript=ev.payload.get("transcript")),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -477,6 +486,7 @@ class Gateway:
             raise _Reject("INVALID_MESSAGE", "chat.send needs non-empty text",
                           True, False, msg_id)
         files = self._message_files(profile_id, file_ids, msg_id)
+        voice = self._voice_details(data.get("voice"), files, msg_id)
         if msg_id:  # commands are idempotent: ignore a repeated id
             if msg_id in conn.seen_ids:
                 return
@@ -486,6 +496,8 @@ class Gateway:
         payload: dict[str, Any] = {"role": "user", "text": text}
         if files:
             payload["files"] = [self.files.describe(row) for row in files]  # type: ignore[union-attr]
+        if voice:
+            payload["voice"] = voice
         if msg_id:
             payload["client_id"] = msg_id
         seq = self.store.append_event(profile_id, "chat.message", payload)
@@ -495,6 +507,9 @@ class Gateway:
             await self.prompts.user_message(profile_id, text)
         attachments = [{"path": str(self.files.path_of(row)), "name": row["name"], "mime": row["mime"]}  # type: ignore[union-attr]
                        for row in files]
+        if voice:
+            attachments[0]["voice"] = True  # Hermes transcribes it (docs/voice.md)
+            self._awaiting_transcript[profile_id] = seq
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -518,7 +533,8 @@ class Gateway:
         events, has_more = self.store.messages_before(profile_id, before, limit)
         messages = [self._message_data(e.seq, e.payload.get("role", "assistant"),
                                        e.payload.get("text", ""), e.rev, e.payload.get("client_id"),
-                                       at=e.created_at, card=e.payload.get("card"), files=e.payload.get("files"))
+                                       at=e.created_at, card=e.payload.get("card"), files=e.payload.get("files"),
+                                       voice=e.payload.get("voice"), transcript=e.payload.get("transcript"))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
@@ -660,6 +676,32 @@ class Gateway:
         with contextlib.suppress(ConnectionClosed):
             await self._send(conn, ack)
         await self.broadcast_profiles()
+
+    @staticmethod
+    def _voice_details(voice: Any, files: list[dict], msg_id: Optional[str]) -> Optional[dict]:
+        """A voice note's length and waveform (docs/voice.md); needs exactly one audio file."""
+        if not voice:
+            return None
+        if not isinstance(voice, dict) or len(files) != 1 or not str(files[0]["mime"]).startswith("audio/"):
+            raise _Reject("INVALID_FILE", "A voice note is one recording", True, False, msg_id)
+        try:
+            duration = round(max(float(voice.get("duration") or 0), 0.0), 2)
+            waveform = [round(min(max(float(v), 0.0), 1.0), 3) for v in (voice.get("waveform") or [])][:64]
+        except (TypeError, ValueError):
+            raise _Reject("INVALID_FILE", "A voice note's details were damaged", True, False, msg_id)
+        return {"duration": duration, "waveform": waveform}
+
+    async def attach_transcript(self, profile_id: str, text: str) -> bool:
+        """Hermes' transcript of the latest voice note in this chat goes on that message
+        (every phone updated) instead of showing as its own line. False if none is waiting."""
+        seq = self._awaiting_transcript.pop(profile_id, None)
+        event = self.store.get_event(seq) if seq is not None else None
+        if event is None or not event.payload.get("voice"):
+            return False
+        updated = self.store.update_event_payload(seq, dict(event.payload, transcript=text))
+        if updated is not None:
+            await self._broadcast(updated)
+        return True
 
     def _message_files(self, profile_id: str, file_ids: Any, msg_id: Optional[str]) -> list[dict]:
         """The uploaded files a chat.send refers to (docs/files.md)."""

@@ -377,3 +377,7 @@ A file: `{file_id, name, mime, size, kind: image|video|audio|document}`.
 - `file.read` `{file_id, offset}` → `{file_id, offset, data, size, done}` (up to 384 KB per answer).
 - `files.usage` `{}` → `{bytes, count}`.
 - Errors: `FILE_TOO_LARGE` (over 100 MB), `UNKNOWN_FILE`, `INVALID_FILE` (bad offset, size mismatch, too many files).
+
+## 12. Voice notes (Phase 4; spec: `voice.md`)
+- `chat.send` may carry `voice: {duration, waveform}` with exactly one uploaded audio file: a voice note. `duration` in seconds; `waveform` up to 64 levels from 0 to 1.
+- `chat.message` for it carries the same `voice`, and `transcript` (text) once Hermes has transcribed it (the message is resent with a new `rev`).

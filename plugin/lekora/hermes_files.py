@@ -61,6 +61,12 @@ def inbound_media(text: str, files: list[dict], cache: Cache) -> InboundMedia:
             log.warning("Lekora: Hermes couldn't use %s; skipped", name)
             continue
         path, media_type, kind = cached
+        if item.get("voice"):
+            kinds.append("voice")  # a voice note: Hermes transcribes it (docs/voice.md)
+            out.media_urls.append(path)
+            out.media_types.append(media_type if media_type.startswith("audio/") else (mime or "audio/mp4"))
+            out.media_text_inlined.append(False)
+            continue
         out.media_urls.append(path)
         out.media_types.append(media_type)
         kinds.append(kind)
@@ -78,8 +84,19 @@ def inbound_media(text: str, files: list[dict], cache: Cache) -> InboundMedia:
     if kinds:
         # One message type for the message (Hermes reads each file's own media type too).
         first = kinds[0]
-        out.message_kind = {"image": "photo", "video": "video", "audio": "audio"}.get(first, "document")
+        out.message_kind = {"image": "photo", "video": "video", "audio": "audio", "voice": "voice"}.get(first, "document")
     return out
+
+
+# ---- voice note transcripts (docs/voice.md) ---------------------------------------------
+
+# Hermes posts what it heard as 🎙️ "…" (gateway.voice.transcript_echo_short; the quotes vary by language).
+_TRANSCRIPT_ECHO = re.compile(r'^\s*🎙\ufe0f?\s*["“«„]([\s\S]*)["”»“]\s*$')
+
+
+def transcript_from_echo(content: str) -> Optional[str]:
+    match = _TRANSCRIPT_ECHO.match(content or "")
+    return match.group(1).strip() if match else None
 
 
 # ---- the lekora_send_file tool -------------------------------------------------------

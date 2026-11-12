@@ -319,6 +319,8 @@ class LekoraAdapter(BasePlatformAdapter):
                    metadata: Optional[dict[str, Any]] = None):
         if self._service is None:
             return SendResult(success=False, error="Lekora is not running")
+        if await self._service.take_transcript(chat_id, content):
+            return SendResult(success=True, message_id="transcript")  # shown under the voice note
         try:
             message_id = await self._live.send(
                 chat_id, content, expect_edits=bool((metadata or {}).get("expect_edits")))

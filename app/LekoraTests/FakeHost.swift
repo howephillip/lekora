@@ -116,8 +116,22 @@ final class FakeHost: @unchecked Sendable {
         var data: [String: Any] = ["seq": event.seq, "role": event.role, "text": event.text, "rev": rev(of: event.seq)]
         if let card = cards[event.seq] { data["card"] = card }
         if let files = messageFiles[event.seq] { data["files"] = files }
+        if let voice = messageVoice[event.seq] { data["voice"] = voice }
+        if let transcript = transcripts[event.seq] { data["transcript"] = transcript }
         if let messageTime { data["at"] = messageTime }
         return data
+    }
+
+    /// Voice notes (docs/voice.md): details by seq, every voice chat.send, transcripts by seq.
+    var messageVoice: [Int: [String: Any]] = [:]
+    var sentVoice: [[String: Any]] = []
+    var transcripts: [Int: String] = [:]
+
+    /// Hermes transcribed the voice note `seq`: resent with its transcript and a new rev.
+    func transcribe(seq: Int, _ text: String) {
+        transcripts[seq] = text
+        corrections[seq] = currentRev + 1
+        broadcast(seq: seq)
     }
 
     /// Files on saved messages, by seq.
@@ -549,6 +563,11 @@ final class FakeHost: @unchecked Sendable {
             if let ids = data["files"] as? [String] {
                 echo["files"] = ids.compactMap { storedFiles[$0]?.meta }
                 sentFiles.append(ids)
+            }
+            if let voice = data["voice"] as? [String: Any] {
+                echo["voice"] = voice
+                messageVoice[history[history.count - 2].seq] = voice
+                sentVoice.append(voice)
             }
             send(type: "chat.message", data: echo, profileId: profile, on: connection)
             send(type: "chat.message", data: messageData(history[history.count - 1]),

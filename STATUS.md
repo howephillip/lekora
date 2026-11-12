@@ -7,7 +7,14 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Next: Phase 4, voice** (plan awaiting your approval).
+**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) has started:** voice notes are built and waiting for your phone check; then hearing replies, then hands-free.
+
+## Ready for your phone check: voice notes (Phase 4, feature 1; spec: `docs/voice.md`)
+- **What it does:** with the message box empty, Send becomes a mic. Hold to record (red-dot bar with timer and live waveform), let go to send, slide left to cancel; a quick tap does nothing. Your note shows as a voice bubble (play/pause, waveform you drag to skip, length) and what Hermes heard appears under it in small grey print, like Messages. The agent then answers the words.
+- **Your choices (2026-11-11):** transcript in small print under the bubble; for Phase 4 overall, iPhone voices by default with a per-agent Hermes voice option, and hands-free built in this phase.
+- **How:** the recording is sent like a file, marked as a voice note, so Hermes transcribes it with its own speech-to-text (a free one on your Pi by default; the first note may take a minute while Hermes sets it up). Hermes' "🎙️ …" line is put under your bubble instead of showing on its own.
+- **Checked:** plugin 314 tests (5 new), app 162 (3 new); in the simulator with the real plugin: record, transcript under the bubble with no extra line, play, skip, slide to cancel, quick taps. Fixed from that: the mic could keep recording after a quick tap or while iPhone asked for microphone permission.
+- **Needs from you:** `hermes plugins update lekora`, restart Hermes, then record a note on your phone (allow the microphone when asked).
 
 ## Done: files both ways (spec: `docs/files.md`)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-11.
