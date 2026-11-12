@@ -7,15 +7,15 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) has started:** voice notes are built and waiting for your phone check; then hearing replies, then hands-free.
+**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) has started:** voice notes are done; next hearing replies, then hands-free.
 
-## Ready for your phone check: voice notes (Phase 4, feature 1; spec: `docs/voice.md`)
+## Done: voice notes (Phase 4, feature 1; spec: `docs/voice.md`)
+✅ Confirmed on your iPhone with real Hermes 2026-11-11.
 - **What it does (as in Messages, your request 2026-11-11):** a waveform button inside the message bar while nothing is typed (typing turns it into Send). Hold it for half a second (a red ring fills, so a stray tap does nothing), then let go and talk; a haptic marks the start; the bar becomes a red live waveform with the time and a stop button. After stopping: × on the far left throws it away; play it back, "+ 0:07" records more onto the end, and Send. Your note shows as a voice bubble (play/pause, waveform you drag to skip, length) and what Hermes heard appears under it in small grey print. The agent then answers the words.
 - **Your first try (2026-11-11):** worked; changed to the Messages-style recording above (review before sending, record more, × to discard, record button inside the bar). **Second look:** hold to start (now half a second, your call), haptics back (start, stop), and the bar now springs between idle, recording and review instead of popping. Checked in the simulator with the real plugin (the animations need your eyes on the phone).
 - **Your choices (2026-11-11):** transcript in small print under the bubble; for Phase 4 overall, iPhone voices by default with a per-agent Hermes voice option, and hands-free built in this phase.
 - **How:** the recording is sent like a file, marked as a voice note, so Hermes transcribes it with its own speech-to-text (a free one on your Pi by default; the first note may take a minute while Hermes sets it up). Hermes' "🎙️ …" line is put under your bubble instead of showing on its own.
 - **Checked:** plugin 314 tests (5 new), app 162 (3 new); in the simulator with the real plugin: record, transcript under the bubble with no extra line, play, skip, slide to cancel, quick taps. Fixed from that: the mic could keep recording after a quick tap or while iPhone asked for microphone permission.
-- **Needs from you:** `hermes plugins update lekora`, restart Hermes, then record a note on your phone (allow the microphone when asked).
 
 ## Done: files both ways (spec: `docs/files.md`)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-11.
