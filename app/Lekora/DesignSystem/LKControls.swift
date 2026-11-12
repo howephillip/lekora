@@ -78,21 +78,32 @@ public struct LKTextField: View {
     @Binding private var text: String
     private let style: Style
     private let axis: Axis
+    /// Inside the field on the right, e.g. the message bar's mic or Send (as in Messages).
+    private let trailing: AnyView?
 
-    public init(_ placeholder: String, text: Binding<String>, style: Style = .surface, axis: Axis = .horizontal) {
+    public init(_ placeholder: String, text: Binding<String>, style: Style = .surface, axis: Axis = .horizontal,
+                trailing: AnyView? = nil) {
         self.placeholder = placeholder
         self._text = text
         self.style = style
         self.axis = axis
+        self.trailing = trailing
     }
 
     public var body: some View {
         let shape = RoundedRectangle(cornerRadius: LK.Radius.field, style: .continuous)
-        let field = TextField(placeholder, text: $text, axis: axis)
-            .font(LK.Typography.body)
-            .lineLimit(1...5)
-            .padding(.horizontal, LK.Spacing.lg)
-            .padding(.vertical, LK.Spacing.md)
+        let field = HStack(alignment: .bottom, spacing: LK.Spacing.xs) {
+            TextField(placeholder, text: $text, axis: axis)
+                .font(LK.Typography.body)
+                .lineLimit(1...5)
+                .padding(.vertical, LK.Spacing.md)
+            if let trailing {
+                trailing
+                    .padding(.vertical, (LK.Spacing.md * 2 + 22 - 32) / 2)  // centred on the first line
+            }
+        }
+        .padding(.leading, LK.Spacing.lg)
+        .padding(.trailing, trailing == nil ? LK.Spacing.lg : LK.Spacing.xs + 2)
 
         switch style {
         case .surface:

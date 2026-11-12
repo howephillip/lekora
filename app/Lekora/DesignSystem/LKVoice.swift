@@ -121,91 +121,151 @@ public struct LKVoiceBubble: View {
     }
 }
 
-/// Shown in place of the text box while recording: red dot, time, live waveform, and the hint
-/// to slide left to cancel (red when letting go would cancel).
+/// The mic inside the message bar (a waveform, as in Messages): tap to start recording.
+public struct LKFieldMicButton: View {
+    private let action: () -> Void
+
+    public init(action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            Image(systemName: "waveform")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Record voice note")
+    }
+}
+
+/// The whole message bar while recording: live red waveform, time, and the stop button.
+/// No need to hold anything (as in Messages).
 public struct LKRecordingBar: View {
     private let elapsed: TimeInterval
     private let levels: [Double]
-    private let cancelling: Bool
+    private let onStop: () -> Void
 
-    public init(elapsed: TimeInterval, levels: [Double], cancelling: Bool) {
+    public init(elapsed: TimeInterval, levels: [Double], onStop: @escaping () -> Void) {
         self.elapsed = elapsed
         self.levels = levels
-        self.cancelling = cancelling
+        self.onStop = onStop
+    }
+
+    public var body: some View {
+        HStack(spacing: LK.Spacing.md) {
+            LKWaveform(Self.padded(levels), progress: 1, color: LK.Palette.danger)
+                .frame(height: 30)
+                .accessibilityHidden(true)
+            Text(LKVoiceText.duration(elapsed))
+                .font(LK.Typography.body.monospacedDigit())
+                .foregroundStyle(LK.Palette.danger)
+            Button(action: onStop) {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(LK.Palette.danger)
+                    .frame(width: 14, height: 14)
+                    .frame(width: 38, height: 38)
+                    .background(LK.Palette.danger.opacity(0.25), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop recording")
+        }
+        .padding(.leading, LK.Spacing.lg)
+        .padding(.trailing, LK.Spacing.xs + 2)
+        .frame(height: 50)
+        .glassEffect(LK.Glass.control, in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Recording, \(LKVoiceText.duration(elapsed))")
+    }
+
+    /// The newest levels on the right, quiet bars before them while the recording is short.
+    static func padded(_ levels: [Double], count: Int = 60) -> [Double] {
+        let recent = Array(levels.suffix(count))
+        return Array(repeating: 0.06, count: max(count - recent.count, 0)) + recent
+    }
+}
+
+/// A recorded voice note waiting to go: × to throw it away; play it back, see how long it is,
+/// "+" to record more onto the end, and Send (as in Messages).
+public struct LKVoiceDraftBar: View {
+    private let duration: TimeInterval
+    private let waveform: [Double]
+    private let isPlaying: Bool
+    private let progress: Double
+    private let busy: Bool
+    private let onDiscard: () -> Void
+    private let onToggle: () -> Void
+    private let onSeek: (Double) -> Void
+    private let onRecordMore: () -> Void
+    private let onSend: () -> Void
+
+    public init(duration: TimeInterval, waveform: [Double], isPlaying: Bool, progress: Double, busy: Bool = false,
+                onDiscard: @escaping () -> Void, onToggle: @escaping () -> Void, onSeek: @escaping (Double) -> Void,
+                onRecordMore: @escaping () -> Void, onSend: @escaping () -> Void) {
+        self.duration = duration
+        self.waveform = waveform
+        self.isPlaying = isPlaying
+        self.progress = progress
+        self.busy = busy
+        self.onDiscard = onDiscard
+        self.onToggle = onToggle
+        self.onSeek = onSeek
+        self.onRecordMore = onRecordMore
+        self.onSend = onSend
     }
 
     public var body: some View {
         HStack(spacing: LK.Spacing.sm) {
-            Circle().fill(LK.Palette.danger).frame(width: 9, height: 9)
-                .symbolEffect(.pulse)
-            Text(LKVoiceText.duration(elapsed))
-                .font(LK.Typography.callout.monospacedDigit())
-            LKWaveform(levels, progress: 1, color: cancelling ? LK.Palette.danger : LK.Palette.accent)
-                .frame(height: 22)
-            Text(cancelling ? "Release to cancel" : "‹ Slide to cancel")
-                .font(LK.Typography.caption)
-                .foregroundStyle(cancelling ? LK.Palette.danger : .secondary)
-                .fixedSize()
-        }
-        .padding(.horizontal, LK.Spacing.md)
-        .frame(minHeight: 38)
-        .glassEffect(.regular, in: Capsule())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(cancelling ? "Recording. Release to cancel" : "Recording, \(LKVoiceText.duration(elapsed))")
-    }
-}
+            Button(action: onDiscard) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 30, height: 30)  // the same size as the + it replaces
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .accessibilityLabel("Delete voice note")
 
-/// The mic: hold to record, let go to send, slide left to cancel. Reports the gesture; the
-/// chat screen does the recording.
-public struct LKMicButton: View {
-    private let isRecording: Bool
-    private let onStart: () -> Void
-    private let onSlide: (Bool) -> Void
-    private let onEnd: (Bool) -> Void
-    @State private var pressing = false
-    @State private var cancelled = false
-
-    public static let cancelDistance: CGFloat = 90
-
-    /// - Parameters:
-    ///   - onSlide: true while far enough left that letting go cancels.
-    ///   - onEnd: true = send, false = cancel.
-    public init(isRecording: Bool, onStart: @escaping () -> Void, onSlide: @escaping (Bool) -> Void,
-                onEnd: @escaping (Bool) -> Void) {
-        self.isRecording = isRecording
-        self.onStart = onStart
-        self.onSlide = onSlide
-        self.onEnd = onEnd
-    }
-
-    public var body: some View {
-        Image(systemName: isRecording ? "mic.fill" : "mic")
-            .font(.system(size: 18, weight: .semibold))
-            .frame(width: 44, height: 44)  // the same size as Send
-            .foregroundStyle(isRecording ? LK.Palette.onAccent : LK.Palette.accent)
-            .background(isRecording ? AnyShapeStyle(LK.Palette.danger) : AnyShapeStyle(.clear), in: Circle())
-            .scaleEffect(isRecording ? 1.25 : 1)
-            .animation(.spring(duration: 0.25), value: isRecording)
-            .glassEffect(.regular.interactive(), in: Circle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    if !pressing {
-                        pressing = true
-                        cancelled = false
-                        onStart()
-                    }
-                    let far = value.translation.width < -Self.cancelDistance
-                    if far != cancelled {
-                        cancelled = far
-                        onSlide(far)
-                    }
+            HStack(spacing: LK.Spacing.sm) {
+                Button(action: onToggle) {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 34, height: 34)
+                        .background(.quaternary, in: Circle())
                 }
-                .onEnded { value in
-                    pressing = false
-                    onEnd(value.translation.width >= -Self.cancelDistance)
-                })
-            .accessibilityLabel("Record voice note")
-            .accessibilityHint("Hold to record, release to send")
-            .accessibilityAddTraits(.isButton)
+                .buttonStyle(.plain)
+                .accessibilityLabel(isPlaying ? "Pause" : "Play back")
+
+                LKWaveform(waveform, progress: progress, color: .primary, onSeek: onSeek)
+                    .frame(height: 24)
+                    .accessibilityHidden(true)
+
+                Button(action: onRecordMore) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "plus").font(.system(size: 12, weight: .bold))
+                        Text(LKVoiceText.duration(duration)).font(LK.Typography.subheadline.monospacedDigit())
+                    }
+                    .padding(.horizontal, LK.Spacing.sm + 2)
+                    .frame(height: 30)
+                    .background(.quaternary, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+                .accessibilityLabel("\(LKVoiceText.duration(duration)). Record more")
+
+                if busy {
+                    ProgressView().frame(width: 32, height: 32)
+                } else {
+                    LKSendArrow(action: onSend)
+                }
+            }
+            .padding(.leading, LK.Spacing.xs + 2)
+            .padding(.trailing, LK.Spacing.xs + 2)
+            .frame(height: 50)  // the same height as while recording: the chat doesn't shift
+            .glassEffect(LK.Glass.control, in: Capsule())
+        }
     }
 }

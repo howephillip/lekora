@@ -23,13 +23,25 @@ public enum VoiceWaveform {
     }
 }
 
-/// Records one voice note at a time (AAC in .m4a), with live levels for the waveform.
+/// Records one voice note at a time (AAC in .m4a), as in Messages: tap to start, stop to
+/// review, record more onto the end, then send or throw away. Live levels for the waveform.
 @MainActor
 public final class VoiceRecorder: ObservableObject {
+    /// A stopped recording, waiting to be sent or thrown away.
+    public struct Draft: Equatable {
+        public let url: URL
+        public let duration: TimeInterval
+        public let waveform: [Double]
+    }
+
     @Published public private(set) var isRecording = false
+    /// Length so far (including earlier parts of the same note).
     @Published public private(set) var elapsed: TimeInterval = 0
     /// The newest levels (0…1), for the live waveform.
     @Published public private(set) var levels: [Double] = []
+    @Published public private(set) var draft: Draft?
+    /// True while a stopped part is being joined onto the note.
+    @Published public private(set) var isFinishing = false
 
     public static let maxDuration: TimeInterval = 600
     private var recorder: AVAudioRecorder?
@@ -43,15 +55,17 @@ public final class VoiceRecorder: ObservableObject {
         await AVAudioApplication.requestRecordPermission()
     }
 
+    /// Starts recording, or records more onto the end of the stopped note.
     public func start() throws {
-        guard !isRecording else { return }
+        guard !isRecording, !isFinishing else { return }
+        let before = draft?.duration ?? 0
+        guard before < Self.maxDuration - 1 else { return }
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try session.setActive(true)
         #endif
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Voice note \(Self.stamp()).m4a")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice-part-\(UUID().uuidString).m4a")
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 44_100,
@@ -60,13 +74,13 @@ public final class VoiceRecorder: ObservableObject {
         ]
         let recorder = try AVAudioRecorder(url: url, settings: settings)
         recorder.isMeteringEnabled = true
-        guard recorder.record(forDuration: Self.maxDuration) else {
+        guard recorder.record(forDuration: Self.maxDuration - before) else {
             throw NSError(domain: "Lekora", code: 1, userInfo: [NSLocalizedDescriptionKey: "The microphone couldn't start."])
         }
         self.recorder = recorder
-        allLevels = []
-        levels = []
-        elapsed = 0
+        if draft == nil { allLevels = [] }
+        levels = Array(allLevels.suffix(60))
+        elapsed = before
         isRecording = true
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.sample() }
@@ -76,30 +90,56 @@ public final class VoiceRecorder: ObservableObject {
     private func sample() {
         guard let recorder, isRecording else { return }
         recorder.updateMeters()
-        let level = VoiceWaveform.level(fromDecibels: recorder.averagePower(forChannel: 0))
-        allLevels.append(level)
-        levels = Array(allLevels.suffix(40))
-        elapsed = recorder.currentTime
-        if !recorder.isRecording { isRecording = false }  // reached the 10-minute limit
+        allLevels.append(VoiceWaveform.level(fromDecibels: recorder.averagePower(forChannel: 0)))
+        levels = Array(allLevels.suffix(60))
+        elapsed = (draft?.duration ?? 0) + recorder.currentTime
+        if !recorder.isRecording { Task { await stop() } }  // reached the 10-minute limit
     }
 
-    /// Stops and returns the recording, its length and waveform; nil if it was too short.
-    public func finish() -> (url: URL, duration: TimeInterval, waveform: [Double])? {
-        guard let recorder else { return nil }
-        let duration = max(recorder.currentTime, elapsed)
-        stopRecorder()
-        guard duration >= 0.5 else {
-            try? FileManager.default.removeItem(at: recorder.url)
-            return nil
-        }
-        return (recorder.url, duration, VoiceWaveform.bars(allLevels))
-    }
-
-    /// Stops and throws the recording away (slid to cancel).
-    public func cancel() {
+    /// Stops recording: the note (with any earlier parts) becomes the draft to review.
+    public func stop() async {
         guard let recorder else { return }
+        let part = recorder.url
+        let partLength = recorder.currentTime
         stopRecorder()
-        try? FileManager.default.removeItem(at: recorder.url)
+        guard partLength >= 0.3 else {  // a slip of the finger adds nothing
+            try? FileManager.default.removeItem(at: part)
+            return
+        }
+        isFinishing = true
+        defer { isFinishing = false }
+        let joined: URL
+        if let earlier = draft?.url {
+            joined = (try? await Self.join(earlier, part)) ?? earlier
+            try? FileManager.default.removeItem(at: part)
+            if joined != earlier { try? FileManager.default.removeItem(at: earlier) }
+        } else {
+            joined = part
+        }
+        let length = (try? await AVURLAsset(url: joined).load(.duration).seconds) ?? ((draft?.duration ?? 0) + partLength)
+        draft = Draft(url: joined, duration: length, waveform: VoiceWaveform.bars(allLevels))
+    }
+
+    /// Hands over the finished note (named for the chat) and clears it.
+    public func takeDraft() -> Draft? {
+        guard let draft else { return nil }
+        self.draft = nil
+        allLevels = []
+        let named = FileManager.default.temporaryDirectory.appendingPathComponent("Voice note \(Self.stamp()).m4a")
+        try? FileManager.default.removeItem(at: named)
+        guard (try? FileManager.default.moveItem(at: draft.url, to: named)) != nil else { return draft }
+        return Draft(url: named, duration: draft.duration, waveform: draft.waveform)
+    }
+
+    /// Stops and throws everything away (the ×, or leaving the chat).
+    public func discard() {
+        if let recorder { try? FileManager.default.removeItem(at: recorder.url) }
+        stopRecorder()
+        if let draft { try? FileManager.default.removeItem(at: draft.url) }
+        draft = nil
+        allLevels = []
+        levels = []
+        elapsed = 0
     }
 
     private func stopRecorder() {
@@ -108,6 +148,28 @@ public final class VoiceRecorder: ObservableObject {
         recorder?.stop()
         recorder = nil
         isRecording = false
+    }
+
+    /// One recording after the other, as a new .m4a.
+    private static func join(_ first: URL, _ second: URL) async throws -> URL {
+        let composition = AVMutableComposition()
+        guard let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw NSError(domain: "Lekora", code: 2)
+        }
+        var at = CMTime.zero
+        for url in [first, second] {
+            let asset = AVURLAsset(url: url)
+            let duration = try await asset.load(.duration)
+            guard let source = try await asset.loadTracks(withMediaType: .audio).first else { continue }
+            try track.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: source, at: at)
+            at = at + duration
+        }
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+            throw NSError(domain: "Lekora", code: 3)
+        }
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(UUID().uuidString).m4a")
+        try await export.export(to: out, as: .m4a)
+        return out
     }
 
     private static func stamp() -> String {

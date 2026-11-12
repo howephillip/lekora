@@ -88,8 +88,8 @@ public struct LKMessageBubble: View {
     }
 }
 
-/// The floating message bar: a glass text field and a send button that share one
-/// glass container, so they read as a single control.
+/// The floating message bar, as in Messages: the + on the left, then the text field with its
+/// action inside on the right (Send, or the mic while there's nothing to send).
 public struct LKComposer: View {
     private let placeholder: String
     @Binding private var text: String
@@ -98,9 +98,9 @@ public struct LKComposer: View {
     private var focus: FocusState<Bool>.Binding
     /// Before the text field, e.g. the + for photos and files (docs/files.md).
     private let accessory: AnyView?
-    /// Shown instead of the text field (e.g. while recording a voice note).
+    /// Shown instead of the whole bar (recording or reviewing a voice note; docs/voice.md).
     private let replacement: AnyView?
-    /// Shown instead of Send (e.g. the mic while there's nothing to send; docs/voice.md).
+    /// Shown inside the field instead of Send (the mic while there's nothing to send).
     private let action: AnyView?
 
     public init(_ placeholder: String, text: Binding<String>, canSend: Bool,
@@ -118,33 +118,47 @@ public struct LKComposer: View {
 
     public var body: some View {
         GlassEffectContainer(spacing: LK.Spacing.sm) {
-            HStack(alignment: .bottom, spacing: LK.Spacing.sm) {
-                if replacement == nil, let accessory { accessory }
-                if let replacement {
-                    replacement
-                } else {
-                    LKTextField(placeholder, text: $text, style: .glass, axis: .vertical)
+            if let replacement {
+                replacement
+            } else {
+                HStack(alignment: .bottom, spacing: LK.Spacing.sm) {
+                    if let accessory { accessory }
+                    LKTextField(placeholder, text: $text, style: .glass, axis: .vertical,
+                                trailing: action ?? AnyView(sendButton))
                         .focused(focus)
-                }
-
-                if let action {
-                    action
-                } else {
-                Button(action: onSend) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 18, weight: .bold))
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.circle)
-                .tint(LK.Palette.accent)
-                .disabled(!canSend)
-                .accessibilityLabel("Send")
                 }
             }
         }
         .padding(.horizontal, LK.Spacing.lg)
         .padding(.vertical, LK.Spacing.sm)
+    }
+
+    private var sendButton: some View {
+        LKSendArrow(enabled: canSend, action: onSend)
+    }
+}
+
+/// The round Send arrow (inside the message bar, and on a recorded voice note).
+public struct LKSendArrow: View {
+    private let enabled: Bool
+    private let action: () -> Void
+
+    public init(enabled: Bool = true, action: @escaping () -> Void) {
+        self.enabled = enabled
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(LK.Palette.onAccent)
+                .frame(width: 32, height: 32)
+                .background(enabled ? LK.Palette.accent : Color.secondary.opacity(0.4), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel("Send")
     }
 }
 

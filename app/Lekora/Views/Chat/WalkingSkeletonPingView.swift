@@ -45,10 +45,6 @@ public struct WalkingSkeletonPingView: View {
     // Voice notes (docs/voice.md).
     @StateObject private var recorder = VoiceRecorder()
     @StateObject private var player = VoicePlayer()
-    @State private var recordingCancels = false
-    /// The finger is on the mic. Recording only starts (after the permission question) if it
-    /// still is, so a quick tap or a released press never leaves the mic on.
-    @State private var micHeld = false
     @State private var loadingVoice: String?
     /// The file shown in Quick Look, and the one being fetched to show.
     @State private var previewURL: URL?
@@ -160,11 +156,8 @@ public struct WalkingSkeletonPingView: View {
                     }
                     LKComposer("Message \(profileName)", text: $draft, canSend: canSend,
                                focus: $inputFocused, accessory: AnyView(attachMenu),
-                               replacement: recorder.isRecording
-                                   ? AnyView(LKRecordingBar(elapsed: recorder.elapsed, levels: recorder.levels,
-                                                            cancelling: recordingCancels))
-                                   : nil,
-                               action: showsMic ? AnyView(micButton) : nil,
+                               replacement: voiceBar,
+                               action: showsMic ? AnyView(LKFieldMicButton(action: startRecording)) : nil,
                                onSend: send)
                         .id(composerID)
                 }
@@ -234,7 +227,7 @@ public struct WalkingSkeletonPingView: View {
                 isOnScreen = false
                 updateVisibility()
                 player.stop()
-                recorder.cancel()
+                recorder.discard()
             }
             .onChange(of: scenePhase) { _, _ in updateVisibility() }
             .photosPicker(isPresented: $choosingPhotos, selection: $photoItems,
@@ -281,29 +274,48 @@ public struct WalkingSkeletonPingView: View {
 
     // MARK: - Voice notes (docs/voice.md)
 
-    /// The mic replaces Send while there's nothing typed or attached (and while recording).
+    /// The mic sits in the message bar while there's nothing typed or attached.
     private var showsMic: Bool {
-        recorder.isRecording
-            || (isConnected && !uploading && attachments.isEmpty
-                && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        isConnected && !uploading && attachments.isEmpty
+            && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var micButton: some View {
-        LKMicButton(isRecording: recorder.isRecording, onStart: startRecording,
-                    onSlide: { far in recordingCancels = far },
-                    onEnd: { send in finishRecording(send: send) })
+    /// While recording, and while a recorded note waits to be sent, the whole bar is the
+    /// voice note (as in Messages).
+    private var voiceBar: AnyView? {
+        if recorder.isRecording {
+            return AnyView(LKRecordingBar(elapsed: recorder.elapsed, levels: recorder.levels) {
+                Task { await recorder.stop() }
+            })
+        }
+        if let note = recorder.draft {
+            return AnyView(LKVoiceDraftBar(
+                duration: note.duration, waveform: note.waveform,
+                isPlaying: player.currentId == Self.draftId && player.isPlaying,
+                progress: player.currentId == Self.draftId ? player.progress : 0,
+                busy: recorder.isFinishing,
+                onDiscard: { player.stop(); recorder.discard() },
+                onToggle: { player.toggle(id: Self.draftId, url: note.url) },
+                onSeek: { player.seek(id: Self.draftId, url: note.url, to: $0) },
+                onRecordMore: startRecording,
+                onSend: sendRecording))
+        }
+        if recorder.isFinishing {
+            return AnyView(ProgressView().frame(maxWidth: .infinity, minHeight: 44))
+        }
+        return nil
     }
 
+    private static let draftId = "voice-draft"
+
+    /// Tap the mic (or "+" on a recorded note): recording starts, no need to hold.
     private func startRecording() {
-        recordingCancels = false
-        micHeld = true
         player.stop()
         Task {
             guard await recorder.requestPermission() else {
                 attachmentProblem = "Lekora needs the microphone for voice notes. You can allow it in Settings › Lekora."
                 return
             }
-            guard micHeld else { return }  // let go while iPhone asked, or a quick tap: no recording
             do {
                 try recorder.start()
                 #if os(iOS)
@@ -315,25 +327,18 @@ public struct WalkingSkeletonPingView: View {
         }
     }
 
-    private func finishRecording(send: Bool) {
-        micHeld = false
-        guard recorder.isRecording else { return }
-        guard send, !recordingCancels else {
-            recorder.cancel()
-            recordingCancels = false
-            return
-        }
-        guard let recording = recorder.finish() else { return }  // too short to be meant
+    private func sendRecording() {
+        player.stop()
+        guard let note = recorder.takeDraft() else { return }
         isAtBottom = true
         scrollToBottom(animated: true)
         Task {
             do {
-                try await gateway.sendVoiceNote(at: recording.url, duration: recording.duration,
-                                                waveform: recording.waveform)
+                try await gateway.sendVoiceNote(at: note.url, duration: note.duration, waveform: note.waveform)
             } catch {
                 attachmentProblem = "The voice note didn't send: \(error.localizedDescription)"
             }
-            try? FileManager.default.removeItem(at: recording.url)
+            try? FileManager.default.removeItem(at: note.url)
         }
     }
 
