@@ -28,11 +28,12 @@ def test_settings_are_kept_per_agent(store):
     assert voice.get("coder")["settings"] == DEFAULTS, "a deleted agent's settings go with it"
 
 
-def test_hermes_voice_only_for_cloud_voices(store):
-    edge = VoiceSettings(store, hermes_voice=lambda p: {"available": True, "provider": "edge"})
-    assert edge.get("coder")["hermes_voice"] == {"available": False, "provider": "edge"}
-    eleven = VoiceSettings(store, hermes_voice=lambda p: {"available": True, "provider": "elevenlabs"})
-    assert eleven.get("coder")["hermes_voice"]["available"] is True
+def test_any_voice_hermes_can_use_is_offered(store):
+    # Built in, a command provider (e.g. a user's Fish Audio) or a plugin one: whatever Hermes can speak with.
+    custom = VoiceSettings(store, hermes_voice=lambda p: {"available": True, "provider": "fishaudio-cli"})
+    assert custom.get("coder")["hermes_voice"] == {"available": True, "provider": "fishaudio-cli"}
+    missing_key = VoiceSettings(store, hermes_voice=lambda p: {"available": False, "provider": "elevenlabs"})
+    assert missing_key.get("coder")["hermes_voice"]["available"] is False
     broken = VoiceSettings(store, hermes_voice=lambda p: 1 / 0)
     assert broken.get("coder")["hermes_voice"]["available"] is False
 
@@ -42,14 +43,19 @@ def test_speaking_is_made_once(store, file_store, tmp_path):
 
     def speak(profile, text):
         made.append(text)
-        out = tmp_path / f"tts{len(made)}.mp3"
-        out.write_bytes(b"ID3 mp3")
-        return out
+        if len(made) == 1:
+            raise RuntimeError("provider hiccup")  # retried once
+        parts = []
+        for i in (1, 2):  # a long reply comes back in two parts: both are kept
+            out = tmp_path / f"tts{len(made)}-{i}.mp3"
+            out.write_bytes(b"ID3 mp3")
+            parts.append(out)
+        return parts
 
     voice = VoiceSettings(store, file_store, hermes_voice=lambda p: {"available": True, "provider": "openai"}, speak=speak)
     first = voice.speak("coder", 7, "Hello there")
-    assert first["kind"] == "audio" and first["name"] == "Reply 7.mp3"
-    assert voice.speak("coder", 7, "Hello there") == first and made == ["Hello there"], "reused"
+    assert [f["name"] for f in first] == ["Reply 7 part 1.mp3", "Reply 7 part 2.mp3"] and first[0]["kind"] == "audio"
+    assert voice.speak("coder", 7, "Hello there") == first and len(made) == 2, "reused"
     with pytest.raises(VoiceError):
         VoiceSettings(store, file_store).speak("coder", 8, "hi")
 
@@ -58,7 +64,7 @@ async def test_over_the_connection(fgw, store, file_store, tmp_path):
     def speak(profile, text):
         out = tmp_path / "tts.mp3"
         out.write_bytes(b"ID3 " + text.encode())
-        return out
+        return [out]
 
     fgw.voice = VoiceSettings(store, file_store, hermes_voice=lambda p: {"available": True, "provider": "elevenlabs"},
                               speak=speak)

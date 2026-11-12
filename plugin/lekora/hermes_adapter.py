@@ -193,23 +193,26 @@ class LekoraAdapter(BasePlatformAdapter):
         return profile_home(profile_id, root)
 
     def _hermes_voice_for(self, profile_id: str) -> dict:
-        """Which voice this agent's Hermes settings use (docs/voice.md §2); read only."""
+        """Which voice this agent's Hermes settings use and whether Hermes can speak with it
+        (built in, command provider or plugin provider; docs/voice.md §2). Read only."""
         from gateway.run import _profile_runtime_scope
         from tools.tts_tool import _get_provider, _load_tts_config, check_tts_requirements
         with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=True):
             provider = _get_provider(_load_tts_config())
             return {"provider": provider, "available": bool(check_tts_requirements())}
 
-    def _speak_as(self, profile_id: str, text: str) -> Path:
-        """A reply spoken in this agent's Hermes voice, as an audio file (Hermes' own text_to_speech)."""
+    def _speak_as(self, profile_id: str, text: str) -> list[Path]:
+        """Text in this agent's Hermes voice: its audio file(s), in order (Hermes' own
+        text_to_speech splits long text into several)."""
         import json as _json
         from gateway.run import _profile_runtime_scope
         from tools.tts_tool import text_to_speech_tool
         with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=True):
             result = _json.loads(text_to_speech_tool(text))
-        if not result.get("success") or not result.get("file_path"):
+        paths = result.get("file_paths") or ([result["file_path"]] if result.get("file_path") else [])
+        if not result.get("success") or not paths:
             raise RuntimeError(result.get("error") or "no audio")
-        return Path(result["file_path"])
+        return [Path(p) for p in paths]
 
     @property
     def name(self) -> str:

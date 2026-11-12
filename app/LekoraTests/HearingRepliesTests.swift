@@ -33,6 +33,17 @@ final class HearingRepliesTests: XCTestCase {
         XCTAssertEqual(chunks, ["Look:"], "an open code block isn't split into sentences")
     }
 
+    func testSpokenRepliesDecodeAndCache() throws {
+        let json = #"{"seq":9,"role":"assistant","text":"Hi there.","spoken":[{"file_id":"f","name":"Voice reply part 1.mp3","mime":"audio/mpeg","size":3,"kind":"audio"}]}"#
+        let message = try JSONDecoder().decode(ChatMessageData.self, from: Data(json.utf8))
+        var timeline = ChatTimeline()
+        timeline.applyIncoming(seq: 9, profileId: "default", role: "assistant", text: message.text, spoken: message.spoken)
+        let cached = try JSONDecoder().decode(ChatEntry.self, from: JSONEncoder().encode(try XCTUnwrap(timeline.entries.first)))
+        XCTAssertEqual(cached.spoken?.first?.file_id, "f")
+        XCTAssertEqual(cached.text, "Hi there.", "the text stays: it's the transcript")
+        XCTAssertEqual(LKVoiceNames.provider("fish_audio"), "Fish Audio", "custom voices get a tidy name")
+    }
+
     func testRates() {
         XCTAssertEqual(ReplySpeaker.rate(0.5), AVSpeechUtteranceDefaultSpeechRate)
         XCTAssertLessThan(ReplySpeaker.rate(0.2), ReplySpeaker.rate(0.5))
@@ -66,7 +77,19 @@ final class HearingRepliesTests: XCTestCase {
         let followed = await waitUntil { gateway.voiceSettings["default"]?.speak == "voice_notes" }
         XCTAssertTrue(followed)
 
-        let url = try await gateway.hermesSpeech(for: 1, in: "default")
-        XCTAssertEqual(try Data(contentsOf: url), Data("ID3 speech 1".utf8))
+        let urls = try await gateway.hermesSpeech(for: 1, in: "default")
+        XCTAssertEqual(try Data(contentsOf: try XCTUnwrap(urls.first)), Data("ID3 speech 1".utf8))
+
+        // Voice mode: parts of a reply arrive while it's spoken, then the saved reply carries them.
+        let part = host.storeFile(Data("ID3 part".utf8), name: "Voice reply part 1.mp3", mime: "audio/mpeg")
+        host.sendVoiceSegment(messageId: "live-1", index: 0, file: part, profile: "default")
+        let live = await waitUntil { gateway.liveSpeech["live-1"]?.count == 1 }
+        XCTAssertTrue(live)
+        host.sendVoiceSegment(messageId: "live-1", index: 0, file: part, profile: "default")
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(gateway.liveSpeech["live-1"]?.count, 1, "the same part only once")
+
+        try await gateway.setVoiceReplies("always", for: "default")
+        XCTAssertEqual(host.voiceSettings["speak"] as? String, "always")
     }
 }

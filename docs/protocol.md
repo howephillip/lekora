@@ -386,5 +386,6 @@ A file: `{file_id, name, mime, size, kind: image|video|audio|document}`.
 Requests with `profile_id` set, answered with `<type>.result`:
 - `voice.settings.get` `{}` → `{settings: {speak: off|voice_notes|always, engine: iphone|hermes, voice: <iPhone voice id>|null, rate: 0…1}, hermes_voice: {available, provider}}`.
 - `voice.settings.set` `{settings}` → `{settings}`; other phones get `voice.settings.changed` `{settings}`.
-- `voice.speak` `{seq}` (an agent reply) → `{seq, file}`: the reply in the agent's Hermes voice, read with `file.read`.
+- `voice.speak` `{seq}` (an agent reply) → `{seq, file, files}`: the reply in the agent's Hermes voice (all parts, in order), read with `file.read`.
+- Voice mode (`speak` not off, with a Hermes voice): `voice.segment` (Host -> Client) `{message_id, index, file}` for each spoken part of a reply as it's made (`message_id` is the live draft id, or `seq-N`); the saved `chat.message` then carries `spoken: [file…]`.
 - Errors: `INVALID_SETTING`, `VOICE_UNAVAILABLE`, `UNKNOWN_MESSAGE`.

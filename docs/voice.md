@@ -11,11 +11,16 @@ Owner's decisions (2026-11-11): spoken replies use iPhone voices by default (ins
 - If Hermes can't transcribe it, the agent still gets the recording's location (Hermes' own behaviour) and no transcript shows.
 
 ## 2. Hearing replies
-- **Listen:** a small speaker button under each agent reply; tap to hear it, tap again (a stop button while speaking) to stop.
-- **Speak replies,** per agent in Chat Settings › Voice: **Off** (default), **After My Voice Notes** (only replies to a voice note you sent), **Always**. Only replies that arrive while the chat is open and the app is in front; recording stops the speaking.
-- **iPhone voices** (default): each sentence is spoken as soon as it's complete, while the rest is still being written; Markdown symbols, link addresses and code blocks aren't read out. **Voice** lists every voice on the iPhone for your language (or all languages), Premium and Enhanced first, with a sample (tap to choose and hear it); a Personal Voice can be allowed and used. **Speed** slider. Better voices are downloaded in iPhone Settings › Accessibility › Read & Speak.
-- **Hermes' voice:** "Use Hermes' Voice" appears only when the agent's own Hermes settings use a cloud voice (`tts.provider` ElevenLabs, OpenAI, Gemini, xAI, Mistral, MiniMax, DeepInfra; checked with Hermes' `check_tts_requirements`). The plugin has Hermes say the reply with its own `text_to_speech` (in that agent's profile, with its keys), keeps the audio (made once per reply), and the phone plays it. It starts once the reply is complete. If it fails, the iPhone voice says it instead. Fish Audio isn't one of Hermes' built-in voices in 0.22.5 (it would need a Hermes voice plugin).
-- **Where settings live:** the plugin's store (`app_settings`, per agent, with `instance_id`), so every phone and a new phone get them (rule 3); other phones update straight away. Nothing is written to Hermes' config. Deleting an agent deletes them.
+Owner's feedback (2026-11-11): Hermes' voice must work with any voice a user has set up in Hermes (built in, a command provider or a plugin one, e.g. their own Fish Audio), not a fixed list; and voice mode must deliver replies as voice notes in that native voice, streamed, with a quick switch in the chat.
+
+- **Voice mode** (Chat Settings › Voice › **Voice Replies**: Off / To My Voice Notes / Always; and the **waveform button** at the top of the chat, which switches between Off and Always):
+  - With a Hermes voice: replies arrive as **voice notes in the agent's own Hermes voice**. The plugin speaks each sentence with Hermes' `text_to_speech` as soon as it's written and sends it (`voice.segment`); the phone plays the parts as they arrive. When the reply is saved and spoken, the parts are attached to it (`spoken`) and it stays a voice note (play, drag to skip, real waveform and length) with its text in small print, like a voice note's transcript.
+  - Without one: the iPhone voice reads the reply aloud as it's written; the reply stays text.
+  - Turning it off keeps existing voice notes; the next replies come as text with the Listen button.
+  - "To My Voice Notes": only replies to a voice note you sent.
+- **Listen:** the speaker under a text reply. iPhone voice by default (sentence by sentence; voice and speed per agent, every iPhone voice, Personal Voice), or **Listen With Hermes' Voice** per agent.
+- **Hermes' voice is offered** whenever Hermes can speak with that agent's settings (`check_tts_requirements` in the agent's profile, with its keys): any provider, including command and plugin providers. Long text comes back from Hermes in several parts; all are kept and played in order. A failed attempt is retried once and logged in Hermes' log.
+- **Where settings live:** the plugin's store (`app_settings`, per agent), so every phone and a new phone get them (rule 3); other phones update straight away. Nothing is written to Hermes' config.
 
 ## 3. Hands-free conversation (after that)
 - A headphones button: the app listens, notices when you stop talking, sends it as a voice note, speaks the reply, then listens again. Works with the screen locked or in a pocket while the conversation is open. Details are settled when it's built.
@@ -24,6 +29,7 @@ Owner's decisions (2026-11-11): spoken replies use iPhone voices by default (ins
 `protocol.md` §12.
 
 ## Tests (hearing replies)
+- **Plugin** (`tests/test_voice_replies.py`): sentences spoken once each as a reply streams, parts sent at once and attached when saved, off / no voice means text, "to my voice notes" only after a voice note, speech trouble never stops a reply.
 - **Plugin** (`tests/test_voice_settings.py`): settings checked and kept per agent (deleted with it), Hermes' voice offered only for cloud voices, speech made once per reply, the requests over the connection, other phones told.
 - **App** (`HearingRepliesTests`): sentences spoken as they arrive (nothing twice, the rest at the end), Markdown and code cleaned, speeds, settings loaded/saved/followed from another phone, Hermes' speech fetched.
 

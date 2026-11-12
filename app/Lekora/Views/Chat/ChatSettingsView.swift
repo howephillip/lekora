@@ -266,16 +266,22 @@ struct ChatSettingsView: View {
 
     private var voiceSection: some View {
         Section {
-            Picker("Speak Replies", selection: Binding(get: { voice.speak }, set: { value in changeVoice { $0.speak = value } })) {
-                Text("Off").tag("off")
-                Text("After My Voice Notes").tag("voice_notes")
-                Text("Always").tag("always")
+            VStack(alignment: .leading, spacing: 4) {
+                Picker("Voice Replies", selection: Binding(get: { voice.speak }, set: { value in changeVoice { $0.speak = value } })) {
+                    Text("Off").tag("off")
+                    Text("To My Voice Notes").tag("voice_notes")
+                    Text("Always").tag("always")
+                }
+                Text(hermesVoice?.available == true
+                     ? "Replies come as voice notes in \(agentName)'s Hermes voice (\(LKVoiceNames.provider(hermesVoice?.provider))), streamed as they're written. Also the waveform button at the top of the chat."
+                     : "\(agentName) has no voice set up in Hermes, so replies are read aloud with the iPhone voice below.")
+                    .font(LK.Typography.footnote).foregroundStyle(.secondary)
             }
             if let hermes = hermesVoice, hermes.available {
                 Toggle(isOn: Binding(get: { usesHermes }, set: { on in changeVoice { $0.engine = on ? "hermes" : "iphone" } })) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Use Hermes' Voice")
-                        Text("\(LKVoiceNames.provider(hermes.provider)), as set up in \(agentName)'s Hermes settings. Starts once the reply is complete.")
+                        Text("Listen With Hermes' Voice")
+                        Text("The speaker under a text reply uses \(LKVoiceNames.provider(hermes.provider)) instead of the iPhone voice. Starts once the reply is complete.")
                             .font(LK.Typography.footnote).foregroundStyle(.secondary)
                     }
                 }
@@ -299,7 +305,7 @@ struct ChatSettingsView: View {
         } header: {
             Text("Voice")
         } footer: {
-            Text("Tap the speaker under a reply to hear it. Saved on the Hermes instance, so your other phones use it too.")
+            Text("Tap the speaker under a text reply to hear it. Turning voice replies off keeps the voice notes you have; new replies come as text. Saved on the Hermes instance, so your other phones use it too.")
         }
     }
 

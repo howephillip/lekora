@@ -95,6 +95,7 @@ class Gateway:
         self.files: Optional[Any] = None
         # Each agent's voice settings and Hermes' voice (docs/voice.md §2); set by LekoraService.
         self.voice: Optional[Any] = None
+        self.voice_replies: Optional[Any] = None
         # The voice note waiting for Hermes' transcript, per chat (docs/voice.md).
         self._awaiting_transcript: dict[str, int] = {}
         self._dispatch = dispatch
@@ -174,7 +175,7 @@ class Gateway:
                       client_id: Optional[str] = None, draft_id: Optional[str] = None,
                       at: Optional[str] = None, card: Optional[dict] = None,
                       files: Optional[list] = None, voice: Optional[dict] = None,
-                      transcript: Optional[str] = None) -> dict:
+                      transcript: Optional[str] = None, spoken: Optional[list] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
         if files:
             data["files"] = files  # photos and files with the message (docs/files.md)
@@ -182,6 +183,8 @@ class Gateway:
             data["voice"] = voice  # a voice note: {duration, waveform} (docs/voice.md)
         if transcript:
             data["transcript"] = transcript  # what Hermes heard
+        if spoken:
+            data["spoken"] = spoken  # voice mode: the reply in the agent's Hermes voice, in parts
         if card:
             data["card"] = card  # an approval or question card (docs/prompts.md)
         if at:
@@ -197,7 +200,7 @@ class Gateway:
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
             ev.payload.get("client_id"), at=ev.created_at, card=ev.payload.get("card"),
             files=ev.payload.get("files"), voice=ev.payload.get("voice"),
-            transcript=ev.payload.get("transcript")),
+            transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken")),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
@@ -208,7 +211,31 @@ class Gateway:
         seq = self.store.append_event(
             profile_id, "chat.message", {"role": role, "text": text})
         await self._broadcast(self.store.get_event(seq), draft_id=draft_id)
+        if role == "assistant" and self.voice_replies is not None:
+            await self._follow_reply(profile_id, draft_id or f"seq-{seq}", text, True, seq)
         return seq
+
+    async def _follow_reply(self, profile_id: str, key: str, text: str, final: bool, seq: Optional[int] = None) -> None:
+        """Voice mode (docs/voice.md §2): never let speech trouble stop a reply."""
+        try:
+            await self.voice_replies.reply_text(profile_id, key, text, final, seq)
+        except Exception:
+            log.exception("Lekora: voice reply failed")
+
+    async def publish_voice_segment(self, profile_id: str, key: str, index: int, file: dict) -> None:
+        """A spoken part of a reply in voice mode, for phones to play at once (not stored:
+        the saved message gets them all as ``spoken``)."""
+        await self._broadcast_ephemeral(self._envelope(
+            "voice.segment", {"message_id": key, "index": index, "file": file}, profile_id=profile_id))
+
+    async def attach_spoken(self, seq: int, parts: list[dict]) -> None:
+        """Voice mode: the saved reply becomes a voice note (its text stays as the transcript)."""
+        event = self.store.get_event(seq)
+        if event is None:
+            return
+        updated = self.store.update_event_payload(seq, dict(event.payload, spoken=parts))
+        if updated is not None:
+            await self._broadcast(updated)
 
     async def publish_card(self, profile_id: str, role: str, text: str, card: dict) -> int:
         """Save an approval or question card as a chat message and send it to every phone."""
@@ -241,6 +268,8 @@ class Gateway:
         """Live text of a reply being written (full text so far). Not stored or replayed."""
         await self._broadcast_ephemeral(self._envelope(
             "chat.draft", {"draft_id": draft_id, "text": text}, profile_id=profile_id))
+        if text and self.voice_replies is not None:
+            await self._follow_reply(profile_id, draft_id, text, False)
 
     async def publish_typing(self, profile_id: str, active: bool, status: Optional[str] = None) -> None:
         """Whether an agent is working, and on what. Not stored or replayed."""
@@ -263,7 +292,7 @@ class Gateway:
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
             ev.payload.get("client_id"), draft_id, at=ev.created_at, card=ev.payload.get("card"),
             files=ev.payload.get("files"), voice=ev.payload.get("voice"),
-            transcript=ev.payload.get("transcript")),
+            transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken")),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -514,6 +543,8 @@ class Gateway:
         if voice:
             attachments[0]["voice"] = True  # Hermes transcribes it (docs/voice.md)
             self._awaiting_transcript[profile_id] = seq
+        if self.voice_replies is not None:
+            self.voice_replies.user_message(profile_id, bool(voice))
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -538,7 +569,8 @@ class Gateway:
         messages = [self._message_data(e.seq, e.payload.get("role", "assistant"),
                                        e.payload.get("text", ""), e.rev, e.payload.get("client_id"),
                                        at=e.created_at, card=e.payload.get("card"), files=e.payload.get("files"),
-                                       voice=e.payload.get("voice"), transcript=e.payload.get("transcript"))
+                                       voice=e.payload.get("voice"), transcript=e.payload.get("transcript"),
+                                       spoken=e.payload.get("spoken"))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
@@ -789,7 +821,8 @@ class Gateway:
                 if event is None or event.profile_id != profile_id or event.payload.get("role") != "assistant" \
                         or not str(event.payload.get("text") or "").strip():
                     raise _Reject("UNKNOWN_MESSAGE", "That reply isn't here", True, False, msg_id)
-                result = {"seq": seq, "file": await asyncio.to_thread(voice.speak, profile_id, seq, event.payload["text"])}
+                parts = await asyncio.to_thread(voice.speak, profile_id, seq, event.payload["text"])
+                result = {"seq": seq, "file": parts[0], "files": parts}
         except VoiceError as exc:
             raise _Reject(exc.code, exc.reason, True, False, msg_id)
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))

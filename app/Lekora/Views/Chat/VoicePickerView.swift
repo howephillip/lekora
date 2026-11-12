@@ -26,7 +26,10 @@ enum LKVoiceNames {
         case "minimax": return "MiniMax"
         case "deepinfra": return "DeepInfra"
         case "fish", "fishaudio": return "Fish Audio"
-        default: return id ?? "Hermes"
+        default:
+            // A custom or plugin voice: its name as set up in Hermes, tidied ("fish_audio" -> "Fish Audio").
+            guard let id, !id.isEmpty else { return "Hermes" }
+            return id.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ").capitalized
         }
     }
 }

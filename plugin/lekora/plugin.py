@@ -122,7 +122,7 @@ class LekoraService:
         model_info: Optional[Callable[[str, str], Optional[dict]]] = None,
         settings_reader: Optional[Callable[[str], dict]] = None,
         hermes_voice: Optional[Callable[[str], dict]] = None,
-        speaker: Optional[Callable[[str, str], Path]] = None,
+        speaker: Optional[Callable[[str, str], list[Path]]] = None,
     ) -> None:
         # Hermes' own voice per agent (docs/voice.md §2); from the adapter.
         self._hermes_voice = hermes_voice
@@ -211,6 +211,8 @@ class LekoraService:
         self.gateway.voice = VoiceSettings(self._store, self.gateway.files,
                                            **({"hermes_voice": self._hermes_voice} if self._hermes_voice else {}),
                                            speak=self._speaker)
+        from .voice_replies import VoiceReplies
+        self.gateway.voice_replies = VoiceReplies(self.gateway, self.gateway.voice, self._speaker)
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(

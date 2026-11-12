@@ -39,6 +39,15 @@ final class FakeHost: @unchecked Sendable {
     var voiceSettings: [String: Any] = ["speak": "off", "engine": "iphone", "rate": 0.5]
     var hermesVoiceAvailable = true
 
+    /// Voice mode: a spoken part of a reply, as the plugin streams it.
+    func sendVoiceSegment(messageId: String, index: Int, file: [String: Any], profile: String) {
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open {
+            send(type: "voice.segment", data: ["message_id": messageId, "index": index, "file": file],
+                 profileId: profile, on: connection)
+        }
+    }
+
     /// The voice settings changed on another phone.
     func changeVoiceElsewhere(_ settings: [String: Any], profile: String) {
         voiceSettings = settings
@@ -571,7 +580,7 @@ final class FakeHost: @unchecked Sendable {
         case "voice.speak":
             let seq = data["seq"] as? Int ?? 0
             let meta = storeFile(Data("ID3 speech \(seq)".utf8), name: "Reply \(seq).mp3", mime: "audio/mpeg")
-            send(type: "voice.speak.result", id: id, data: ["seq": seq, "file": meta],
+            send(type: "voice.speak.result", id: id, data: ["seq": seq, "file": meta, "files": [meta]],
                  profileId: message["profile_id"] as? String, on: connection)
 
         case "chat.send":

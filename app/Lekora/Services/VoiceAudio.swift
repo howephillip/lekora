@@ -180,7 +180,9 @@ public final class VoiceRecorder: ObservableObject {
     }
 }
 
-/// Plays one voice note at a time, with its position for the bubble's waveform.
+/// Plays one voice note at a time, with its position for the bubble's waveform. A note can be
+/// several parts played one after the other (voice-mode replies), and parts can be added while
+/// it plays (a reply still being spoken; docs/voice.md §2).
 @MainActor
 public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     /// The message whose voice note is loaded.
@@ -191,44 +193,105 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     private var player: AVAudioPlayer?
     private var timer: Timer?
+    private var parts: [URL] = []
+    private var lengths: [TimeInterval] = []
+    private var index = 0
+    /// Waiting for the next part of a reply still being spoken.
+    private var waiting = false
 
     public override init() {}
 
+    private var total: TimeInterval { lengths.reduce(0, +) }
+
     public func toggle(id: String, url: URL) {
-        if currentId == id, let player {
-            if player.isPlaying { pause() } else { resume() }
+        toggle(id: id, urls: [url])
+    }
+
+    public func toggle(id: String, urls: [URL]) {
+        if currentId == id, player != nil || waiting {
+            if isPlaying { pause() } else { resume() }
             return
         }
-        play(id: id, url: url, from: 0)
+        play(id: id, urls: urls, from: 0)
     }
 
     public func play(id: String, url: URL, from fraction: Double) {
+        play(id: id, urls: [url], from: fraction)
+    }
+
+    public func play(id: String, urls: [URL], from fraction: Double) {
         stop()
-        do {
-            #if os(iOS)
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-            try AVAudioSession.sharedInstance().setActive(true)
-            #endif
-            let player = try AVAudioPlayer(contentsOf: url)
-            player.delegate = self
-            player.currentTime = player.duration * min(max(fraction, 0), 1)
-            self.player = player
-            currentId = id
-            progress = fraction
+        parts = urls
+        lengths = urls.map { Self.length(of: $0) }
+        currentId = id
+        start(at: fraction)
+    }
+
+    /// Another part of the note `id` (a reply still being spoken): played after the others,
+    /// or straight away if playback was waiting for it. Starts the note if nothing is playing.
+    public func append(id: String, url: URL) {
+        guard currentId == id else {
+            if player == nil || !isPlaying { play(id: id, urls: [url], from: 0) }
+            return
+        }
+        parts.append(url)
+        lengths.append(Self.length(of: url))
+        if waiting {
+            waiting = false
+            index = parts.count - 1
+            load(index, at: 0)
             resume()
-        } catch {
-            stop()
         }
     }
 
     /// Drags on the waveform: jump there (and keep playing if it was).
     public func seek(id: String, url: URL, to fraction: Double) {
-        guard currentId == id, let player else {
-            play(id: id, url: url, from: fraction)
+        seek(id: id, urls: [url], to: fraction)
+    }
+
+    public func seek(id: String, urls: [URL], to fraction: Double) {
+        guard currentId == id, !parts.isEmpty else {
+            play(id: id, urls: urls, from: fraction)
             return
         }
-        player.currentTime = player.duration * min(max(fraction, 0), 1)
+        let wasPlaying = isPlaying
+        start(at: fraction, play: wasPlaying)
         progress = fraction
+    }
+
+    private func start(at fraction: Double, play: Bool = true) {
+        var target = total * min(max(fraction, 0), 1)
+        var at = 0
+        while at < lengths.count - 1, target >= lengths[at] {
+            target -= lengths[at]
+            at += 1
+        }
+        index = at
+        load(at, at: target)
+        if play { resume() }
+    }
+
+    private func load(_ part: Int, at time: TimeInterval) {
+        timer?.invalidate()
+        player?.stop()
+        player = nil
+        guard parts.indices.contains(part) else { return }
+        do {
+            #if os(iOS)
+            // Only when it changes: setting it for every part can stall the screen.
+            let session = AVAudioSession.sharedInstance()
+            if session.category != .playback || session.mode != .spokenAudio {
+                try session.setCategory(.playback, mode: .spokenAudio)
+                try session.setActive(true)
+            }
+            #endif
+            let next = try AVAudioPlayer(contentsOf: parts[part])
+            next.delegate = self
+            next.currentTime = min(time, next.duration)
+            player = next
+        } catch {
+            player = nil
+        }
     }
 
     private func resume() {
@@ -237,16 +300,20 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
         isPlaying = true
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, let player = self.player, player.duration > 0 else { return }
-                self.progress = player.currentTime / player.duration
-            }
+            Task { @MainActor in self?.tick() }
         }
+    }
+
+    private func tick() {
+        guard let player, total > 0 else { return }
+        let before = lengths.prefix(index).reduce(0, +)
+        progress = min((before + player.currentTime) / total, 1)
     }
 
     public func pause() {
         player?.pause()
         isPlaying = false
+        waiting = false
         timer?.invalidate()
     }
 
@@ -256,16 +323,69 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
         player?.stop()
         player = nil
         isPlaying = false
+        waiting = false
         currentId = nil
         progress = 0
+        parts = []
+        lengths = []
+        index = 0
     }
 
+    /// Whether more parts may still come for the playing note (set by the chat screen).
+    public var expectsMore = false
+
     public nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in
-            self.timer?.invalidate()
-            self.isPlaying = false
-            self.progress = 0
-            self.player?.currentTime = 0
+        Task { @MainActor in self.partEnded() }
+    }
+
+    private func partEnded() {
+        if index + 1 < parts.count {
+            index += 1
+            load(index, at: 0)
+            resume()
+            return
         }
+        if expectsMore {
+            waiting = true  // the next part of the reply is still being spoken
+            return
+        }
+        timer?.invalidate()
+        isPlaying = false
+        progress = 0
+        index = 0
+        load(0, at: 0)
+    }
+
+    static func length(of url: URL) -> TimeInterval {
+        lengthNonisolated(of: url)
+    }
+
+    nonisolated static func lengthNonisolated(of url: URL) -> TimeInterval {
+        guard let file = try? AVAudioFile(forReading: url) else { return 0 }
+        return Double(file.length) / file.processingFormat.sampleRate
+    }
+}
+
+extension VoiceWaveform {
+    /// Bars for audio files (a voice-mode reply), read from the sound itself.
+    public static func bars(of urls: [URL], count: Int = 48) -> [Double] {
+        var levels: [Double] = []
+        for url in urls {
+            guard let file = try? AVAudioFile(forReading: url),
+                  let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+                  (try? file.read(into: buffer)) != nil, let samples = buffer.floatChannelData?[0] else { continue }
+            let frames = Int(buffer.frameLength)
+            let step = max(Int(file.processingFormat.sampleRate / 20), 1)  // 20 levels a second
+            var start = 0
+            while start < frames {
+                let end = min(start + step, frames)
+                var sum: Float = 0
+                for i in start..<end { sum += samples[i] * samples[i] }
+                let rms = sqrt(sum / Float(max(end - start, 1)))
+                levels.append(level(fromDecibels: 20 * log10(max(rms, 0.000_01))))
+                start = end
+            }
+        }
+        return bars(levels, count: count)
     }
 }

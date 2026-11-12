@@ -183,6 +183,19 @@ public struct WalkingSkeletonPingView: View {
                         unreadBadge
                     }
                 }
+                // Voice mode, one tap away (docs/voice.md §2).
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: toggleVoiceMode) {
+                        Image(systemName: voiceMode ? "waveform.circle.fill" : "waveform.circle")
+                            .symbolRenderingMode(voiceMode ? .multicolor : .monochrome)
+                            .foregroundStyle(voiceMode ? LK.Palette.accent : .primary)
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .sensoryFeedback(.selection, trigger: voiceMode)
+                    .disabled(!isConnected)
+                    .accessibilityLabel(voiceMode ? "Voice replies on" : "Voice replies off")
+                    .accessibilityHint("Replies come as voice notes")
+                }
                 // Change this agent's model: opens Hermes' own model picker (as /model does).
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -244,6 +257,12 @@ public struct WalkingSkeletonPingView: View {
             // Speak replies by themselves, as the agent's settings say (docs/voice.md §2).
             .onChange(of: newestReply) { _, reply in
                 if let reply { autoSpeak(reply) }
+            }
+            // Voice mode: play each spoken part of the newest reply as it arrives.
+            .onChange(of: newestLiveParts) { old, live in
+                guard let live else { return }
+                if live.count != old?.count || live.id != old?.id { playLiveParts(live) }
+                if live.done { player.expectsMore = false }
             }
             .photosPicker(isPresented: $choosingPhotos, selection: $photoItems,
                           maxSelectionCount: max(GatewayClient.maxFilesPerMessage - attachments.count, 1),
@@ -323,13 +342,53 @@ public struct WalkingSkeletonPingView: View {
         Task {
             defer { loadingSpeech = nil }
             do {
-                let url = try await gateway.hermesSpeech(for: seq, in: profileId)
+                let urls = try await gateway.hermesSpeech(for: seq, in: profileId)
                 guard profileId == gateway.activeProfileId else { return }
-                player.play(id: "speech-" + entry.id, url: url, from: 0)
+                player.expectsMore = false
+                player.play(id: "speech-" + entry.id, urls: urls, from: 0)
             } catch {
                 // Hermes' voice failed: say it with the iPhone's instead.
                 speaker.speak(id: entry.id, text: entry.text, settings: voiceSettings)
             }
+        }
+    }
+
+    /// Voice mode: a reply's spoken parts (saved, or still arriving).
+    private func spokenParts(_ entry: ChatEntry) -> [ChatFile]? {
+        if let saved = entry.spoken, !saved.isEmpty { return saved }
+        if let live = gateway.liveSpeech[entry.id], !live.isEmpty { return live }
+        return nil
+    }
+
+    private func isLiveSpoken(_ entry: ChatEntry) -> Bool {
+        entry.spoken == nil && gateway.liveSpeech[entry.id] != nil
+    }
+
+    /// Voice mode is on for this agent (its replies come as voice notes).
+    private var voiceMode: Bool { voiceSettings.speak != "off" }
+
+    private func toggleVoiceMode() {
+        let profileId = gateway.activeProfileId
+        let mode = voiceMode ? "off" : "always"
+        if mode == "off" { speaker.stop(); player.stop() }
+        Task { try? await gateway.setVoiceReplies(mode, for: profileId) }
+    }
+
+    /// The newest reply's live spoken parts, to play each as it arrives.
+    private var newestLiveParts: LiveParts? {
+        guard let entry = messages.last(where: { $0.role == .agent }),
+              let parts = gateway.liveSpeech[entry.id] else { return nil }
+        return LiveParts(id: entry.id, count: parts.count, done: entry.spoken != nil)
+    }
+
+    private func playLiveParts(_ live: LiveParts) {
+        guard scenePhase == .active, !recorder.isRecording, recorder.draft == nil,
+              let parts = gateway.liveSpeech[live.id], let part = parts.last else { return }
+        player.expectsMore = !live.done
+        let id = live.id
+        Task {
+            guard let url = try? await gateway.fileURL(for: part) else { return }
+            player.append(id: id, url: url)
         }
     }
 
@@ -348,12 +407,10 @@ public struct WalkingSkeletonPingView: View {
             guard let index = messages.firstIndex(where: { $0.id == reply.id }),
                   messages[..<index].last(where: { $0.role == .user })?.voice != nil else { return }
         }
-        if usesHermesVoice {
-            guard reply.final, let seq = entry.seq, player.currentId != "speech-" + entry.id else { return }
-            playHermesSpeech(entry, seq: seq)
-        } else {
-            speaker.follow(id: reply.id, text: reply.text, final: reply.final, settings: voiceSettings)
-        }
+        // With a Hermes voice the instance sends the reply as a voice note (streamed parts,
+        // played as they come); without one the iPhone voice reads it as it's written.
+        guard gateway.hermesVoice[gateway.activeProfileId]?.available != true else { return }
+        speaker.follow(id: reply.id, text: reply.text, final: reply.final, settings: voiceSettings)
     }
 
     // MARK: - Voice notes (docs/voice.md)
@@ -599,7 +656,11 @@ public struct WalkingSkeletonPingView: View {
                         } else if let card = entry.card {
                             LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
                         } else {
-                            if let voice = entry.voice, let file = entry.files?.first {
+                            if entry.role == .agent, let parts = spokenParts(entry) {
+                                SpokenReplyBubble(entry: entry, parts: parts, live: isLiveSpoken(entry),
+                                                  gateway: gateway, player: player)
+                                    .offset(x: -timeReveal)
+                            } else if let voice = entry.voice, let file = entry.files?.first {
                                 LKVoiceBubble(voice, fromUser: entry.role == .user, transcript: entry.transcript,
                                               isPlaying: player.currentId == entry.id && player.isPlaying,
                                               progress: player.currentId == entry.id ? player.progress : 0,
@@ -614,7 +675,7 @@ public struct WalkingSkeletonPingView: View {
                                                open: openFile)
                                     .offset(x: -timeReveal)
                             }
-                            if entry.voice != nil {
+                            if entry.voice != nil || (entry.role == .agent && spokenParts(entry) != nil) {
                                 EmptyView()
                             } else if entry.files?.isEmpty == false && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 fileOnlyStatus(for: entry)  // just photos or files: no empty text bubble
@@ -854,4 +915,77 @@ struct SpeakableReply: Equatable {
     let id: String
     let text: String
     let final: Bool
+}
+
+/// The newest reply's spoken parts so far.
+struct LiveParts: Equatable {
+    let id: String
+    let count: Int
+    let done: Bool
+}
+
+/// A reply in voice mode: a voice note in the agent's Hermes voice (parts played one after the
+/// other), its text as the transcript. While it's still arriving, it fills in as parts come.
+struct SpokenReplyBubble: View {
+    let entry: ChatEntry
+    let parts: [ChatFile]
+    let live: Bool
+    @ObservedObject var gateway: GatewayClient
+    @ObservedObject var player: VoicePlayer
+    @State private var details: VoiceDetails?
+    @State private var loading = false
+
+    private var shown: VoiceDetails {
+        details ?? VoiceDetails(duration: max(Double(entry.text.split(separator: " ").count) / 2.6, 1),
+                                waveform: Array(repeating: 0.25, count: 32))
+    }
+
+    var body: some View {
+        LKVoiceBubble(shown, fromUser: false, transcript: entry.text,
+                      isPlaying: player.currentId == entry.id && player.isPlaying,
+                      progress: player.currentId == entry.id ? player.progress : 0,
+                      loading: loading,
+                      onToggle: toggle, onSeek: seek)
+            .task(id: parts.count) { await measure() }
+    }
+
+    private func localParts() async -> [URL]? {
+        var urls: [URL] = []
+        for part in parts {
+            guard let url = try? await gateway.fileURL(for: part) else { return nil }
+            urls.append(url)
+        }
+        return urls
+    }
+
+    /// Length and waveform from the audio itself, once it's here.
+    private func measure() async {
+        guard let urls = await localParts() else { return }
+        let measured = await Task.detached(priority: .utility) { () -> VoiceDetails in
+            VoiceDetails(duration: urls.reduce(0) { $0 + VoicePlayer.lengthNonisolated(of: $1) },
+                         waveform: VoiceWaveform.bars(of: urls))
+        }.value
+        details = measured
+    }
+
+    private func toggle() {
+        if player.currentId == entry.id {
+            player.toggle(id: entry.id, urls: [])
+            return
+        }
+        loading = true
+        Task {
+            defer { loading = false }
+            guard let urls = await localParts() else { return }
+            player.expectsMore = live
+            player.play(id: entry.id, urls: urls, from: 0)
+        }
+    }
+
+    private func seek(_ fraction: Double) {
+        Task {
+            guard let urls = await localParts() else { return }
+            player.seek(id: entry.id, urls: urls, to: fraction)
+        }
+    }
 }

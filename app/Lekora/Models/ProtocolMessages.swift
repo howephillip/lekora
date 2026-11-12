@@ -253,7 +253,9 @@ public struct HermesVoiceInfo: Codable, Equatable, Sendable {
 struct VoiceSettingsGetResult: Codable { let settings: AgentVoiceSettings; let hermes_voice: HermesVoiceInfo }
 struct VoiceSettingsData: Codable { let settings: AgentVoiceSettings }
 struct VoiceSpeakData: Codable { let seq: Int }
-struct VoiceSpeakResult: Codable { let seq: Int; let file: ChatFile }
+struct VoiceSpeakResult: Codable { let seq: Int; let file: ChatFile; let files: [ChatFile]? }
+/// A spoken part of a reply in voice mode, to play at once.
+struct VoiceSegmentData: Codable { let message_id: String; let index: Int; let file: ChatFile }
 
 /// Space the files take on a Hermes instance.
 public struct FilesUsage: Codable, Equatable, Sendable {
@@ -280,10 +282,14 @@ public struct ChatMessageData: Codable, Equatable {
     /// A voice note, and what Hermes heard (docs/voice.md).
     public let voice: VoiceDetails?
     public let transcript: String?
+    /// Voice mode: the reply in the agent's Hermes voice, in parts (docs/voice.md §2).
+    public let spoken: [ChatFile]?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
                 rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
-                files: [ChatFile]? = nil, voice: VoiceDetails? = nil, transcript: String? = nil) {
+                files: [ChatFile]? = nil, voice: VoiceDetails? = nil, transcript: String? = nil,
+                spoken: [ChatFile]? = nil) {
+        self.spoken = spoken
         self.files = files
         self.voice = voice
         self.transcript = transcript

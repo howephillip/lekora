@@ -2,20 +2,22 @@
 with Hermes' own voice.
 
 Settings live in the plugin's store (``app_settings``), so every phone and a new phone get
-them (rule 3). Nothing is written to Hermes' config. Hermes' voice is used only when the agent's
-own Hermes settings name a cloud voice; the adapter passes in how to check and how to speak.
+them (rule 3). Nothing is written to Hermes' config. Hermes' voice is whatever voice that agent's
+Hermes settings use (built in, a command provider, or one added by a Hermes plugin), offered
+whenever Hermes can speak with it; the adapter passes in how to check and how to speak.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+import logging
 from typing import Any, Callable, Optional
+
+log = logging.getLogger(__name__)
 
 SPEAK = ("off", "voice_notes", "always")
 ENGINES = ("iphone", "hermes")
 DEFAULTS: dict[str, Any] = {"speak": "off", "engine": "iphone", "voice": None, "rate": 0.5}
-# Hermes' voices that need an account (owner's decision: Hermes' voice only for these).
-CLOUD_PROVIDERS = {"elevenlabs", "openai", "gemini", "xai", "mistral", "minimax", "deepinfra", "fish", "fishaudio"}
 KEY = "voice"
 
 
@@ -58,11 +60,11 @@ def _no_hermes_voice(profile_id: str) -> dict:
 class VoiceSettings:
     def __init__(self, store: Any, files: Any = None,
                  hermes_voice: Callable[[str], dict] = _no_hermes_voice,
-                 speak: Optional[Callable[[str, str], Path]] = None) -> None:
+                 speak: Optional[Callable[[str, str], list[Path]]] = None) -> None:
         self.store = store
         self.files = files
         self._hermes_voice = hermes_voice     # profile -> {available, provider} (blocking)
-        self._speak = speak                   # (profile, text) -> audio file (blocking)
+        self._speak = speak                   # (profile, text) -> audio files, in order (blocking)
 
     def get(self, profile_id: str) -> dict:
         saved = self.store.get_app_setting(profile_id, KEY) or {}
@@ -79,25 +81,35 @@ class VoiceSettings:
             found = self._hermes_voice(profile_id) or {}
         except Exception:
             found = {}
-        provider = found.get("provider")
-        return {"available": bool(found.get("available")) and provider in CLOUD_PROVIDERS, "provider": provider}
+        return {"available": bool(found.get("available")), "provider": found.get("provider")}
 
-    def speak(self, profile_id: str, seq: int, text: str) -> dict:
-        """The reply as Hermes' voice: an audio file (made once per reply, then reused)."""
+    def speak(self, profile_id: str, seq: int, text: str) -> list[dict]:
+        """The reply in Hermes' voice: its audio file(s), in order (a long reply can be several;
+        made once per reply, then reused)."""
         cache_key = f"speech:{seq}"
         if self.files is not None:
             known = self.store.get_app_setting(profile_id, cache_key)
             if known:
                 try:
-                    return self.files.describe(self.files.ready(known))
+                    return [self.files.describe(self.files.ready(f)) for f in (known if isinstance(known, list) else [known])]
                 except Exception:
                     pass
         if self._speak is None or self.files is None or not self.hermes_voice(profile_id)["available"]:
             raise VoiceError("VOICE_UNAVAILABLE", "This agent has no Hermes voice set up")
-        try:
-            path = self._speak(profile_id, text)
-        except Exception as exc:
-            raise VoiceError("VOICE_UNAVAILABLE", f"Hermes couldn't speak it: {exc}")
-        described = self.files.add_agent_file(profile_id, Path(path), name=f"Reply {seq}{Path(path).suffix or '.mp3'}")
-        self.store.set_app_setting(profile_id, cache_key, described["file_id"])
+        paths: list[Path] = []
+        problem: Optional[Exception] = None
+        for _attempt in (1, 2):  # a provider hiccup gets one retry
+            try:
+                paths = [Path(p) for p in self._speak(profile_id, text)]
+                if paths:
+                    break
+            except Exception as exc:
+                problem = exc
+                log.warning("Lekora: Hermes couldn't speak reply %s for %s: %s", seq, profile_id, exc)
+        if not paths:
+            raise VoiceError("VOICE_UNAVAILABLE", f"Hermes couldn't speak it: {problem or 'no audio'}")
+        described = [self.files.add_agent_file(profile_id, p, name=f"Reply {seq}" + (f" part {i + 1}" if len(paths) > 1 else "")
+                                               + (p.suffix or ".mp3"))
+                     for i, p in enumerate(paths)]
+        self.store.set_app_setting(profile_id, cache_key, [d["file_id"] for d in described])
         return described

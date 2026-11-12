@@ -1099,11 +1099,23 @@ public final class GatewayClient: ObservableObject {
         }
     }
 
-    /// A reply in the agent's Hermes voice: an audio file on the phone.
-    public func hermesSpeech(for seq: Int, in profileId: String) async throws -> URL {
+    /// A reply in the agent's Hermes voice: its audio file(s) on the phone, in order.
+    public func hermesSpeech(for seq: Int, in profileId: String) async throws -> [URL] {
         let got = try await request(type: "voice.speak", profileId: profileId, data: VoiceSpeakData(seq: seq),
-                                    reply: VoiceSpeakResult.self, timeout: 120)
-        return try await fileURL(for: got.file)
+                                    reply: VoiceSpeakResult.self, timeout: 180)
+        var urls: [URL] = []
+        for file in got.files ?? [got.file] { urls.append(try await fileURL(for: file)) }
+        return urls
+    }
+
+    /// Voice mode: spoken parts of replies as they arrive, by message id, in order.
+    @Published public private(set) var liveSpeech: [String: [ChatFile]] = [:]
+
+    /// Turns voice mode on or off for an agent (its replies as voice notes; docs/voice.md §2).
+    public func setVoiceReplies(_ mode: String, for profileId: String) async throws {
+        var settings = voiceSettings[profileId] ?? .standard
+        settings.speak = mode
+        try await setVoiceSettings(settings, for: profileId)
     }
 
     /// The space files take on this instance.
@@ -1135,6 +1147,11 @@ public final class GatewayClient: ObservableObject {
         if let from = header.instance_id, let host = savedHost, from != host.instanceId { return }
 
         switch header.type {
+        case "voice.segment":
+            guard let envelope = try? decoder.decode(Envelope<VoiceSegmentData>.self, from: data) else { return }
+            var parts = liveSpeech[envelope.data.message_id] ?? []
+            if envelope.data.index >= parts.count { parts.append(envelope.data.file) }
+            liveSpeech[envelope.data.message_id] = parts
         case "voice.settings.changed":
             // Changed on another phone.
             guard let envelope = try? decoder.decode(Envelope<VoiceSettingsData>.self, from: data),
@@ -1163,7 +1180,8 @@ public final class GatewayClient: ObservableObject {
                 card: envelope.data.card,
                 files: envelope.data.files,
                 voice: envelope.data.voice,
-                transcript: envelope.data.transcript
+                transcript: envelope.data.transcript,
+                spoken: envelope.data.spoken
             )
             if profileId == activeProfileId { markActiveChatRead() }
             if envelope.data.role == "system", chatSettings[profileId] != nil {

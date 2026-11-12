@@ -122,6 +122,12 @@ public struct SetupWizardView: View {
             }
 
             LKTextField("lekora-pair://…", text: $pairingCodeInput)
+                .submitLabel(.go)
+                .onSubmit {  // Return connects (the keyboard can hide the Connect button)
+                    if !pairingCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isWorking {
+                        handlePairingPayload(pairingCodeInput)
+                    }
+                }
                 .autocorrectionDisabled()
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
