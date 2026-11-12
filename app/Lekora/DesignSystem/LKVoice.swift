@@ -121,10 +121,10 @@ public struct LKVoiceBubble: View {
     }
 }
 
-/// The mic inside the message bar (a waveform, as in Messages). Hold it for a second to start
+/// The mic inside the message bar (a waveform, as in Messages). Hold it briefly to start
 /// recording (a ring fills meanwhile), so a stray tap does nothing; then let go and talk.
 public struct LKFieldMicButton: View {
-    public static let holdDuration: Double = 1
+    public static let holdDuration: Double = 0.5
     private let action: () -> Void
     @State private var fill: CGFloat = 0
     @State private var presses = 0
@@ -158,7 +158,7 @@ public struct LKFieldMicButton: View {
         }
         .sensoryFeedback(.selection, trigger: presses)
         .accessibilityLabel("Record voice note")
-        .accessibilityHint("Hold for a second to start recording")
+        .accessibilityHint("Hold briefly to start recording")
         .accessibilityAction { action() }
     }
 }
