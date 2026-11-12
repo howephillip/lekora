@@ -100,12 +100,15 @@ public struct LKComposer: View {
     private let accessory: AnyView?
     /// Shown instead of the whole bar (recording or reviewing a voice note; docs/voice.md).
     private let replacement: AnyView?
+    /// Which replacement it is: a new one animates in.
+    private let replacementID: String?
     /// Shown inside the field instead of Send (the mic while there's nothing to send).
     private let action: AnyView?
 
     public init(_ placeholder: String, text: Binding<String>, canSend: Bool,
                 focus: FocusState<Bool>.Binding, accessory: AnyView? = nil, replacement: AnyView? = nil,
-                action: AnyView? = nil, onSend: @escaping () -> Void) {
+                replacementID: String? = nil, action: AnyView? = nil, onSend: @escaping () -> Void) {
+        self.replacementID = replacementID
         self.placeholder = placeholder
         self._text = text
         self.canSend = canSend
@@ -120,6 +123,10 @@ public struct LKComposer: View {
         GlassEffectContainer(spacing: LK.Spacing.sm) {
             if let replacement {
                 replacement
+                    .id(replacementID)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.92, anchor: .trailing).combined(with: .opacity),
+                        removal: .scale(scale: 0.96, anchor: .trailing).combined(with: .opacity)))
             } else {
                 HStack(alignment: .bottom, spacing: LK.Spacing.sm) {
                     if let accessory { accessory }
@@ -127,6 +134,7 @@ public struct LKComposer: View {
                                 trailing: action ?? AnyView(sendButton))
                         .focused(focus)
                 }
+                .transition(.scale(scale: 0.96, anchor: .trailing).combined(with: .opacity))
             }
         }
         .padding(.horizontal, LK.Spacing.lg)

@@ -106,17 +106,18 @@ public final class VoiceRecorder: ObservableObject {
             try? FileManager.default.removeItem(at: part)
             return
         }
+        guard let earlier = draft else {
+            // The first part: ready straight away (no waiting, so the review bar appears smoothly).
+            draft = Draft(url: part, duration: partLength, waveform: VoiceWaveform.bars(allLevels))
+            return
+        }
+        // More recorded onto the end: the note stays shown (Send waits) while the parts are joined.
         isFinishing = true
         defer { isFinishing = false }
-        let joined: URL
-        if let earlier = draft?.url {
-            joined = (try? await Self.join(earlier, part)) ?? earlier
-            try? FileManager.default.removeItem(at: part)
-            if joined != earlier { try? FileManager.default.removeItem(at: earlier) }
-        } else {
-            joined = part
-        }
-        let length = (try? await AVURLAsset(url: joined).load(.duration).seconds) ?? ((draft?.duration ?? 0) + partLength)
+        let joined = (try? await Self.join(earlier.url, part)) ?? earlier.url
+        try? FileManager.default.removeItem(at: part)
+        if joined != earlier.url { try? FileManager.default.removeItem(at: earlier.url) }
+        let length = (try? await AVURLAsset(url: joined).load(.duration).seconds) ?? (earlier.duration + partLength)
         draft = Draft(url: joined, duration: length, waveform: VoiceWaveform.bars(allLevels))
     }
 

@@ -121,24 +121,45 @@ public struct LKVoiceBubble: View {
     }
 }
 
-/// The mic inside the message bar (a waveform, as in Messages): tap to start recording.
+/// The mic inside the message bar (a waveform, as in Messages). Hold it for a second to start
+/// recording (a ring fills meanwhile), so a stray tap does nothing; then let go and talk.
 public struct LKFieldMicButton: View {
+    public static let holdDuration: Double = 1
     private let action: () -> Void
+    @State private var fill: CGFloat = 0
+    @State private var presses = 0
 
     public init(action: @escaping () -> Void) {
         self.action = action
     }
 
     public var body: some View {
-        Button(action: action) {
+        ZStack {
+            Circle()
+                .trim(from: 0, to: fill)
+                .stroke(LK.Palette.danger, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .opacity(fill > 0 ? 1 : 0)
             Image(systemName: "waveform")
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
+                .foregroundStyle(fill > 0 ? AnyShapeStyle(LK.Palette.danger) : AnyShapeStyle(.secondary))
+                .scaleEffect(1 + 0.15 * fill)
         }
-        .buttonStyle(.plain)
+        .frame(width: 32, height: 32)
+        .contentShape(Rectangle())
+        .onLongPressGesture(minimumDuration: Self.holdDuration, maximumDistance: 40) {
+            fill = 0
+            action()
+        } onPressingChanged: { pressing in
+            if pressing { presses += 1 }
+            withAnimation(pressing ? .linear(duration: Self.holdDuration) : .spring(duration: 0.25)) {
+                fill = pressing ? 1 : 0
+            }
+        }
+        .sensoryFeedback(.selection, trigger: presses)
         .accessibilityLabel("Record voice note")
+        .accessibilityHint("Hold for a second to start recording")
+        .accessibilityAction { action() }
     }
 }
 
@@ -155,24 +176,32 @@ public struct LKRecordingBar: View {
         self.onStop = onStop
     }
 
+    @State private var appeared = false
+
     public var body: some View {
         HStack(spacing: LK.Spacing.md) {
             LKWaveform(Self.padded(levels), progress: 1, color: LK.Palette.danger)
                 .frame(height: 30)
+                .scaleEffect(x: 1, y: appeared ? 1 : 0.2, anchor: .center)
+                .animation(.easeOut(duration: 0.1), value: levels)
                 .accessibilityHidden(true)
             Text(LKVoiceText.duration(elapsed))
                 .font(LK.Typography.body.monospacedDigit())
                 .foregroundStyle(LK.Palette.danger)
+                .contentTransition(.numericText())
+                .animation(.snappy, value: Int(elapsed))
             Button(action: onStop) {
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                RoundedRectangle(cornerRadius: appeared ? 3 : 7, style: .continuous)
                     .fill(LK.Palette.danger)
                     .frame(width: 14, height: 14)
                     .frame(width: 38, height: 38)
                     .background(LK.Palette.danger.opacity(0.25), in: Circle())
+                    .scaleEffect(appeared ? 1 : 0.4)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Stop recording")
         }
+        .onAppear { withAnimation(.spring(duration: 0.45, bounce: 0.35)) { appeared = true } }
         .padding(.leading, LK.Spacing.lg)
         .padding(.trailing, LK.Spacing.xs + 2)
         .frame(height: 50)
@@ -217,6 +246,8 @@ public struct LKVoiceDraftBar: View {
         self.onSend = onSend
     }
 
+    @State private var appeared = false
+
     public var body: some View {
         HStack(spacing: LK.Spacing.sm) {
             Button(action: onDiscard) {
@@ -226,6 +257,9 @@ public struct LKVoiceDraftBar: View {
             }
             .buttonStyle(.glass)
             .buttonBorderShape(.circle)
+            .scaleEffect(appeared ? 1 : 0.3)
+            .opacity(appeared ? 1 : 0)
+            .offset(x: appeared ? 0 : 24)
             .accessibilityLabel("Delete voice note")
 
             HStack(spacing: LK.Spacing.sm) {
@@ -241,6 +275,9 @@ public struct LKVoiceDraftBar: View {
 
                 LKWaveform(waveform, progress: progress, color: .primary, onSeek: onSeek)
                     .frame(height: 24)
+                    .scaleEffect(x: 1, y: appeared ? 1 : 0.2)
+                    .opacity(appeared ? 1 : 0)
+                    .animation(.linear(duration: 0.05), value: progress)
                     .accessibilityHidden(true)
 
                 Button(action: onRecordMore) {
@@ -256,16 +293,22 @@ public struct LKVoiceDraftBar: View {
                 .disabled(busy)
                 .accessibilityLabel("\(LKVoiceText.duration(duration)). Record more")
 
-                if busy {
-                    ProgressView().frame(width: 32, height: 32)
-                } else {
-                    LKSendArrow(action: onSend)
+                Group {
+                    if busy {
+                        ProgressView().frame(width: 32, height: 32)
+                    } else {
+                        LKSendArrow(action: onSend)
+                    }
                 }
+                .scaleEffect(appeared ? 1 : 0.3)
+                .opacity(appeared ? 1 : 0)
             }
             .padding(.leading, LK.Spacing.xs + 2)
             .padding(.trailing, LK.Spacing.xs + 2)
             .frame(height: 50)  // the same height as while recording: the chat doesn't shift
             .glassEffect(LK.Glass.control, in: Capsule())
         }
+        // The capsule settles from the recording bar; then its parts spring in, the × last.
+        .onAppear { withAnimation(.spring(duration: 0.5, bounce: 0.3).delay(0.05)) { appeared = true } }
     }
 }

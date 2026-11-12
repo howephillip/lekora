@@ -156,10 +156,14 @@ public struct WalkingSkeletonPingView: View {
                     }
                     LKComposer("Message \(profileName)", text: $draft, canSend: canSend,
                                focus: $inputFocused, accessory: AnyView(attachMenu),
-                               replacement: voiceBar,
+                               replacement: voiceBar, replacementID: voiceStage,
                                action: showsMic ? AnyView(LKFieldMicButton(action: startRecording)) : nil,
                                onSend: send)
                         .id(composerID)
+                        .animation(.spring(duration: 0.42, bounce: 0.22), value: voiceStage)
+                        // Haptics: recording started, stopped, and sent or thrown away.
+                        .sensoryFeedback(.impact(weight: .medium), trigger: recorder.isRecording) { _, now in now }
+                        .sensoryFeedback(.impact(weight: .light), trigger: recorder.draft == nil) { was, _ in !was }
                 }
                 .animation(.easeOut(duration: 0.15), value: draft.hasPrefix("/"))
             }
@@ -308,6 +312,13 @@ public struct WalkingSkeletonPingView: View {
 
     private static let draftId = "voice-draft"
 
+    /// idle / recording / review, for the bar's animation.
+    private var voiceStage: String {
+        if recorder.isRecording { return "recording" }
+        if recorder.draft != nil || recorder.isFinishing { return "review" }
+        return "idle"
+    }
+
     /// Tap the mic (or "+" on a recorded note): recording starts, no need to hold.
     private func startRecording() {
         player.stop()
@@ -318,9 +329,6 @@ public struct WalkingSkeletonPingView: View {
             }
             do {
                 try recorder.start()
-                #if os(iOS)
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                #endif
             } catch {
                 attachmentProblem = "Couldn't start recording: \(error.localizedDescription)"
             }
