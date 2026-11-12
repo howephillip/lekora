@@ -1070,6 +1070,42 @@ public final class GatewayClient: ObservableObject {
         await sendMessage("", files: [file], voice: VoiceDetails(duration: duration, waveform: waveform))
     }
 
+    // MARK: - Hearing replies (docs/voice.md §2)
+
+    /// Each agent's voice settings, as last read from the instance.
+    @Published public private(set) var voiceSettings: [String: AgentVoiceSettings] = [:]
+    /// Each agent's Hermes voice, if it has a cloud one.
+    @Published public private(set) var hermesVoice: [String: HermesVoiceInfo] = [:]
+
+    public func loadVoiceSettings(for profileId: String) async {
+        guard let got = try? await request(type: "voice.settings.get", profileId: profileId, data: EmptyData(),
+                                           reply: VoiceSettingsGetResult.self, timeout: 20) else { return }
+        voiceSettings[profileId] = got.settings
+        hermesVoice[profileId] = got.hermes_voice
+    }
+
+    /// Saves an agent's voice settings on the instance (shown here straight away).
+    public func setVoiceSettings(_ settings: AgentVoiceSettings, for profileId: String) async throws {
+        let before = voiceSettings[profileId]
+        voiceSettings[profileId] = settings
+        do {
+            let saved = try await request(type: "voice.settings.set", profileId: profileId,
+                                          data: VoiceSettingsData(settings: settings),
+                                          reply: VoiceSettingsData.self, timeout: 15)
+            voiceSettings[profileId] = saved.settings
+        } catch {
+            voiceSettings[profileId] = before
+            throw error
+        }
+    }
+
+    /// A reply in the agent's Hermes voice: an audio file on the phone.
+    public func hermesSpeech(for seq: Int, in profileId: String) async throws -> URL {
+        let got = try await request(type: "voice.speak", profileId: profileId, data: VoiceSpeakData(seq: seq),
+                                    reply: VoiceSpeakResult.self, timeout: 120)
+        return try await fileURL(for: got.file)
+    }
+
     /// The space files take on this instance.
     public func filesUsage() async -> FilesUsage? {
         try? await request(type: "files.usage", data: EmptyData(), reply: FilesUsage.self, timeout: 15)
@@ -1099,6 +1135,11 @@ public final class GatewayClient: ObservableObject {
         if let from = header.instance_id, let host = savedHost, from != host.instanceId { return }
 
         switch header.type {
+        case "voice.settings.changed":
+            // Changed on another phone.
+            guard let envelope = try? decoder.decode(Envelope<VoiceSettingsData>.self, from: data),
+                  let profileId = envelope.profile_id else { return }
+            voiceSettings[profileId] = envelope.data.settings
         case "instance.changed":
             // Renamed from another phone.
             guard let envelope = try? decoder.decode(Envelope<InstanceNameData>.self, from: data) else { return }

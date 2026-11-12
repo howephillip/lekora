@@ -93,6 +93,8 @@ class Gateway:
         self._profile_admin = profile_admin
         # Stored files (docs/files.md); set by LekoraService. None = files not offered.
         self.files: Optional[Any] = None
+        # Each agent's voice settings and Hermes' voice (docs/voice.md §2); set by LekoraService.
+        self.voice: Optional[Any] = None
         # The voice note waiting for Hermes' transcript, per chat (docs/voice.md).
         self._awaiting_transcript: dict[str, int] = {}
         self._dispatch = dispatch
@@ -357,6 +359,8 @@ class Gateway:
             await self._commands_list(conn, msg_id, env.get("profile_id"))
         elif type_ in ("file.upload.begin", "file.upload.chunk", "file.upload.end", "file.read", "files.usage"):
             await self._file_request(conn, msg_id, type_, env.get("profile_id"), data)
+        elif type_ in ("voice.settings.get", "voice.settings.set", "voice.speak"):
+            await self._voice_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "instance.rename":
             await self._instance_rename(conn, msg_id, data)
         elif type_ == "prompt.respond":
@@ -754,6 +758,41 @@ class Gateway:
                                       {"role": "assistant", "text": text, "files": files})
         await self._broadcast(self.store.get_event(seq))
         return seq
+
+    async def _voice_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                             profile_id: Any, data: dict) -> None:
+        """An agent's voice settings, and its replies in Hermes' voice (docs/voice.md §2)."""
+        from .voice_settings import VoiceError
+        profile_id = self._known_profile(profile_id, msg_id)
+        if self.voice is None:
+            raise _Reject("UNAVAILABLE", "Voice settings aren't available on this host", True, False, msg_id)
+        voice = self.voice
+        try:
+            if type_ == "voice.settings.get":
+                result = await asyncio.to_thread(voice.get, profile_id)
+            elif type_ == "voice.settings.set":
+                settings = voice.set(profile_id, data.get("settings"))
+                result = {"settings": settings}
+                # Every other phone uses the new voice straight away.
+                payload = self._envelope("voice.settings.changed", result, profile_id=profile_id)
+                for other in list(self._conns):
+                    if other is conn or not other.authed or not self.store.is_device_active(other.device_id):
+                        continue
+                    with contextlib.suppress(ConnectionClosed):
+                        await self._send(other, payload)
+            else:
+                try:
+                    seq = int(data.get("seq"))
+                except (TypeError, ValueError):
+                    raise _Reject("INVALID_MESSAGE", "Which reply?", True, False, msg_id)
+                event = self.store.get_event(seq)
+                if event is None or event.profile_id != profile_id or event.payload.get("role") != "assistant" \
+                        or not str(event.payload.get("text") or "").strip():
+                    raise _Reject("UNKNOWN_MESSAGE", "That reply isn't here", True, False, msg_id)
+                result = {"seq": seq, "file": await asyncio.to_thread(voice.speak, profile_id, seq, event.payload["text"])}
+        except VoiceError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
     async def _instance_rename(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
         """Rename this computer as the app shows it (docs/multiple-instances.md)."""

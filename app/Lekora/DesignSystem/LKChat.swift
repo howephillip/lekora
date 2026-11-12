@@ -84,7 +84,7 @@ public struct LKMessageBubble: View {
             if !isUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isUser ? "You: \(text)" : text)
+        .accessibilityLabel(isUser ? "You: \(text)" : String(Self.markdown(text).characters))  // no ** read out
     }
 }
 

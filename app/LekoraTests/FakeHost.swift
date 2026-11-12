@@ -35,6 +35,19 @@ final class FakeHost: @unchecked Sendable {
     /// The routing saved by models.routing.set (docs/model-picker.md).
     var routing: [String: Any] = ["mode": "balanced", "hosts": []]
 
+    /// Hearing replies (docs/voice.md §2).
+    var voiceSettings: [String: Any] = ["speak": "off", "engine": "iphone", "rate": 0.5]
+    var hermesVoiceAvailable = true
+
+    /// The voice settings changed on another phone.
+    func changeVoiceElsewhere(_ settings: [String: Any], profile: String) {
+        voiceSettings = settings
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open {
+            send(type: "voice.settings.changed", data: ["settings": settings], profileId: profile, on: connection)
+        }
+    }
+
     /// Files (docs/files.md): what was uploaded, by id; pieces of this size.
     var storedFiles: [String: (meta: [String: Any], data: Data)] = [:]
     var fileChunk = 4
@@ -544,6 +557,22 @@ final class FakeHost: @unchecked Sendable {
         case "files.usage":
             send(type: "files.usage.result", id: id, data: [
                 "bytes": storedFiles.values.reduce(0) { $0 + $1.data.count }, "count": storedFiles.count], on: connection)
+
+        case "voice.settings.get":
+            send(type: "voice.settings.get.result", id: id,
+                 data: ["settings": voiceSettings, "hermes_voice": ["available": hermesVoiceAvailable, "provider": "elevenlabs"]],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "voice.settings.set":
+            voiceSettings = data["settings"] as? [String: Any] ?? voiceSettings
+            send(type: "voice.settings.set.result", id: id, data: ["settings": voiceSettings],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "voice.speak":
+            let seq = data["seq"] as? Int ?? 0
+            let meta = storeFile(Data("ID3 speech \(seq)".utf8), name: "Reply \(seq).mp3", mime: "audio/mpeg")
+            send(type: "voice.speak.result", id: id, data: ["seq": seq, "file": meta],
+                 profileId: message["profile_id"] as? String, on: connection)
 
         case "chat.send":
             // Like the plugin: unknown agents are rejected; replies come from the agent addressed.

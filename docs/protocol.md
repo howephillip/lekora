@@ -381,3 +381,10 @@ A file: `{file_id, name, mime, size, kind: image|video|audio|document}`.
 ## 12. Voice notes (Phase 4; spec: `voice.md`)
 - `chat.send` may carry `voice: {duration, waveform}` with exactly one uploaded audio file: a voice note. `duration` in seconds; `waveform` up to 64 levels from 0 to 1.
 - `chat.message` for it carries the same `voice`, and `transcript` (text) once Hermes has transcribed it (the message is resent with a new `rev`).
+
+## 13. Hearing replies (Phase 4; spec: `voice.md` §2)
+Requests with `profile_id` set, answered with `<type>.result`:
+- `voice.settings.get` `{}` → `{settings: {speak: off|voice_notes|always, engine: iphone|hermes, voice: <iPhone voice id>|null, rate: 0…1}, hermes_voice: {available, provider}}`.
+- `voice.settings.set` `{settings}` → `{settings}`; other phones get `voice.settings.changed` `{settings}`.
+- `voice.speak` `{seq}` (an agent reply) → `{seq, file}`: the reply in the agent's Hermes voice, read with `file.read`.
+- Errors: `INVALID_SETTING`, `VOICE_UNAVAILABLE`, `UNKNOWN_MESSAGE`.

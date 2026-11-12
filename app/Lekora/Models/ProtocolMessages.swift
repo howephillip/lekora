@@ -221,6 +221,40 @@ struct FileUploadEndResult: Codable { let file: ChatFile }
 struct FileReadData: Codable { let file_id: String; let offset: Int }
 struct FileReadResult: Codable { let file_id: String; let offset: Int; let data: String; let size: Int; let done: Bool }
 
+// MARK: - Hearing replies (docs/voice.md §2)
+
+/// An agent's voice settings, kept on the Hermes instance.
+public struct AgentVoiceSettings: Codable, Equatable, Sendable {
+    /// off | voice_notes | always
+    public var speak: String
+    /// iphone | hermes
+    public var engine: String
+    /// An iPhone voice identifier; nil = the iPhone's default for its language.
+    public var voice: String?
+    /// 0…1 (0.5 = normal speed).
+    public var rate: Double
+
+    public init(speak: String = "off", engine: String = "iphone", voice: String? = nil, rate: Double = 0.5) {
+        self.speak = speak
+        self.engine = engine
+        self.voice = voice
+        self.rate = rate
+    }
+
+    public static let standard = AgentVoiceSettings()
+}
+
+/// Whether the agent has a cloud voice set up in Hermes (and which).
+public struct HermesVoiceInfo: Codable, Equatable, Sendable {
+    public let available: Bool
+    public let provider: String?
+}
+
+struct VoiceSettingsGetResult: Codable { let settings: AgentVoiceSettings; let hermes_voice: HermesVoiceInfo }
+struct VoiceSettingsData: Codable { let settings: AgentVoiceSettings }
+struct VoiceSpeakData: Codable { let seq: Int }
+struct VoiceSpeakResult: Codable { let seq: Int; let file: ChatFile }
+
 /// Space the files take on a Hermes instance.
 public struct FilesUsage: Codable, Equatable, Sendable {
     public let bytes: Int

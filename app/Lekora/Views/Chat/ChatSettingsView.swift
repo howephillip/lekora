@@ -37,6 +37,7 @@ struct ChatSettingsView: View {
                 }
                 thisChat
                 wholeAgent
+                voiceSection
                 actions
             }
             .navigationTitle("Chat Settings")
@@ -46,7 +47,10 @@ struct ChatSettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
-            .task { await gateway.loadSettings(for: profileId) }
+            .task {
+                await gateway.loadSettings(for: profileId)
+                await gateway.loadVoiceSettings(for: profileId)
+            }
             .refreshable { await gateway.loadSettings(for: profileId) }
             .alert("Turn on auto-approve?", isPresented: $confirmingYolo) {
                 Button("Turn On", role: .destructive) { change("yolo", .flag(true)) }
@@ -242,6 +246,62 @@ struct ChatSettingsView: View {
     }
 
     // MARK: - Actions
+
+    // MARK: - Voice (docs/voice.md §2)
+
+    private var voice: AgentVoiceSettings { gateway.voiceSettings[profileId] ?? .standard }
+    private var hermesVoice: HermesVoiceInfo? { gateway.hermesVoice[profileId] }
+
+    private func changeVoice(_ edit: (inout AgentVoiceSettings) -> Void) {
+        var updated = voice
+        edit(&updated)
+        failure = nil
+        Task {
+            do { try await gateway.setVoiceSettings(updated, for: profileId) }
+            catch { failure = "Couldn't change that: \(error.localizedDescription)" }
+        }
+    }
+
+    private var usesHermes: Bool { voice.engine == "hermes" && hermesVoice?.available == true }
+
+    private var voiceSection: some View {
+        Section {
+            Picker("Speak Replies", selection: Binding(get: { voice.speak }, set: { value in changeVoice { $0.speak = value } })) {
+                Text("Off").tag("off")
+                Text("After My Voice Notes").tag("voice_notes")
+                Text("Always").tag("always")
+            }
+            if let hermes = hermesVoice, hermes.available {
+                Toggle(isOn: Binding(get: { usesHermes }, set: { on in changeVoice { $0.engine = on ? "hermes" : "iphone" } })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Use Hermes' Voice")
+                        Text("\(LKVoiceNames.provider(hermes.provider)), as set up in \(agentName)'s Hermes settings. Starts once the reply is complete.")
+                            .font(LK.Typography.footnote).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if !usesHermes {
+                NavigationLink {
+                    LKVoicePicker(selected: voice.voice, rate: voice.rate) { picked in changeVoice { $0.voice = picked } }
+                } label: {
+                    LabeledContent("Voice") { Text(LKVoiceNames.name(of: voice.voice)).lineLimit(1) }
+                }
+                VStack(alignment: .leading, spacing: LK.Spacing.xs) {
+                    Text("Speed")
+                    HStack {
+                        Image(systemName: "tortoise").foregroundStyle(.secondary)
+                        Slider(value: Binding(get: { voice.rate }, set: { value in changeVoice { $0.rate = value } }),
+                               in: 0.2...0.8, step: 0.05)
+                        Image(systemName: "hare").foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Voice")
+        } footer: {
+            Text("Tap the speaker under a reply to hear it. Saved on the Hermes instance, so your other phones use it too.")
+        }
+    }
 
     private var actions: some View {
         Section("Actions") {

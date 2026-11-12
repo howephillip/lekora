@@ -187,6 +187,30 @@ class LekoraAdapter(BasePlatformAdapter):
         root = Path(self._cfg.hermes_root) if self._cfg.hermes_root else None
         return read_settings(self.gateway_runner, source, profile_home(profile_id, root))
 
+    def _profile_home(self, profile_id: str) -> Path:
+        from .profiles import profile_home
+        root = Path(self._cfg.hermes_root) if self._cfg.hermes_root else None
+        return profile_home(profile_id, root)
+
+    def _hermes_voice_for(self, profile_id: str) -> dict:
+        """Which voice this agent's Hermes settings use (docs/voice.md §2); read only."""
+        from gateway.run import _profile_runtime_scope
+        from tools.tts_tool import _get_provider, _load_tts_config, check_tts_requirements
+        with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=True):
+            provider = _get_provider(_load_tts_config())
+            return {"provider": provider, "available": bool(check_tts_requirements())}
+
+    def _speak_as(self, profile_id: str, text: str) -> Path:
+        """A reply spoken in this agent's Hermes voice, as an audio file (Hermes' own text_to_speech)."""
+        import json as _json
+        from gateway.run import _profile_runtime_scope
+        from tools.tts_tool import text_to_speech_tool
+        with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=True):
+            result = _json.loads(text_to_speech_tool(text))
+        if not result.get("success") or not result.get("file_path"):
+            raise RuntimeError(result.get("error") or "no audio")
+        return Path(result["file_path"])
+
     @property
     def name(self) -> str:
         return "Lekora"
@@ -228,7 +252,8 @@ class LekoraAdapter(BasePlatformAdapter):
         self._service = LekoraService(
             self, config=self._cfg, hermes_version=_hermes_version(),
             profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers(),
-            commands_provider=self._commands_for, settings_reader=self._settings_for)
+            commands_provider=self._commands_for, settings_reader=self._settings_for,
+            hermes_voice=self._hermes_voice_for, speaker=self._speak_as)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()

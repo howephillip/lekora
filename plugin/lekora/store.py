@@ -73,6 +73,19 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS files_profile ON files (instance_id, profile_id);
 """
 
+# The app's own settings per agent (docs/voice.md: voice, speed, speak replies), kept on the
+# Hermes instance so a new phone gets them too (AGENTS.md rule 3).
+APP_SETTINGS = """
+CREATE TABLE IF NOT EXISTS app_settings (
+    instance_id TEXT NOT NULL,
+    profile_id  TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    value_json  TEXT NOT NULL,
+    updated_at  TEXT,
+    PRIMARY KEY (instance_id, profile_id, key)
+);
+"""
+
 # Read markers (docs/chat-history.md): per agent, "read up to seq N", shared by all phones.
 READ_MARKERS = """
 CREATE TABLE IF NOT EXISTS read_markers (
@@ -164,6 +177,7 @@ class Store:
         with self._lock:
             self._create_read_markers()
             self._db.executescript(FILES)
+            self._db.executescript(APP_SETTINGS)
             self._db.commit()
 
     def _migrate_events(self) -> None:
@@ -520,6 +534,30 @@ class Store:
                 (self.instance_id, profile_id)).fetchall()
         return [self._event(r) for r in rows]
 
+    # ---- app settings (docs/voice.md) ------------------------------------------
+
+    def get_app_setting(self, profile_id: str, key: str) -> Any:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT value_json FROM app_settings WHERE instance_id = ? AND profile_id = ? AND key = ?",
+                (self.instance_id, profile_id, key)).fetchone()
+        return json.loads(row["value_json"]) if row else None
+
+    def set_app_setting(self, profile_id: str, key: str, value: Any) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO app_settings (instance_id, profile_id, key, value_json, updated_at) VALUES (?,?,?,?,?)"
+                " ON CONFLICT (instance_id, profile_id, key) DO UPDATE SET value_json = excluded.value_json,"
+                " updated_at = excluded.updated_at",
+                (self.instance_id, profile_id, key, json.dumps(value), _iso(self._clock())))
+            self._db.commit()
+
+    def delete_app_settings(self, profile_id: str) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM app_settings WHERE instance_id = ? AND profile_id = ?",
+                             (self.instance_id, profile_id))
+            self._db.commit()
+
     # ---- files (docs/files.md) ----------------------------------------------
 
     def now(self) -> datetime:
@@ -586,6 +624,9 @@ class Store:
             )
             self._db.execute(
                 "DELETE FROM read_markers WHERE instance_id = ? AND profile_id = ?",
+                (self.instance_id, profile_id))
+            self._db.execute(
+                "DELETE FROM app_settings WHERE instance_id = ? AND profile_id = ?",
                 (self.instance_id, profile_id))
             self._db.commit()
             return cur.rowcount

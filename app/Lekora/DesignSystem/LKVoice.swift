@@ -312,3 +312,36 @@ public struct LKVoiceDraftBar: View {
         .onAppear { withAnimation(.spring(duration: 0.5, bounce: 0.3).delay(0.05)) { appeared = true } }
     }
 }
+
+/// Under an agent's reply: hear it (or stop). Small, like the actions under a reply in other chat apps.
+public struct LKListenButton: View {
+    private let speaking: Bool
+    private let loading: Bool
+    private let action: () -> Void
+
+    public init(speaking: Bool, loading: Bool = false, action: @escaping () -> Void) {
+        self.speaking = speaking
+        self.loading = loading
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            Group {
+                if loading {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: speaking ? "stop.circle.fill" : "speaker.wave.2")
+                        .symbolEffect(.variableColor.iterative, isActive: speaking)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+            }
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(speaking ? LK.Palette.accent : .secondary)
+            .frame(width: 30, height: 24, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(speaking ? "Stop speaking" : "Listen")
+    }
+}

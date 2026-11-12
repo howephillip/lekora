@@ -7,7 +7,16 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) has started:** voice notes are done; next hearing replies, then hands-free.
+**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) has started:** voice notes are done; hearing replies is built and waiting for your phone check; then hands-free.
+
+## Ready for your phone check: hearing replies (Phase 4, feature 2; spec: `docs/voice.md` §2)
+- **What it does:** a small speaker under each agent reply: tap to hear it, tap again to stop. In Chat Settings › Voice, per agent: **Speak Replies** (Off / After My Voice Notes / Always), **Voice** (every iPhone voice for your language, best first, each with a sample; a Personal Voice can be allowed) and **Speed**. With an iPhone voice the reply is spoken sentence by sentence while it's still being written; Markdown symbols, links and code aren't read out.
+- **Hermes' voice:** "Use Hermes' Voice" appears only when that agent's Hermes settings use a cloud voice (ElevenLabs, OpenAI, Gemini…). Hermes then says the reply with its own voice once it's complete; if that fails, the iPhone voice says it.
+- **Your choice (2026-11-11):** iPhone voices by default, Hermes' voice per agent when a cloud voice is set up. Fish Audio isn't one of Hermes' built-in voices yet, so it can't be offered without a Hermes voice plugin.
+- **Where settings live:** on the Hermes instance (rule 3), so your other phones and a new phone get them; nothing is written to Hermes' config.
+- **Checked:** plugin 319 tests (5 new), app 166 (4 new); in the simulator with the real plugin and a stand-in Hermes voice: Listen, stop, replay, the settings and voice picker, Always speaking a new reply by itself, Hermes' voice. Fixed from that: a reply couldn't be heard a second time.
+- **Not yet checked with real Hermes:** Hermes' own voice (needs a cloud voice set up in Hermes for an agent).
+- **Needs from you:** `hermes plugins update lekora`, restart Hermes; then try Listen and Speak Replies on your phone.
 
 ## Done: voice notes (Phase 4, feature 1; spec: `docs/voice.md`)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-11.

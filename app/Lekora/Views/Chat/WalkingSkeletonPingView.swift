@@ -46,6 +46,11 @@ public struct WalkingSkeletonPingView: View {
     @StateObject private var recorder = VoiceRecorder()
     @StateObject private var player = VoicePlayer()
     @State private var loadingVoice: String?
+    // Hearing replies (docs/voice.md §2).
+    @StateObject private var speaker = ReplySpeaker()
+    @State private var loadingSpeech: String?
+    /// Only replies that arrive after the chat opened are spoken by themselves.
+    @State private var openedAt = Date()
     /// The file shown in Quick Look, and the one being fetched to show.
     @State private var previewURL: URL?
     @State private var openingFile: String?
@@ -212,6 +217,7 @@ public struct WalkingSkeletonPingView: View {
             // This agent's commands; again once connected, if the chat opened offline.
             .task(id: "\(gateway.activeProfileId)|\(isConnected)") {
                 if isConnected {
+                    await gateway.loadVoiceSettings(for: gateway.activeProfileId)
                     await gateway.loadSettings(for: gateway.activeProfileId)
                     await gateway.loadCommands(for: gateway.activeProfileId)
                 }
@@ -232,8 +238,13 @@ public struct WalkingSkeletonPingView: View {
                 updateVisibility()
                 player.stop()
                 recorder.discard()
+                speaker.stop()
             }
             .onChange(of: scenePhase) { _, _ in updateVisibility() }
+            // Speak replies by themselves, as the agent's settings say (docs/voice.md §2).
+            .onChange(of: newestReply) { _, reply in
+                if let reply { autoSpeak(reply) }
+            }
             .photosPicker(isPresented: $choosingPhotos, selection: $photoItems,
                           maxSelectionCount: max(GatewayClient.maxFilesPerMessage - attachments.count, 1),
                           matching: .any(of: [.images, .videos]))
@@ -274,6 +285,75 @@ public struct WalkingSkeletonPingView: View {
             } message: {
                 Text(attachmentProblem ?? "")
             }
+    }
+
+    // MARK: - Hearing replies (docs/voice.md §2)
+
+    private var voiceSettings: AgentVoiceSettings {
+        gateway.voiceSettings[gateway.activeProfileId] ?? .standard
+    }
+
+    private var usesHermesVoice: Bool {
+        voiceSettings.engine == "hermes" && gateway.hermesVoice[gateway.activeProfileId]?.available == true
+    }
+
+    private func isSpeaking(_ entry: ChatEntry) -> Bool {
+        speaker.speakingId == entry.id || (player.currentId == "speech-" + entry.id && player.isPlaying)
+    }
+
+    /// The Listen button: the whole reply, or stop.
+    private func listen(to entry: ChatEntry) {
+        if isSpeaking(entry) {
+            speaker.stop()
+            player.stop()
+            return
+        }
+        speaker.stop()
+        player.stop()
+        if usesHermesVoice, let seq = entry.seq {
+            playHermesSpeech(entry, seq: seq)
+        } else {
+            speaker.speak(id: entry.id, text: entry.text, settings: voiceSettings)
+        }
+    }
+
+    private func playHermesSpeech(_ entry: ChatEntry, seq: Int) {
+        loadingSpeech = entry.id
+        let profileId = gateway.activeProfileId
+        Task {
+            defer { loadingSpeech = nil }
+            do {
+                let url = try await gateway.hermesSpeech(for: seq, in: profileId)
+                guard profileId == gateway.activeProfileId else { return }
+                player.play(id: "speech-" + entry.id, url: url, from: 0)
+            } catch {
+                // Hermes' voice failed: say it with the iPhone's instead.
+                speaker.speak(id: entry.id, text: entry.text, settings: voiceSettings)
+            }
+        }
+    }
+
+    /// The newest reply (and whether it's still being written), to speak it as it comes.
+    private var newestReply: SpeakableReply? {
+        guard let entry = messages.last(where: { $0.role == .agent }) else { return nil }
+        return SpeakableReply(id: entry.id, text: entry.text, final: entry.status != .streaming)
+    }
+
+    private func autoSpeak(_ reply: SpeakableReply) {
+        guard voiceSettings.speak != "off", scenePhase == .active, !recorder.isRecording, recorder.draft == nil,
+              let entry = messages.last(where: { $0.id == reply.id }),
+              entry.status == .streaming || (entry.date ?? .distantPast) > openedAt else { return }
+        if voiceSettings.speak == "voice_notes" {
+            // Only replies to a voice note.
+            guard let index = messages.firstIndex(where: { $0.id == reply.id }),
+                  messages[..<index].last(where: { $0.role == .user })?.voice != nil else { return }
+        }
+        if usesHermesVoice {
+            guard reply.final, let seq = entry.seq, player.currentId != "speech-" + entry.id else { return }
+            playHermesSpeech(entry, seq: seq)
+        } else {
+            speaker.follow(id: reply.id, text: reply.text, final: reply.final, settings: voiceSettings)
+        }
     }
 
     // MARK: - Voice notes (docs/voice.md)
@@ -322,6 +402,7 @@ public struct WalkingSkeletonPingView: View {
     /// Tap the mic (or "+" on a recorded note): recording starts, no need to hold.
     private func startRecording() {
         player.stop()
+        speaker.stop()
         Task {
             guard await recorder.requestPermission() else {
                 attachmentProblem = "Lekora needs the microphone for voice notes. You can allow it in Settings › Lekora."
@@ -541,6 +622,17 @@ public struct WalkingSkeletonPingView: View {
                                 LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
                                                 delivery: delivery(for: entry))
                                     .offset(x: -timeReveal)
+                                    .overlay(alignment: .bottomLeading) {
+                                        if entry.role == .agent, entry.status != .streaming,
+                                           !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                            LKListenButton(speaking: isSpeaking(entry), loading: loadingSpeech == entry.id) {
+                                                listen(to: entry)
+                                            }
+                                            .padding(.leading, LK.Spacing.xs)
+                                            .offset(x: -timeReveal, y: 26)
+                                        }
+                                    }
+                                    .padding(.bottom, entry.role == .agent && entry.status != .streaming ? 22 : 0)
                                     .overlay(alignment: .trailing) {
                                         if let date = entry.date {
                                             Text(date.formatted(date: .omitted, time: .shortened))
@@ -755,4 +847,11 @@ public struct WalkingSkeletonPingView: View {
             await gateway.sendMessage(text)
         }
     }
+}
+
+/// The newest reply as the chat screen sees it, for speaking it as it arrives.
+struct SpeakableReply: Equatable {
+    let id: String
+    let text: String
+    let final: Bool
 }
