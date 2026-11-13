@@ -1016,13 +1016,25 @@ struct SpokenReplyBubble: View {
         return problem
     }
 
+    /// What you hear: for personality voice the rewritten script (as it arrives, then saved);
+    /// otherwise the reply's own text.
+    private var said: String {
+        if personality {
+            if let spoken = entry.spokenText, !spoken.isEmpty { return spoken }
+            let live = gateway.liveScripts[entry.voiceKey ?? entry.id] ?? [:]
+            if !live.isEmpty { return live.keys.sorted().compactMap { live[$0] }.joined(separator: " ") }
+        }
+        return SpeechText.clean(entry.text)
+    }
+
     var body: some View {
-        LKVoiceBubble(shown, fromUser: false, transcript: SpeechText.clean(entry.text),
+        LKVoiceBubble(shown, fromUser: false, transcript: said,
                       isPlaying: player.currentId == entry.id && player.isPlaying,
                       progress: player.currentId == entry.id ? player.progress : 0,
                       loading: loading || (parts.isEmpty && live),
                       fill: personality ? LKVoiceBubble.personalityColor : nil,
                       note: note, live: live,
+                      written: personality ? SpeechText.clean(entry.text) : nil,
                       onToggle: toggle, onSeek: seek)
             .task(id: "\(parts.count)|\(live)") { if !live { await measure() } }
     }

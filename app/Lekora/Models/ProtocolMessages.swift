@@ -318,7 +318,7 @@ struct VoiceSettingsData: Codable { let settings: AgentVoiceSettings }
 struct VoiceSpeakData: Codable { let seq: Int }
 struct VoiceSpeakResult: Codable { let seq: Int; let file: ChatFile; let files: [ChatFile]? }
 /// A spoken part of a reply in voice mode, to play at once.
-struct VoiceSegmentData: Codable { let message_id: String; let index: Int; let file: ChatFile }
+struct VoiceSegmentData: Codable { let message_id: String; let index: Int; let file: ChatFile; let script: String? }
 
 /// Space the files take on a Hermes instance.
 public struct FilesUsage: Codable, Equatable, Sendable {
@@ -352,13 +352,16 @@ public struct ChatMessageData: Codable, Equatable {
     public let voice_problem: String?
     /// The id its spoken parts arrive under, when it wasn't streamed.
     public let voice_key: String?
+    /// Personality voice: what was said (the reply rewritten as speech); `text` is what was written.
+    public let spoken_text: String?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
                 rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
                 files: [ChatFile]? = nil, voice: VoiceDetails? = nil, transcript: String? = nil,
                 spoken: [ChatFile]? = nil, voicing: String? = nil, voice_problem: String? = nil,
-                voice_key: String? = nil) {
+                voice_key: String? = nil, spoken_text: String? = nil) {
         self.voice_key = voice_key
+        self.spoken_text = spoken_text
         self.spoken = spoken
         self.voicing = voicing
         self.voice_problem = voice_problem

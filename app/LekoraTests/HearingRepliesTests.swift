@@ -62,6 +62,12 @@ final class HearingRepliesTests: XCTestCase {
         XCTAssertEqual(entry.voicing, "personality")
         XCTAssertEqual(entry.voiceKey, "reply-1")
         XCTAssertEqual(entry.voiceProblem, "no ffmpeg")
+        let said = try JSONDecoder().decode(ChatMessageData.self, from: Data(
+            #"{"seq":4,"role":"assistant","text":"Newton's first law.","voicing":"personality","spoken_text":"So, uh, Newton's first law… [laughs]"}"#.utf8))
+        timeline.applyIncoming(seq: 4, profileId: "default", role: "assistant", text: said.text,
+                               voicing: said.voicing, spokenText: said.spoken_text)
+        XCTAssertEqual(timeline.entries.last?.spokenText, "So, uh, Newton's first law… [laughs]", "what you hear")
+        XCTAssertEqual(timeline.entries.last?.text, "Newton's first law.", "what was written")
     }
 
     func testRates() {

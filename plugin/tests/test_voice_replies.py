@@ -73,7 +73,7 @@ async def test_a_streamed_reply_is_a_voice_note_from_the_first_word(fgw, store, 
     assert told["data"] == {"message_id": "live-1", "style": "tts"}, "phones know before any audio"
     await fgw.publish_draft("coder", "live-1", "Sure! I booked ramen for two at seven tonight. The")
     first = (await until(ws, "voice.segment"))[0]
-    assert first["data"]["index"] == 0
+    assert first["data"]["index"] == 0 and first["data"]["script"] == "Sure! I booked ramen for two at seven tonight."
     seq = await fgw.publish_message("coder", LONG, draft_id="live-1")
     saved = [m for m in await until(ws, "chat.message")][0]
     assert saved["data"]["voicing"] == "tts", "saved as a voice note, never text first"
@@ -82,6 +82,7 @@ async def test_a_streamed_reply_is_a_voice_note_from_the_first_word(fgw, store, 
     assert " ".join(spoken) == "Sure! I booked ramen for two at seven tonight. The place is called Ichiran. See you there."
     assert len(event.payload["spoken"]) == len(spoken) and event.payload["voicing"] == "tts"
     assert event.payload["text"] == LONG, "the text stays as its transcript"
+    assert "spoken_text" not in event.payload, "plain voice says exactly the text"
     await ws.close()
 
 
@@ -106,6 +107,7 @@ async def test_personality_rewrites_then_speaks(fgw, store, file_store, tmp_path
     assert all(s.startswith("[warmly] ") for s in spoken), "the voice script, not the plain text"
     assert event.payload["voicing"] == "personality" and event.payload["text"] == LONG, "visible text unchanged"
     assert "Coder: terse and dry." in fgw.rewrites[0], "sounds like the agent's own Hermes personality"
+    assert event.payload["spoken_text"].startswith("[warmly] "), "what you hear is kept, as its transcript"
     await ws.close()
 
 

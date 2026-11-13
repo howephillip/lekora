@@ -74,6 +74,7 @@ class _Reply:
     pending: str = ""             # text waiting to be spoken with the next piece
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     parts: list[dict] = field(default_factory=list)
+    scripts: list[str] = field(default_factory=list)   # what was actually said, piece by piece
     seq: Optional[int] = None
     worker: Optional[asyncio.Task] = None
     problem: Optional[str] = None
@@ -183,7 +184,10 @@ class VoiceReplies:
                 break
             if reply.problem:
                 continue  # the voice can't be played here: nothing more to make
-            for path in await self._speak(reply, piece):
+            script, paths = await self._speak(reply, piece)
+            if paths:
+                reply.scripts.append(script)
+            for number, path in enumerate(paths):
                 try:
                     part = await asyncio.to_thread(
                         self.gateway.files.add_agent_file, reply.profile_id, path,
@@ -192,13 +196,17 @@ class VoiceReplies:
                     log.exception("Lekora: couldn't keep a voice reply part")
                     continue
                 reply.parts.append(part)
-                await self.gateway.publish_voice_segment(reply.profile_id, reply.key, index, part)
+                # The words go with the first audio part of each piece (what you hear).
+                await self.gateway.publish_voice_segment(reply.profile_id, reply.key, index, part,
+                                                         script if number == 0 else None)
                 index += 1
         self._replies.pop(reply.key, None)
         if reply.seq is not None:
-            await self.gateway.attach_spoken(reply.seq, reply.parts, reply.style, reply.problem)
+            spoken_text = " ".join(reply.scripts) if reply.style == "personality" and reply.scripts else None
+            await self.gateway.attach_spoken(reply.seq, reply.parts, reply.style, reply.problem, spoken_text)
 
-    async def _speak(self, reply: _Reply, piece: str) -> list[Path]:
+    async def _speak(self, reply: _Reply, piece: str) -> tuple[str, list[Path]]:
+        """The script that was spoken (the piece, or its personality rewrite) and its audio."""
         from .playable_audio import UnplayableAudio, playable
         script = piece
         if reply.style == "personality" and self.rewrite is not None:
@@ -209,12 +217,12 @@ class VoiceReplies:
         for attempt in (1, 2):  # a provider hiccup gets one retry
             try:
                 paths = [Path(p) for p in await asyncio.to_thread(self.synthesize, reply.profile_id, script)]
-                return [await asyncio.to_thread(playable, p) for p in paths]
+                return script, [await asyncio.to_thread(playable, p) for p in paths]
             except UnplayableAudio as exc:
                 reply.problem = exc.reason
                 log.warning("Lekora: %s", exc.reason)
                 await self.gateway.publish_voice_reply(reply.profile_id, reply.key, reply.style, exc.reason)
-                return []
+                return script, []
             except Exception as exc:
                 log.warning("Lekora: Hermes couldn't speak for %s (try %d): %s", reply.profile_id, attempt, exc)
-        return []
+        return script, []

@@ -179,7 +179,7 @@ class Gateway:
                       files: Optional[list] = None, voice: Optional[dict] = None,
                       transcript: Optional[str] = None, spoken: Optional[list] = None,
                       voicing: Optional[str] = None, voice_problem: Optional[str] = None,
-                      voice_key: Optional[str] = None) -> dict:
+                      voice_key: Optional[str] = None, spoken_text: Optional[str] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
         if files:
             data["files"] = files  # photos and files with the message (docs/files.md)
@@ -195,6 +195,8 @@ class Gateway:
             data["voice_problem"] = voice_problem
         if voice_key:
             data["voice_key"] = voice_key
+        if spoken_text:
+            data["spoken_text"] = spoken_text
         if card:
             data["card"] = card  # an approval or question card (docs/prompts.md)
         if at:
@@ -212,7 +214,7 @@ class Gateway:
             files=ev.payload.get("files"), voice=ev.payload.get("voice"),
             transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken"),
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
-            voice_key=ev.payload.get("voice_key")),
+            voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text")),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
@@ -247,11 +249,15 @@ class Gateway:
         except Exception:
             log.exception("Lekora: voice reply failed")
 
-    async def publish_voice_segment(self, profile_id: str, key: str, index: int, file: dict) -> None:
+    async def publish_voice_segment(self, profile_id: str, key: str, index: int, file: dict,
+                                    script: Optional[str] = None) -> None:
         """A spoken part of a reply in voice mode, for phones to play at once (not stored:
-        the saved message gets them all as ``spoken``)."""
-        await self._broadcast_ephemeral(self._envelope(
-            "voice.segment", {"message_id": key, "index": index, "file": file}, profile_id=profile_id))
+        the saved message gets them all as ``spoken``). ``script``: the words it says, when
+        they differ from the reply's text (personality voice)."""
+        data: dict[str, Any] = {"message_id": key, "index": index, "file": file}
+        if script:
+            data["script"] = script
+        await self._broadcast_ephemeral(self._envelope("voice.segment", data, profile_id=profile_id))
 
     async def publish_voice_reply(self, profile_id: str, key: str, style: str, problem: Optional[str] = None) -> None:
         """Voice mode: this reply is (being made into) a voice note; or why its audio can't play."""
@@ -261,7 +267,7 @@ class Gateway:
         await self._broadcast_ephemeral(self._envelope("voice.reply", data, profile_id=profile_id))
 
     async def attach_spoken(self, seq: int, parts: list[dict], style: str = "tts",
-                            problem: Optional[str] = None) -> None:
+                            problem: Optional[str] = None, spoken_text: Optional[str] = None) -> None:
         """Voice mode: the saved reply becomes a voice note (its text stays as the transcript)."""
         event = self.store.get_event(seq)
         if event is None:
@@ -269,6 +275,8 @@ class Gateway:
         payload = dict(event.payload, spoken=parts, voicing=style)
         if problem:
             payload["voice_problem"] = problem
+        if spoken_text:
+            payload["spoken_text"] = spoken_text  # personality voice: what you hear (the text is what was written)
         updated = self.store.update_event_payload(seq, payload)
         if updated is not None:
             await self._broadcast(updated)
@@ -330,7 +338,7 @@ class Gateway:
             files=ev.payload.get("files"), voice=ev.payload.get("voice"),
             transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken"),
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
-            voice_key=ev.payload.get("voice_key")),
+            voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text")),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -611,7 +619,8 @@ class Gateway:
                                        at=e.created_at, card=e.payload.get("card"), files=e.payload.get("files"),
                                        voice=e.payload.get("voice"), transcript=e.payload.get("transcript"),
                                        spoken=e.payload.get("spoken"), voicing=e.payload.get("voicing"),
-                                       voice_problem=e.payload.get("voice_problem"), voice_key=e.payload.get("voice_key"))
+                                       voice_problem=e.payload.get("voice_problem"), voice_key=e.payload.get("voice_key"),
+                                       spoken_text=e.payload.get("spoken_text"))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},

@@ -60,10 +60,16 @@ public struct LKVoiceBubble: View {
     private let note: String?
     /// Still arriving: the waveform shimmers until there's sound.
     private let live: Bool
+    /// What was written, when the voice said it differently (personality voice).
+    private let written: String?
+    @State private var expanded = false
+    @State private var showsWritten = false
 
     public init(_ voice: VoiceDetails, fromUser: Bool, transcript: String?, isPlaying: Bool, progress: Double,
                 loading: Bool = false, fill: Color? = nil, note: String? = nil, live: Bool = false,
+                written: String? = nil,
                 onToggle: @escaping () -> Void, onSeek: @escaping (Double) -> Void) {
+        self.written = written
         self.fill = fill
         self.note = note
         self.live = live
@@ -130,13 +136,7 @@ public struct LKVoiceBubble: View {
                         .frame(maxWidth: 260, alignment: fromUser ? .trailing : .leading)
                 }
                 if let transcript, !transcript.isEmpty {
-                    Text(transcript)
-                        .font(LK.Typography.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(fromUser ? .trailing : .leading)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: 260, alignment: fromUser ? .trailing : .leading)
-                        .accessibilityLabel("Transcript: \(transcript)")
+                    transcriptView(transcript)
                 }
             }
             if !fromUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
@@ -366,5 +366,51 @@ public struct LKListenButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(speaking ? "Stop speaking" : "Listen")
+    }
+}
+
+extension LKVoiceBubble {
+    /// What was said, in small print: two lines with a chevron to open it all (as in Messages);
+    /// for personality voice, the written reply one tap further.
+    @ViewBuilder
+    func transcriptView(_ transcript: String) -> some View {
+        let alignment: HorizontalAlignment = fromUser ? .trailing : .leading
+        VStack(alignment: alignment, spacing: 4) {
+            Button {
+                withAnimation(.snappy) { expanded.toggle() }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(transcript)
+                        .lineLimit(expanded ? nil : 2)
+                        .multilineTextAlignment(fromUser ? .trailing : .leading)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                }
+                .font(LK.Typography.footnote)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Transcript: \(transcript)")
+            .accessibilityHint(expanded ? "Shows less" : "Shows all of it")
+            if expanded, let written, written != transcript {
+                Button(showsWritten ? "Hide Written Reply" : "Show Written Reply") {
+                    withAnimation(.snappy) { showsWritten.toggle() }
+                }
+                .font(LK.Typography.caption.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(LK.Palette.accent)
+                if showsWritten {
+                    Text(written)
+                        .font(LK.Typography.footnote)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .padding(LK.Spacing.sm)
+                        .background(LK.Surface.inset, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            }
+        }
+        .frame(maxWidth: 280, alignment: fromUser ? .trailing : .leading)
     }
 }

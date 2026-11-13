@@ -1128,6 +1128,9 @@ public final class GatewayClient: ObservableObject {
         return urls
     }
 
+    /// Personality voice: the words of each spoken part as it arrives, by message id and part.
+    @Published public private(set) var liveScripts: [String: [Int: String]] = [:]
+
     /// Voice mode: spoken parts of replies as they arrive, by message id, in order.
     @Published public private(set) var liveSpeech: [String: [ChatFile]] = [:]
 
@@ -1176,6 +1179,11 @@ public final class GatewayClient: ObservableObject {
             var parts = liveSpeech[envelope.data.message_id] ?? []
             if envelope.data.index >= parts.count { parts.append(envelope.data.file) }
             liveSpeech[envelope.data.message_id] = parts
+            if let script = envelope.data.script {
+                var scripts = liveScripts[envelope.data.message_id] ?? [:]
+                scripts[envelope.data.index] = script
+                liveScripts[envelope.data.message_id] = scripts
+            }
         case "voice.settings.changed":
             // Changed on another phone.
             guard let envelope = try? decoder.decode(Envelope<VoiceSettingsData>.self, from: data),
@@ -1208,7 +1216,8 @@ public final class GatewayClient: ObservableObject {
                 spoken: envelope.data.spoken,
                 voicing: envelope.data.voicing,
                 voiceProblem: envelope.data.voice_problem,
-                voiceKey: envelope.data.voice_key
+                voiceKey: envelope.data.voice_key,
+                spokenText: envelope.data.spoken_text
             )
             if profileId == activeProfileId { markActiveChatRead() }
             if envelope.data.role == "system", chatSettings[profileId] != nil {
