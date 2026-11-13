@@ -102,11 +102,14 @@ def test_personality_instructions():
     custom = voice_turn_instructions(dict(DEFAULTS, style_source="custom", style_instructions="A pirate.",
                                           fillers=2, pauses=2, pace=2), "ignored")
     assert "A pirate." in custom and "ignored" not in custom
+    assert custom.index("A pirate.") < custom.index("spoken aloud"), "the user's personality comes first"
+    assert "takes priority over your usual tone" in custom and "Keep your knowledge, memory, facts and tools" in custom
     assert "filler words freely" in custom and "Pause often" in custom and "Lively" in custom
     plain = voice_turn_instructions(dict(DEFAULTS, fillers=0, pauses=0, pace=0))
     assert "no filler words" in plain
     preset = voice_turn_instructions(dict(DEFAULTS, style_source="preset", style_preset="catgirl"), "Nya~ playful.")
-    assert "Hermes' \"catgirl\" personality" in preset and "Nya~ playful." in preset
+    assert "Hermes' \"catgirl\" personality" in preset and "Nya~ playful." in preset and "takes priority" in preset
+    assert "takes priority" not in own, "as itself: nothing to override"
     assert clean({"style_source": "custom", "fillers": 2, "pauses": 0, "pace": 1})["fillers"] == 2
     for bad in ({"style_source": "robot"}, {"fillers": 3}, {"pace": "fast"}, {"style_source": "preset"},
                 {"style_source": "preset", "style_preset": "a; rm"}):

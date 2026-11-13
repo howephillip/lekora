@@ -136,7 +136,7 @@ struct PersonalityVoiceView: View {
                 } header: {
                     Text("Your Personality")
                 } footer: {
-                    Text("Describe how \(agentName) should sound: character, attitude, accent, catchphrases, and any delivery tags your voice understands (like [laughs] or (whispers)). Saved when you leave this screen.")
+                    Text("Describe how \(agentName) should sound: character, attitude, accent, catchphrases, and any delivery tags your voice understands (like [laughs] or (whispers)). Be direct and specific (\"swears in most sentences\" works better than \"a bit edgy\"); this takes priority over \(agentName)'s usual tone in voice chats. The model and its provider may still hold some things back. Saved when you leave this screen.")
                 }
             }
             Section {

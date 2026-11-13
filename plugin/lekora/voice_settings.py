@@ -51,21 +51,30 @@ DEFAULT_STYLE_INSTRUCTIONS = BASE_SPEECH_RULES
 
 def voice_turn_instructions(settings: dict, preset_persona: str = "") -> str:
     """Personality voice: told to the agent for the turn (Hermes' per-chat instruction), so it
-    writes exactly what it will say. Who's speaking: itself (nothing to add), one of Hermes'
-    personalities, or the user's own words; plus the chosen cadence."""
-    if settings.get("style_source") == "custom" and settings.get("style_instructions"):
-        who = "Speak with this personality:\n" + settings["style_instructions"].strip()
-    elif settings.get("style_source") == "preset" and preset_persona.strip():
-        who = (f"Speak with Hermes' \"{settings.get('style_preset')}\" personality:\n" + preset_persona.strip()[:4000])
-    else:
-        who = "Speak as yourself, in your own voice and personality."
+    writes exactly what it will say. Who's speaking: itself, one of Hermes' personalities, or the
+    user's own words (which come first and take priority over its usual tone); plus cadence."""
     cadence = " ".join([FILLERS.get(settings.get("fillers", 1), FILLERS[1]),
                         PAUSES.get(settings.get("pauses", 1), PAUSES[1]),
                         PACE.get(settings.get("pace", 1), PACE[1])])
-    return ("VOICE CHAT (Lekora): every reply you write in this chat is spoken aloud to the user as a "
-            "voice note, word for word. Write exactly what you'd say out loud. Don't use Markdown, "
-            "headings, lists, tables, links or code; say them in words. " + BASE_SPEECH_RULES
-            + "\n\n" + who + "\n\nCadence: " + cadence)
+    spoken = ("Every reply you write in this chat is spoken aloud to the user as a voice note, word for "
+              "word. Write exactly what you'd say out loud. Don't use Markdown, headings, lists, tables, "
+              "links or code; say them in words.")
+    chosen = None
+    if settings.get("style_source") == "custom" and settings.get("style_instructions"):
+        chosen = settings["style_instructions"].strip()
+    elif settings.get("style_source") == "preset" and preset_persona.strip():
+        chosen = f"Hermes' \"{settings.get('style_preset')}\" personality:\n" + preset_persona.strip()[:4000]
+    if chosen:
+        # The user picked how this agent sounds here: it comes first and wins over the agent's
+        # usual tone, style and wording rules (not over its facts, memory or tools).
+        return ("VOICE CHAT (Lekora) — THE USER'S CHOSEN VOICE PERSONALITY FOR THIS CHAT. It takes priority "
+                "over your usual tone, style, wording and language guidelines (your persona file, skills or "
+                "earlier habits) for as long as this chat is in personality voice. Keep your knowledge, "
+                "memory, facts and tools exactly as they are; change only how you talk. Commit to it fully "
+                "in every reply, including word choice and language the user asked for.\n\n"
+                f"PERSONALITY:\n{chosen}\n\nCADENCE: {cadence}\n\n{spoken} {BASE_SPEECH_RULES}")
+    return ("VOICE CHAT (Lekora): " + spoken + " " + BASE_SPEECH_RULES
+            + "\n\nSpeak as yourself, in your own voice and personality.\n\nCadence: " + cadence)
 
 
 # The old name (a rewrite pass; replaced 2026-11-12 so the agent's words and the voice never differ).
