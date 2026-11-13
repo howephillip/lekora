@@ -118,8 +118,10 @@ public final class ReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizer
             ?? AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())
         rate = Self.rate(settings.rate)
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        if !AudioSessionOwner.handsFree {
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try? AVAudioSession.sharedInstance().setActive(true)
+        }
         #endif
     }
 

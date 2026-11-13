@@ -56,6 +56,8 @@ public struct WalkingSkeletonPingView: View {
     @State private var pumping: Set<String> = []
     /// Replies the iPhone voice is reading (followed to the end, whatever changes meanwhile).
     @State private var iphoneReading: Set<String> = []
+    /// Hands-free conversation, full screen (docs/voice.md §3); it plays replies itself meanwhile.
+    @State private var handsFree = false
     /// The file shown in Quick Look, and the one being fetched to show.
     @State private var previewURL: URL?
     @State private var openingFile: String?
@@ -188,6 +190,18 @@ public struct WalkingSkeletonPingView: View {
                         unreadBadge
                     }
                 }
+                // Hands-free conversation (docs/voice.md §3).
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        speaker.stop()
+                        player.stop()
+                        handsFree = true
+                    } label: {
+                        Image(systemName: "headphones")
+                    }
+                    .disabled(!isConnected)
+                    .accessibilityLabel("Hands-free conversation")
+                }
                 // Voice mode, one tap away (docs/voice.md §2).
                 ToolbarItem(placement: .primaryAction) {
                     // Tap: voice replies on/off. Hold: choose plain voice or personality voice.
@@ -280,6 +294,11 @@ public struct WalkingSkeletonPingView: View {
                 if live.count != old?.count || live.id != old?.id { playLiveParts(live) }
                 if live.done { player.expectsMore = false }
             }
+            #if os(iOS)
+            .fullScreenCover(isPresented: $handsFree) {
+                HandsFreeView(gateway: gateway, agentName: profileName)
+            }
+            #endif
             .photosPicker(isPresented: $choosingPhotos, selection: $photoItems,
                           maxSelectionCount: max(GatewayClient.maxFilesPerMessage - attachments.count, 1),
                           matching: .any(of: [.images, .videos]))
@@ -494,7 +513,7 @@ public struct WalkingSkeletonPingView: View {
 
     /// Plays the newest reply's parts strictly in order, each once, as they arrive.
     private func playLiveParts(_ live: LiveParts) {
-        guard scenePhase == .active, !recorder.isRecording, recorder.draft == nil,
+        guard !handsFree, scenePhase == .active, !recorder.isRecording, recorder.draft == nil,
               let entry = messages.last(where: { $0.id == live.id }),
               entry.status == .streaming || (entry.date ?? .distantPast) > openedAt,
               !pumping.contains(live.id) else { return }
@@ -526,7 +545,7 @@ public struct WalkingSkeletonPingView: View {
             if reply.final { iphoneReading.remove(reply.id) }
             return
         }
-        guard voiceSettings.speak != "off", scenePhase == .active, !recorder.isRecording, recorder.draft == nil,
+        guard !handsFree, voiceSettings.speak != "off", scenePhase == .active, !recorder.isRecording, recorder.draft == nil,
               let entry = messages.last(where: { $0.id == reply.id }), !isVoiceReply(entry),
               entry.status == .streaming || (entry.date ?? .distantPast) > openedAt else { return }
         if voiceSettings.speak == "voice_notes" {

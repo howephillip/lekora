@@ -929,18 +929,20 @@ public final class GatewayClient: ObservableObject {
     // MARK: - Chat
     public nonisolated static func makeChatSendEnvelope(text: String, instanceId: String, profileId: String,
                                                         files: [String]? = nil,
-                                                        voice: VoiceDetails? = nil) -> Envelope<ChatSendData> {
+                                                        voice: VoiceDetails? = nil,
+                                                        handsFree: Bool = false) -> Envelope<ChatSendData> {
         Envelope(
             type: "chat.send",
             instance_id: instanceId,
             profile_id: profileId,
-            data: ChatSendData(text: text, files: files, voice: voice)
+            data: ChatSendData(text: text, files: files, voice: voice, hands_free: handsFree ? true : nil)
         )
     }
 
     /// Sends `text` to the active profile. The message appears in the timeline straight
     /// away; a failed send is marked on that bubble instead of dropping the connection.
-    public func sendMessage(_ text: String, files: [ChatFile] = [], voice: VoiceDetails? = nil) async {
+    public func sendMessage(_ text: String, files: [ChatFile] = [], voice: VoiceDetails? = nil,
+                            handsFree: Bool = false) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty,
               case .connected = state,
@@ -950,7 +952,8 @@ public final class GatewayClient: ObservableObject {
         }
 
         let envelope = Self.makeChatSendEnvelope(text: trimmed, instanceId: instanceId, profileId: activeProfileId,
-                                                 files: files.isEmpty ? nil : files.map(\.file_id), voice: voice)
+                                                 files: files.isEmpty ? nil : files.map(\.file_id), voice: voice,
+                                                 handsFree: handsFree)
         timeline.addOutgoing(id: envelope.id, profileId: activeProfileId, text: trimmed,
                              files: files.isEmpty ? nil : files, voice: voice)
 
@@ -1063,11 +1066,13 @@ public final class GatewayClient: ObservableObject {
 
     /// Sends a recording as a voice note: uploaded, then sent with its length and waveform;
     /// Hermes transcribes it (docs/voice.md). Throws if the upload fails.
-    public func sendVoiceNote(at recording: URL, duration: Double, waveform: [Double]) async throws {
+    public func sendVoiceNote(at recording: URL, duration: Double, waveform: [Double],
+                              handsFree: Bool = false) async throws {
         let profileId = activeProfileId
         let file = try await uploadFile(at: recording, name: recording.lastPathComponent, mime: "audio/mp4", to: profileId)
         guard profileId == activeProfileId else { return }
-        await sendMessage("", files: [file], voice: VoiceDetails(duration: duration, waveform: waveform))
+        await sendMessage("", files: [file], voice: VoiceDetails(duration: duration, waveform: waveform),
+                          handsFree: handsFree)
     }
 
     // MARK: - Hearing replies (docs/voice.md §2)

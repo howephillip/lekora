@@ -592,7 +592,7 @@ class Gateway:
             attachments[0]["voice"] = True  # Hermes transcribes it (docs/voice.md)
             self._awaiting_transcript[profile_id] = seq
         if self.voice_replies is not None:
-            self.voice_replies.user_message(profile_id, bool(voice))
+            self.voice_replies.user_message(profile_id, bool(voice), bool(data.get("hands_free")))
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)

@@ -37,6 +37,12 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Lekora uses the camera to scan the pairing QR code on your Hermes computer, and to take photos you send to your agents.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Lekora uses the microphone to record voice notes you send to your agents.</string>
+	<string>Lekora uses the microphone to record voice notes and for hands-free conversations with your agents.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>In hands-free conversations, Lekora turns what you say into text on this iPhone, so your agent can answer sooner.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>

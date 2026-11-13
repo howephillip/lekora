@@ -395,3 +395,6 @@ Requests with `profile_id` set, answered with `<type>.result`:
 - `agent.tools.get` `{}` → `{toolsets: [{key, label, description, enabled}], elsewhere: {platform: [keys]}}`.
 - `agent.tools.set` `{changes: {key: bool}}` → the same, read back from Hermes, plus `problem` if a change didn't apply.
 - Errors: `INVALID_SETTING`, `BACKUP_FAILED`, `TOOLS_FAILED`, `UNAVAILABLE`.
+
+## 15. Hands-free (spec: `voice.md` §3)
+- `chat.send` may carry `hands_free: true` (text recognised on the phone, or a voice note): the reply is spoken (as with voice replies "always"), whatever the chat's own setting.

@@ -104,11 +104,14 @@ class VoiceReplies:
         self._replies: dict[str, _Reply] = {}
         self._decided: dict[str, Optional[str]] = {}
         self._last_was_voice: dict[str, bool] = {}
+        self._hands_free: dict[str, bool] = {}
 
     # ---- when is it on ---------------------------------------------------------------
 
-    def user_message(self, profile_id: str, voice: bool) -> None:
+    def user_message(self, profile_id: str, voice: bool, hands_free: bool = False) -> None:
         self._last_was_voice[profile_id] = voice
+        # Hands-free conversation (docs/voice.md §3): its replies are always spoken.
+        self._hands_free[profile_id] = hands_free
 
     def _choose(self, profile_id: str) -> Optional[dict]:
         """Voice-mode settings for a new reply, or None (a text reply)."""
@@ -116,6 +119,8 @@ class VoiceReplies:
             return None
         settings = self.settings.get_settings(profile_id)
         mode = settings.get("speak", "off")
+        if self._hands_free.get(profile_id):
+            mode = "always"
         if not (mode == "always" or (mode == "voice_notes" and self._last_was_voice.get(profile_id))):
             return None
         if not self.settings.hermes_voice(profile_id).get("available"):

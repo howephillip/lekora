@@ -23,7 +23,9 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: app.lekora.pair
             CFBundleURLSchemes: [lekora-pair]
-        NSMicrophoneUsageDescription: Lekora uses the microphone to record voice notes you send to your agents.
+        UIBackgroundModes: [audio]
+        NSSpeechRecognitionUsageDescription: In hands-free conversations, Lekora turns what you say into text on this iPhone, so your agent can answer sooner.
+        NSMicrophoneUsageDescription: Lekora uses the microphone to record voice notes and for hands-free conversations with your agents.
         NSCameraUsageDescription: Lekora uses the camera to scan the pairing QR code on your Hermes computer, and to take photos you send to your agents.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

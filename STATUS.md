@@ -7,7 +7,14 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) has started:** voice notes and hearing replies are done; next hands-free conversation.
+**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) has started:** voice notes and hearing replies are done; hands-free conversation is built and waiting for your phone check.
+
+## Ready for your phone check: hands-free conversation (Phase 4, feature 3; spec: `docs/voice.md` §3)
+- **What it does:** the **headphones** button at the top of a chat opens a full-screen conversation, like a call: the agent's animated face, Listening / Thinking / Speaking, what was last said, a **Voice | Personality** switch, Mute and End. Just talk; when you stop, your words go to the agent and its reply plays in its Hermes voice (or the iPhone voice). Talk over it to interrupt. It keeps going with the screen locked. Everything lands in the chat.
+- **Your choices (2026-11-12):** full screen, interrupting, background audio; plus the Voice/Personality switch and, for speed, the iPhone's own speech recognition: your words are sent the moment you stop talking, instead of uploading a recording for Hermes to transcribe.
+- **Safety from noise:** only recognised words make a turn, so background noise, coughs or the agent's own voice never get sent or cut it off. (Found in the simulator: at first, noise alone kept sending empty voice notes; fixed and rechecked with 110 s of silence.)
+- **Checked:** plugin 335 tests, app 173 (5 new for the speech detector); in the simulator: call screen, mute, switch, end, silence sends nothing, a spoken phrase (the Mac talking) goes through and is answered. The simulator has no on-device recognition, so the fast word path and interrupting need your iPhone.
+- **Needs from you:** `hermes plugins update lekora`, restart Hermes; then tap the headphones and talk (allow the microphone and speech recognition if asked).
 
 ## Done: hearing replies (Phase 4, feature 2; spec: `docs/voice.md` §2)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-12 (after five rounds of your feedback). Last change: a custom or Hermes voice personality now takes priority over the agent's usual tone in voice chats.

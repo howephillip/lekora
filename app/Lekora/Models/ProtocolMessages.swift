@@ -170,11 +170,14 @@ public struct ChatSendData: Codable, Equatable {
     public let files: [String]?
     /// Set for a voice note (its one file is the recording; docs/voice.md).
     public let voice: VoiceDetails?
+    /// Sent from a hands-free conversation: the reply is spoken (docs/voice.md §3).
+    public let hands_free: Bool?
 
-    public init(text: String, files: [String]? = nil, voice: VoiceDetails? = nil) {
+    public init(text: String, files: [String]? = nil, voice: VoiceDetails? = nil, hands_free: Bool? = nil) {
         self.text = text
         self.files = files
         self.voice = voice
+        self.hands_free = hands_free
     }
 }
 

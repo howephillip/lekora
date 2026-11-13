@@ -25,9 +25,12 @@
 		4CF11F07B4FDA7EA6D659B07 /* HearingRepliesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E50A84B543D54F9018D320 /* HearingRepliesTests.swift */; };
 		5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */; };
 		5AB862F68D3B1CA449D76244 /* StreamingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84C49F382533B2B608146FCD /* StreamingTests.swift */; };
+		5C64287E0F26509D713246FB /* HandsFreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 622817F631FAE76347798210 /* HandsFreeView.swift */; };
+		5D2A5119A593B16782597B3B /* HandsFree.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6A4DDC5B67E0BB7B5000DC /* HandsFree.swift */; };
 		6335CBA60311527E8077F02D /* PinnedTLS.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8596CF7B9B0B12CD2C7E000 /* PinnedTLS.swift */; };
 		63D6F2FB67ACF2275D7D12DA /* ChatHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF412341EDFBD9C0BD40EA1 /* ChatHistoryTests.swift */; };
 		666FB1BFEBE4A4F7C4BF30BC /* VoiceNoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B80EC56CADDB2722443348C /* VoiceNoteTests.swift */; };
+		7016FE2A3587140FCFA0B20E /* HandsFreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C292BB4A537414C1AF0F3FE9 /* HandsFreeTests.swift */; };
 		79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */; };
 		81CE4A4DF2691A77386D4538 /* AttachmentPicking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A76BD582961EF84C909245 /* AttachmentPicking.swift */; };
 		85721F1A389C4C7C54E14060 /* SetupWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */; };
@@ -101,6 +104,7 @@
 		536C65B6C9407858DCEC49A3 /* AgentSwitchingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSwitchingTests.swift; sourceTree = "<group>"; };
 		5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
 		5B80EC56CADDB2722443348C /* VoiceNoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNoteTests.swift; sourceTree = "<group>"; };
+		622817F631FAE76347798210 /* HandsFreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandsFreeView.swift; sourceTree = "<group>"; };
 		67CFF004E89499109A1FC23C /* Lekora.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Lekora.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		73562A915817188C789BD926 /* LKPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKPreviews.swift; sourceTree = "<group>"; };
 		753AC48F8DA7FC0783EFD2FF /* LKVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKVoice.swift; sourceTree = "<group>"; };
@@ -121,10 +125,12 @@
 		A71FE4330319847F703BD319 /* AgentsHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsHomeView.swift; sourceTree = "<group>"; };
 		AD8D84BFDD7B657B250DD3E0 /* LKFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKFiles.swift; sourceTree = "<group>"; };
 		B8596CF7B9B0B12CD2C7E000 /* PinnedTLS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedTLS.swift; sourceTree = "<group>"; };
+		C292BB4A537414C1AF0F3FE9 /* HandsFreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandsFreeTests.swift; sourceTree = "<group>"; };
 		CA3009191A55C0F53236F945 /* AgentToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolsView.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		DD6AA398351F711D345961F7 /* LKAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKAgents.swift; sourceTree = "<group>"; };
 		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
+		DF6A4DDC5B67E0BB7B5000DC /* HandsFree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandsFree.swift; sourceTree = "<group>"; };
 		E950FA3284FD2DBC6C00F77F /* PromptCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptCardTests.swift; sourceTree = "<group>"; };
 		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F3C0252903486B4E2D6FB60B /* SlashCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandTests.swift; sourceTree = "<group>"; };
@@ -188,6 +194,7 @@
 				1C14F78E55A3258FA42F19E4 /* ChatCache.swift */,
 				7FDA16D1A4B2EB8C693386E3 /* DeviceName.swift */,
 				78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */,
+				DF6A4DDC5B67E0BB7B5000DC /* HandsFree.swift */,
 				F81AE5FED6A36A665705C55D /* HostsModel.swift */,
 				5ABA07D3BF085C46DF0506FD /* KeychainManager.swift */,
 				B8596CF7B9B0B12CD2C7E000 /* PinnedTLS.swift */,
@@ -212,6 +219,7 @@
 				A1FA8B34B4CE7A6CD6671CD0 /* EncryptionTests.swift */,
 				19C424E99FE08F51187724FC /* FakeHost.swift */,
 				203F8C1E0485F0F73E02F72F /* FilesTests.swift */,
+				C292BB4A537414C1AF0F3FE9 /* HandsFreeTests.swift */,
 				33E50A84B543D54F9018D320 /* HearingRepliesTests.swift */,
 				11FE221EB3CC8C6C20826715 /* ModelBrowserTests.swift */,
 				37AF70E09D70B03C04EB1301 /* MultipleComputersTests.swift */,
@@ -254,6 +262,7 @@
 				CA3009191A55C0F53236F945 /* AgentToolsView.swift */,
 				38A76BD582961EF84C909245 /* AttachmentPicking.swift */,
 				9B4C842A13935CD6B9F443EA /* ChatSettingsView.swift */,
+				622817F631FAE76347798210 /* HandsFreeView.swift */,
 				45AC25602609D1AD17992E2C /* VoicePickerView.swift */,
 				3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */,
 			);
@@ -357,6 +366,8 @@
 				19CD1FCE42A84FF380DADE3B /* ComputersView.swift in Sources */,
 				3E26C6FC055625CF828F3902 /* DeviceName.swift in Sources */,
 				E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */,
+				5D2A5119A593B16782597B3B /* HandsFree.swift in Sources */,
+				5C64287E0F26509D713246FB /* HandsFreeView.swift in Sources */,
 				85A267F71EFB96D452AE123D /* HostsModel.swift in Sources */,
 				5474EC8D24A1E382AAE87212 /* KeychainManager.swift in Sources */,
 				122872783B46AFB360CFB885 /* LKAgents.swift in Sources */,
@@ -399,6 +410,7 @@
 				391E8D2FBE5FB23C6E493A93 /* EncryptionTests.swift in Sources */,
 				B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */,
 				F8F1AF8CED29B5EEA4DE0B4F /* FilesTests.swift in Sources */,
+				7016FE2A3587140FCFA0B20E /* HandsFreeTests.swift in Sources */,
 				4CF11F07B4FDA7EA6D659B07 /* HearingRepliesTests.swift in Sources */,
 				A78DE47FDC922C87A96F9FAD /* ModelBrowserTests.swift in Sources */,
 				F80A982058F1278A350FB7A3 /* MultipleComputersTests.swift in Sources */,

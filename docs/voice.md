@@ -29,8 +29,16 @@ Owner's feedback (2026-11-11): Hermes' voice must work with any voice a user has
 - **Hermes' voice is offered** whenever Hermes can speak with that agent's settings (`check_tts_requirements` in the agent's profile, with its keys; checked at most once a minute per agent). A failed attempt is retried once and logged in Hermes' log.
 - **Where settings live:** the plugin's store (`app_settings`, per agent), so every phone and a new phone get them (rule 3); other phones update straight away. Nothing is written to Hermes' config.
 
-## 3. Hands-free conversation (after that)
-- A headphones button: the app listens, notices when you stop talking, sends it as a voice note, speaks the reply, then listens again. Works with the screen locked or in a pocket while the conversation is open. Details are settled when it's built.
+## 3. Hands-free conversation
+Owner's choices (2026-11-12): full-screen like a call; talking over the agent interrupts it; keeps going with the screen locked (background audio). Plus: a Voice / Personality switch on the call screen, and (for speed) the iPhone's own speech recognition instead of uploading a recording for Hermes to transcribe.
+
+- **Start:** the headphones button at the top of a chat. Full screen: the agent's face with rings that move with your voice, its status (Listening… / Thinking… / Speaking… talk to interrupt / Muted), what was last said, **Voice | Personality** (the agent's Hermes voice, plain or personality), **Mute** and **End**.
+- **Your turn:** the app listens continuously (microphone with the iPhone's echo cancellation, so it doesn't hear the agent). It measures the room for the first two seconds, then notices talking (well above the background noise, which it keeps adapting to) and the end of it (about a second of quiet; one turn at most a minute).
+- **Words, not loudness, decide.** The iPhone's on-device speech recognition (Apple's SpeechTranscriber, or the dictation recognizer on iPhones without it) transcribes as you talk; when your turn ends, the **words are sent straight to the agent** as a message (no upload, no waiting for Hermes' speech-to-text). A turn with no words (a cough, a door, background noise) is never sent. Talking over the agent stops it only once words are heard.
+- Without on-device recognition (some older iPhones, the simulator): the recording is sent as a voice note for Hermes to transcribe, and only if it's long enough and mostly sound.
+- **The agent's turn:** messages sent hands-free always get a spoken reply (`hands_free` on `chat.send`): the agent's Hermes voice, plain or personality (voice notes streamed as in §2), or the iPhone voice if it has none. When it's done, the app listens again. Everything stays in the chat as normal messages and voice notes.
+- **Background:** the app declares background audio, so the conversation goes on with the screen locked; iOS shows its microphone indicator. It stops when you tap End or leave the chat.
+- Tests: `HandsFreeTests` (turns start and end on talking and quiet, coughs and blips aren't turns, noise raises the bar, noise that starts later stops counting, a long stretch of talking stays one turn); plugin `test_hands_free_replies_are_always_spoken`; simulator: the call screen, mute, style switch, end, 110 s of silence sends nothing, a spoken phrase (the Mac's voice) goes through and is answered.
 
 ## Protocol
 `protocol.md` §12.

@@ -2,6 +2,13 @@ import Foundation
 import AVFoundation
 import Combine
 
+/// Who sets the iPhone's audio session. While a hands-free conversation runs it owns it
+/// (microphone and speaker together, with echo cancellation), so playing doesn't switch it.
+@MainActor
+public enum AudioSessionOwner {
+    public static var handsFree = false
+}
+
 /// Recording voice notes and playing them back (docs/voice.md).
 public enum VoiceWaveform {
     /// Microphone levels (dB, about -60…0) to 0…1.
@@ -286,7 +293,7 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
             #if os(iOS)
             // Only when it changes: setting it for every part can stall the screen.
             let session = AVAudioSession.sharedInstance()
-            if session.category != .playback || session.mode != .spokenAudio {
+            if !AudioSessionOwner.handsFree, session.category != .playback || session.mode != .spokenAudio {
                 try session.setCategory(.playback, mode: .spokenAudio)
                 try session.setActive(true)
             }

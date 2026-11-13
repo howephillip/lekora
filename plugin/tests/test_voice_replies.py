@@ -186,3 +186,20 @@ async def test_personality_can_be_one_of_hermes_personalities(fgw, store, file_s
     assert await fgw.voice_replies.turn_instructions("coder") is None, "plain voice: the agent isn't told anything"
     fgw.voice.set("coder", {"speak": "off", "style": "personality"})
     assert await fgw.voice_replies.turn_instructions("coder") is None, "voice replies off: nothing either"
+
+
+async def test_hands_free_replies_are_always_spoken(fgw, store, file_store, tmp_path):
+    spoken = make(fgw, store, file_store, tmp_path, mode="off")
+    ws = await phone(fgw, store)
+    rec = await upload(ws, store, "v.m4a", b"aac", "audio/mp4")
+    await ws.send(env(store, "chat.send", {"text": "", "files": [rec["file_id"]], "hands_free": True,
+                                           "voice": {"duration": 1, "waveform": []}}, profile_id="coder", msg_id="h1"))
+    await drain(ws)
+    seq = await fgw.publish_message("coder", "Sure, here you go.")
+    assert (await saved_spoken(store, seq)).payload["voicing"] == "tts", "voice replies off, but hands-free speaks"
+    await ws.send(env(store, "chat.send", {"text": "typed now"}, profile_id="coder", msg_id="t2"))
+    await drain(ws)
+    seq = await fgw.publish_message("coder", "Text again.")
+    await asyncio.sleep(0.1)
+    assert "voicing" not in store.get_event(seq).payload, "back to the chat's own setting"
+    await ws.close()
