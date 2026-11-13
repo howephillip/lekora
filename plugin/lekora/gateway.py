@@ -467,6 +467,11 @@ class Gateway:
             await self._instance_rename(conn, msg_id, data)
         elif type_ == "user.name.set":
             await self._user_name_set(conn, msg_id, data)
+        elif type_ == "voice.log":
+            # A hands-free call's diagnostics from the phone (never what was said).
+            line = " ".join(str(data.get("line") or "").split())[:300]
+            if line:
+                log.info("Lekora phone call (%s): %s", env.get("profile_id"), line)
         elif type_ == "voice.timing":
             if self.voice_replies is not None:
                 self.voice_replies.phone_timing(env.get("profile_id"), data)

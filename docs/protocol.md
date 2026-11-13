@@ -399,6 +399,7 @@ Requests with `profile_id` set, answered with `<type>.result`:
 ## 15. Hands-free (spec: `voice.md` §3)
 - `chat.send` may carry `hands_free: true` (text recognised on the phone, or a voice note): the reply is spoken (as with voice replies "always"), whatever the chat's own setting. Its text may contain sound tags such as `[laughs]` (voice.md §3, "The vibe").
 - `voice.segment` may carry `data`: the part's audio (base64) when it's small (≤ 256 KB), so the phone keeps it as if fetched and plays it at once.
+- `voice.log` (phone → plugin, no reply; `profile_id`): `{line}` (up to 300 characters), a hands-free diagnostics line for the instance's log; never what was said.
 - `voice.timing` (phone → plugin, no reply; `profile_id`): `{silence_wait, recognize, audio_received, playing, total}` in seconds, for the first sound of a hands-free reply. The plugin logs it next to its own timings.
 
 ## 16. Your name (spec: `your-name.md`)

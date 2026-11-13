@@ -131,8 +131,6 @@ final class HandsFreeMicrophone {
         #endif
         let input = engine.inputNode
         try? input.setVoiceProcessingEnabled(true)  // echo cancellation: it doesn't hear the agent
-        // No automatic volume levelling: it flattens shouting and laughter into ordinary talk.
-        input.isVoiceProcessingAGCEnabled = false
         let format = input.outputFormat(forBus: 0)
         sampleRate = format.sampleRate
         input.removeTap(onBus: 0)
@@ -224,13 +222,12 @@ final class HandsFreeMicrophone {
 
     var isRunning: Bool { engine.isRunning }
 
-    /// While the agent is quiet there's no echo to cancel, and the voice processing's noise
-    /// suppression also takes out laughs, sighs and shouts; so it's set aside until it speaks.
-    func setEchoCancellation(_ on: Bool) {
-        let input = engine.inputNode
-        guard input.isVoiceProcessingEnabled, input.isVoiceProcessingBypassed == on else { return }
-        input.isVoiceProcessingBypassed = !on
+    /// For the diagnostics line: what the microphone delivers.
+    var formatDescription: String {
+        let format = engine.inputNode.outputFormat(forBus: 0)
+        return "\(Int(format.sampleRate)) Hz, \(format.channelCount) ch, voice processing \(engine.inputNode.isVoiceProcessingEnabled ? "on" : "off")"
     }
+
 
     private func handle(_ buffer: AVAudioPCMBuffer, level: Float, duration: TimeInterval) {
         onBuffer?(buffer)
@@ -322,6 +319,10 @@ final class LiveTranscriber {
 
     /// Which recognizer is listening (for the log): "speech", "dictation", or nil.
     private(set) var kind: String?
+    /// Why recognition couldn't start, if it couldn't.
+    private(set) var failure: String?
+    /// For the diagnostics line: audio given so far and readings received.
+    var stats: String { "recognizer heard \(Int(fedSeconds)) s, \(pieces.count) readings" }
 
     /// Sets up recognition for the iPhone's language (downloading it the first time): Apple's
     /// newest recognizer, or dictation on iPhones (and simulators) without it.
@@ -377,6 +378,7 @@ final class LiveTranscriber {
             ready = true
             return true
         } catch {
+            failure = error.localizedDescription
             HandsFreeLog.log.error("Speech recognition couldn't start: \(error.localizedDescription, privacy: .public)")
             return false
         }
@@ -460,9 +462,7 @@ public final class HandsFreeSession: ObservableObject {
         case failed(String)
     }
 
-    @Published public private(set) var phase: Phase = .starting {
-        didSet { updateEchoCancellation() }
-    }
+    @Published public private(set) var phase: Phase = .starting
     @Published public var muted = false {
         didSet {
             if muted, phase == .hearing { microphone.dropTurn(); phase = .listening }
@@ -504,6 +504,16 @@ public final class HandsFreeSession: ObservableObject {
         self.gateway = gateway
     }
 
+    /// A diagnostics line (never your words): on the iPhone's log and the Hermes instance's, so
+    /// a call that misbehaves can be understood afterwards (docs/voice.md §3, "Diagnostics").
+    private func note(_ line: String) {
+        HandsFreeLog.log.info("\(line, privacy: .public)")
+        gateway.reportVoiceLog(line, profileId: gateway.activeProfileId)
+    }
+
+    private var peak: Float = -100
+    private var lastLevelNote: TimeInterval = 0
+
     public func start() async {
         guard await AVAudioApplication.requestRecordPermission() else {
             phase = .failed("Lekora needs the microphone for hands-free. You can allow it in Settings › Lekora.")
@@ -511,12 +521,12 @@ public final class HandsFreeSession: ObservableObject {
         }
         microphone.onLevel = { [weak self] level, duration in self?.heard(level: level, duration: duration) }
         if await transcriber.prepare() {
-            HandsFreeLog.log.info("Hands-free: on-device recognition (\(self.transcriber.kind ?? "?", privacy: .public))")
+            note("call started: on-device recognition (\(transcriber.kind ?? "?"))")
             // The words tell a turn from noise, so the end of one can come sooner.
             detector.endAfter = 0.9
         } else {
             // No recognition here: only clearer, longer sound counts as talking.
-            HandsFreeLog.log.info("Hands-free: no on-device recognition; sending recordings")
+            note("call started: no on-device recognition (\(transcriber.failure ?? "not available")); sending recordings")
             detector.margin = 20
             detector.startAfter = 0.3
             detector.minimumTurn = 1.2
@@ -537,6 +547,7 @@ public final class HandsFreeSession: ObservableObject {
             phase = .failed("The microphone couldn't start: \(error.localizedDescription)")
             return
         }
+        note("microphone: \(microphone.formatDescription)")
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 300_000_000)
@@ -571,6 +582,14 @@ public final class HandsFreeSession: ObservableObject {
     private func heard(level dB: Float, duration: TimeInterval) {
         level = VoiceWaveform.level(fromDecibels: dB)
         listenedFor += duration
+        peak = max(peak, dB)
+        if listenedFor - lastLevelNote >= 10 {
+            // Every 10 s: is the microphone hearing anything, and what counts as talking.
+            note(String(format: "sound: loudest %.0f dB, room %.0f dB, talking above %.0f dB; %@; %@",
+                        peak, detector.noiseFloor, detector.threshold, "\(phase)", transcriber.stats))
+            peak = -100
+            lastLevelNote = listenedFor
+        }
         guard !muted else { return }
         // The first moments measure the room (opening the microphone can click).
         if listenedFor < settleTime {
@@ -628,7 +647,7 @@ public final class HandsFreeSession: ObservableObject {
                 let pieces = await transcriber.endTurn()
                 try? FileManager.default.removeItem(at: turn.url)
                 guard !pieces.isEmpty else {
-                    HandsFreeLog.log.info("Hands-free turn: no words, dropped")
+                    note("turn of \(String(format: "%.1f", turn.duration)) s: no words recognised, dropped (\(transcriber.stats))")
                     phase = wasInterrupting && agentTalking ? .speaking : .listening
                     return
                 }
@@ -637,7 +656,7 @@ public final class HandsFreeSession: ObservableObject {
                 let words = SoundCue.weave(words: pieces, sounds: heard)
                 turnSounds = SoundCue.summary(sounds.peaks(since: transcriber.turnStartSeconds))
                 let tags = Set(heard.map(\.tag)).sorted().joined(separator: " ")
-                HandsFreeLog.log.info("Hands-free turn: sent \(words.count) characters\(tags.isEmpty ? "" : ", heard \(tags)", privacy: .public)")
+                note("turn of \(String(format: "%.1f", turn.duration)) s: sent \(words.count) characters\(tags.isEmpty ? "" : ", heard \(tags)")")
                 beginWaiting()
                 turnEnded = ended
                 wordsReady = Date()
@@ -650,19 +669,19 @@ public final class HandsFreeSession: ObservableObject {
             // Leaving out the quiet that ended the turn.
             let spoken = max(turnSeconds - detector.endAfter, 0.1)
             let speechy = min(loudSeconds / spoken, 1)
-            HandsFreeLog.log.info("Hands-free turn: recording of \(turn.duration, privacy: .public)s, \(Int(speechy * 100), privacy: .public)% sound")
+            note("turn: recording of \(String(format: "%.1f", turn.duration)) s, \(Int(speechy * 100))% sound")
             guard turn.duration >= 1.2, speechy >= 0.35 else {
-                HandsFreeLog.log.info("Hands-free turn: dropped (too short or mostly background)")
+                note("turn dropped (too short or mostly background)")
                 try? FileManager.default.removeItem(at: turn.url)
                 phase = .listening
                 return
             }
-            HandsFreeLog.log.info("Hands-free turn: sent the recording")
+            note("turn: sent the recording")
             beginWaiting()
             do {
                 try await gateway.sendVoiceNote(at: turn.url, duration: turn.duration, waveform: turn.waveform, handsFree: true)
             } catch {
-                HandsFreeLog.log.error("Hands-free turn didn't send: \(error.localizedDescription, privacy: .public)")
+                note("turn didn't send: \(error.localizedDescription)")
                 phase = .listening
             }
             try? FileManager.default.removeItem(at: turn.url)
@@ -809,22 +828,6 @@ public final class HandsFreeSession: ObservableObject {
         turnEnded = nil
     }
 
-    private var echoCancelling = true
-
-    /// Echo cancellation only while the agent may be talking (it also removes laughs and shouts).
-    private func updateEchoCancellation() {
-        let needed: Bool
-        switch phase {
-        case .thinking, .speaking: needed = true
-        case .hearing: needed = interrupting || echoCancelling  // never switched mid-turn
-        default: needed = false
-        }
-        guard needed != echoCancelling, microphone.isRunning else { return }
-        echoCancelling = needed
-        microphone.setEchoCancellation(needed)
-        if phase == .listening { detector.remeasure() }  // the room sounds different now
-        HandsFreeLog.log.info("Hands-free: echo cancellation \(needed ? "on" : "off", privacy: .public)")
-    }
 
     /// The reply is done: your turn.
     private func replyFinished() {

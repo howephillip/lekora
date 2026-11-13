@@ -1376,6 +1376,14 @@ public final class GatewayClient: ObservableObject {
         userName = result.user_name
     }
 
+    /// A hands-free diagnostics line, written to the instance's log (docs/voice.md §3).
+    func reportVoiceLog(_ line: String, profileId: String) {
+        guard case .connected = state, let wsTask = webSocketTask, let instanceId = savedHost?.instanceId else { return }
+        let envelope = Envelope(type: "voice.log", instance_id: instanceId, profile_id: profileId,
+                                data: VoiceLogData(line: String(line.prefix(300))))
+        Task { [weak self] in try? await self?.send(envelope, on: wsTask) }
+    }
+
     /// A hands-free turn's timing, written to the instance's log next to its own (docs/voice.md §3).
     func reportVoiceTiming(_ timing: VoiceTimingData, profileId: String) {
         guard case .connected = state, let wsTask = webSocketTask, let instanceId = savedHost?.instanceId else { return }

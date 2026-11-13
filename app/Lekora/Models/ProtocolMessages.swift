@@ -370,6 +370,8 @@ struct VoiceSegmentData: Codable {
     let data: String?
 }
 
+struct VoiceLogData: Codable { let line: String }
+
 /// How long a hands-free turn took on the phone, for the instance's log (docs/voice.md §3).
 struct VoiceTimingData: Codable {
     let silence_wait: Double; let recognize: Double; let audio_received: Double; let playing: Double; let total: Double

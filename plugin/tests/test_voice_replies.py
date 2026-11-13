@@ -222,3 +222,17 @@ async def test_timings_are_logged_for_the_first_sound_and_the_phones_half(fgw, s
     assert "waited for quiet 0.8s" in line and "last word to the agent's first: 3.4s" in line
     assert "sounds noticed: [laughs] 0.41" in line
     await ws.close()
+
+
+async def test_call_diagnostics_from_the_phone_go_to_the_log(fgw, store, file_store, tmp_path, caplog):
+    import logging
+    make(fgw, store, file_store, tmp_path)
+    ws = await phone(fgw, store)
+    caplog.set_level(logging.INFO, logger="lekora.gateway")
+    await ws.send(env(store, "voice.log", {"line": "sound: loudest -31 dB\n room -58 dB"}, profile_id="coder"))
+    for _ in range(50):
+        if any("Lekora phone call (coder): sound: loudest -31 dB room -58 dB" in r.getMessage() for r in caplog.records):
+            break
+        await asyncio.sleep(0.02)
+    assert any("Lekora phone call (coder)" in r.getMessage() for r in caplog.records)
+    await ws.close()
