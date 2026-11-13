@@ -797,15 +797,22 @@ public final class HandsFreeSession: ObservableObject {
 
     /// Checked a few times a second while speaking: playback ending means your turn.
     func tick() {
+        guard phase == .speaking else { silentSince = nil; return }
+        guard !agentTalking, !fetching else { silentSince = nil; return }
+        // Nothing playing: the reply decides whether it's over (all its sound heard and saved).
+        // A gap while more is on its way (slow internet, the next sentence) is not the end
+        // (owner, 2026-11-13: replies stopped and the call went back to listening).
+        followReply()
         guard phase == .speaking else { return }
-        if !agentTalking && !fetching {
-            followReply()
-            if phase == .speaking, let reply = messages.last(where: { $0.id == replyId }),
-               reply.spoken != nil || reply.voicing == nil, appended >= (reply.spoken?.count ?? 0) {
-                replyFinished()
-            }
+        let now = Date()
+        if let since = silentSince, now.timeIntervalSince(since) > 20 {
+            note("reply: nothing more arrived for 20 s, your turn")
+            replyFinished()
+        } else if silentSince == nil {
+            silentSince = now
         }
     }
+    private var silentSince: Date?
 }
 
 
