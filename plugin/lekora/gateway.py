@@ -334,6 +334,13 @@ class Gateway:
 
     async def publish_draft(self, profile_id: str, draft_id: str, text: str) -> None:
         """Live text of a reply being written (full text so far). Not stored or replayed."""
+        if text and self.voice_replies is not None:
+            # Voice or text is decided before phones see the first words, so a phone never
+            # starts reading a voice reply with the iPhone voice (owner, 2026-11-13: both at once).
+            try:
+                await self.voice_replies.begin(profile_id, draft_id)
+            except Exception:
+                log.exception("Lekora: voice reply failed")
         await self._broadcast_ephemeral(self._envelope(
             "chat.draft", {"draft_id": draft_id, "text": text}, profile_id=profile_id))
         if text and self.voice_replies is not None:

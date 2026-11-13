@@ -653,6 +653,8 @@ public final class HandsFreeSession: ObservableObject {
         }
         let key = reply.voiceKey ?? reply.id
         let isVoice = reply.voicing != nil || gateway.voiceReplies[key] != nil || reply.spoken != nil
+        // A voice reply is only ever heard in the agent's voice: never the iPhone's on top.
+        if isVoice, speaker.speakingId == reply.id { speaker.stop() }
         if isVoice, gateway.streamingReplies.contains(key) {
             followStreamed(reply, key: key)
         } else if isVoice {
@@ -664,8 +666,12 @@ public final class HandsFreeSession: ObservableObject {
             if done, appended >= parts.count, !player.isPlaying, phase == .speaking || parts.isEmpty {
                 replyFinished()
             }
+        } else if gateway.hermesVoice[gateway.activeProfileId]?.available != false, reply.status == .streaming {
+            // The agent has (or may have) its own voice: wait for it rather than starting the
+            // iPhone voice, which would then talk on top of it (owner, 2026-11-13).
+            return
         } else {
-            // No Hermes voice: the iPhone voice reads it as it's written.
+            // No Hermes voice (or a finished reply that never got one): the iPhone voice reads it.
             thinkingTimeout?.cancel()
             phase = .speaking
             let settings = gateway.voiceSettings[gateway.activeProfileId] ?? .standard

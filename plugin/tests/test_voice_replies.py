@@ -236,3 +236,16 @@ async def test_call_diagnostics_from_the_phone_go_to_the_log(fgw, store, file_st
         await asyncio.sleep(0.02)
     assert any("Lekora phone call (coder)" in r.getMessage() for r in caplog.records)
     await ws.close()
+
+
+async def test_phones_learn_a_reply_is_voice_before_its_first_words(fgw, store, file_store, tmp_path):
+    make(fgw, store, file_store, tmp_path)
+    ws = await phone(fgw, store)
+    await fgw.publish_draft("coder", "live-7", "Sure")
+    order = []
+    while len(order) < 2:
+        msg = await recv(ws, timeout=3)
+        if msg["type"] in ("voice.reply", "chat.draft"):
+            order.append(msg["type"])
+    assert order == ["voice.reply", "chat.draft"], "never words first (the phone would read them aloud)"
+    await ws.close()
