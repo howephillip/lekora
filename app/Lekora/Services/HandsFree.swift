@@ -112,15 +112,9 @@ final class HandsFreeMicrophone {
     /// Every buffer, for the on-device transcriber.
     var onBuffer: ((AVAudioPCMBuffer) -> Void)?
 
-    /// The agent's streamed voice (docs/voice.md §4), played through the same engine so echo
-    /// cancellation knows exactly what to take out.
-    private let speech = AVAudioPlayerNode()
-    private var speechFormat: AVAudioFormat?
-    private var queued = 0
-    private var generation = 0
-    /// Everything scheduled has been heard.
-    var onSpeechIdle: (() -> Void)?
-    var isSpeaking: Bool { queued > 0 }
+    /// The agent's streamed voice (docs/voice.md §4), on its own audio engine: the microphone's
+    /// engine stays input-only, exactly as when calls recognised speech (owner, 2026-11-13).
+    let speech = StreamSpeaker()
 
     func start() throws {
         #if os(iOS)
@@ -139,80 +133,13 @@ final class HandsFreeMicrophone {
             let duration = Double(buffer.frameLength) / format.sampleRate
             Task { @MainActor in self?.handle(buffer, level: level, duration: duration) }
         }
-        engine.attach(speech)
-        connectSpeech(rate: 24_000)
         engine.prepare()
         try engine.start()
     }
 
-    private func connectSpeech(rate: Double) {
-        guard speechFormat?.sampleRate != rate,
-              let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else { return }
-        if speechFormat != nil {
-            speech.stop()
-            engine.disconnectNodeOutput(speech)
-        }
-        engine.connect(speech, to: engine.mainMixerNode, format: format)
-        speechFormat = format
-    }
-
-    /// Streamed sound: 16-bit mono PCM at `rate`, played straight after what's already queued.
-    func play(pcm: Data, rate: Int) {
-        guard engine.isRunning, rate > 0 else { return }
-        if speechFormat?.sampleRate != Double(rate), queued == 0 { connectSpeech(rate: Double(rate)) }
-        guard let format = speechFormat else { return }
-        let frames = pcm.count / 2
-        guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
-              let out = buffer.floatChannelData?[0] else { return }
-        buffer.frameLength = AVAudioFrameCount(frames)
-        pcm.withUnsafeBytes { raw in
-            let samples = raw.bindMemory(to: Int16.self)
-            for i in 0..<frames { out[i] = Float(Int16(littleEndian: samples[i])) / 32_768 }
-        }
-        schedule(buffer)
-    }
-
-    /// A whole audio file (a part that wasn't streamed), queued after the rest.
-    func play(file url: URL) {
-        guard engine.isRunning, let file = try? AVAudioFile(forReading: url), let target = speechFormat,
-              let input = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
-              (try? file.read(into: input)) != nil,
-              let converter = AVAudioConverter(from: file.processingFormat, to: target) else { return }
-        let capacity = AVAudioFrameCount(Double(input.frameLength) * target.sampleRate / file.processingFormat.sampleRate) + 1024
-        guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
-        var given = false
-        var error: NSError?
-        converter.convert(to: output, error: &error) { _, status in
-            if given { status.pointee = .endOfStream; return nil }
-            given = true
-            status.pointee = .haveData
-            return input
-        }
-        if error == nil, output.frameLength > 0 { schedule(output) }
-    }
-
-    private func schedule(_ buffer: AVAudioPCMBuffer) {
-        queued += 1
-        let current = generation
-        speech.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.generation == current else { return }
-                self.queued = max(self.queued - 1, 0)
-                if self.queued == 0 { self.onSpeechIdle?() }
-            }
-        }
-        if !speech.isPlaying { speech.play() }
-    }
-
-    /// Stop the agent's voice at once (you talked over it, or the call ended).
-    func stopSpeech() {
-        generation += 1
-        queued = 0
-        speech.stop()
-    }
 
     func stop() {
-        stopSpeech()
+        speech.stop()
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         file = nil
@@ -533,7 +460,7 @@ public final class HandsFreeSession: ObservableObject {
         }
         // Direct voice: the reply's sound as it's made (docs/voice.md §4).
         gateway.onVoiceStream = { [weak self] chunk in self?.streamed(chunk) }
-        microphone.onSpeechIdle = { [weak self] in self?.tick() }
+        microphone.speech.onIdle = { [weak self] in self?.tick() }
         microphone.onBuffer = { [weak self] buffer in
             guard let self else { return }
             self.transcriber.feed(buffer)
@@ -583,7 +510,7 @@ public final class HandsFreeSession: ObservableObject {
         level = VoiceWaveform.level(fromDecibels: dB)
         listenedFor += duration
         peak = max(peak, dB)
-        if listenedFor - lastLevelNote >= 10 {
+        if listenedFor - lastLevelNote >= (lastLevelNote == 0 ? 3 : 10) {
             // Every 10 s: is the microphone hearing anything, and what counts as talking.
             note(String(format: "sound: loudest %.0f dB, room %.0f dB, talking above %.0f dB; %@; %@",
                         peak, detector.noiseFloor, detector.threshold, "\(phase)", transcriber.stats))
@@ -617,7 +544,7 @@ public final class HandsFreeSession: ObservableObject {
             if interrupting, !transcriber.ready || !transcriber.wordsSoFar.isEmpty {
                 player.stop()
                 speaker.stop()
-                microphone.stopSpeech()
+                microphone.speech.stop()
                 interrupting = false
             }
             if detector.feed(level: dB, duration: duration) == .ended {
@@ -691,7 +618,7 @@ public final class HandsFreeSession: ObservableObject {
     private func beginWaiting() {
         player.stop()
         speaker.stop()
-        microphone.stopSpeech()
+        microphone.speech.stop()
         streamKey = nil
         streamedParts = []
         playedFiles = []
@@ -756,7 +683,7 @@ public final class HandsFreeSession: ObservableObject {
     private var streamedParts: Set<String> = []
     private var playedFiles: Set<String> = []
 
-    private var agentTalking: Bool { player.isPlaying || speaker.speakingId != nil || microphone.isSpeaking }
+    private var agentTalking: Bool { player.isPlaying || speaker.speakingId != nil || microphone.speech.isSpeaking }
 
     private func streamed(_ chunk: VoiceStreamData) {
         guard phase == .thinking || phase == .speaking || (phase == .hearing && interrupting) else { return }
@@ -767,7 +694,7 @@ public final class HandsFreeSession: ObservableObject {
         let first = audioArrived == nil
         if first { audioArrived = Date() }
         thinkingTimeout?.cancel()
-        microphone.play(pcm: pcm, rate: chunk.rate)
+        microphone.speech.play(pcm: pcm, rate: chunk.rate)
         if phase == .thinking { phase = .speaking }
         if first { reportTiming() }
     }
@@ -784,12 +711,12 @@ public final class HandsFreeSession: ObservableObject {
                 defer { fetching = false }
                 guard let url = try? await gateway.fileURL(for: part) else { return }
                 thinkingTimeout?.cancel()
-                microphone.play(file: url)
+                microphone.speech.play(file: url)
                 if phase == .thinking { phase = .speaking }
             }
         }
         let done = reply.spoken != nil || reply.voiceProblem != nil
-        if done, !fetching, !microphone.isSpeaking, phase == .speaking || (parts.isEmpty && reply.voiceProblem != nil) {
+        if done, !fetching, !microphone.speech.isSpeaking, phase == .speaking || (parts.isEmpty && reply.voiceProblem != nil) {
             replyFinished()
         }
     }
@@ -846,5 +773,90 @@ public final class HandsFreeSession: ObservableObject {
                 replyFinished()
             }
         }
+    }
+}
+
+
+/// Plays the agent's streamed voice as it arrives (docs/voice.md §4): 16-bit mono PCM pieces,
+/// and whole files for parts that weren't streamed, one after another.
+@MainActor
+final class StreamSpeaker {
+    private let engine = AVAudioEngine()
+    private let node = AVAudioPlayerNode()
+    private var format: AVAudioFormat?
+    private var queued = 0
+    private var generation = 0
+    /// Everything queued has been heard.
+    var onIdle: (() -> Void)?
+    var isSpeaking: Bool { queued > 0 }
+
+    private func ready(rate: Double) -> AVAudioFormat? {
+        if let format, format.sampleRate == rate, engine.isRunning { return format }
+        guard queued == 0 || format == nil, let wanted = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else {
+            return format
+        }
+        if format == nil { engine.attach(node) } else { node.stop(); engine.disconnectNodeOutput(node) }
+        engine.connect(node, to: engine.mainMixerNode, format: wanted)
+        format = wanted
+        if !engine.isRunning {
+            engine.prepare()
+            do { try engine.start() } catch {
+                HandsFreeLog.log.error("Streamed voice couldn't start: \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
+        }
+        return wanted
+    }
+
+    func play(pcm: Data, rate: Int) {
+        guard rate > 0, let format = ready(rate: Double(rate)) else { return }
+        let frames = pcm.count / 2
+        guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+              let out = buffer.floatChannelData?[0] else { return }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        pcm.withUnsafeBytes { raw in
+            let samples = raw.bindMemory(to: Int16.self)
+            for i in 0..<frames { out[i] = Float(Int16(littleEndian: samples[i])) / 32_768 }
+        }
+        schedule(buffer)
+    }
+
+    func play(file url: URL) {
+        guard let file = try? AVAudioFile(forReading: url),
+              let target = ready(rate: format?.sampleRate ?? file.processingFormat.sampleRate),
+              let input = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+              (try? file.read(into: input)) != nil,
+              let converter = AVAudioConverter(from: file.processingFormat, to: target) else { return }
+        let capacity = AVAudioFrameCount(Double(input.frameLength) * target.sampleRate / file.processingFormat.sampleRate) + 1024
+        guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
+        var given = false
+        var error: NSError?
+        converter.convert(to: output, error: &error) { _, status in
+            if given { status.pointee = .endOfStream; return nil }
+            given = true
+            status.pointee = .haveData
+            return input
+        }
+        if error == nil, output.frameLength > 0 { schedule(output) }
+    }
+
+    private func schedule(_ buffer: AVAudioPCMBuffer) {
+        queued += 1
+        let current = generation
+        node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.generation == current else { return }
+                self.queued = max(self.queued - 1, 0)
+                if self.queued == 0 { self.onIdle?() }
+            }
+        }
+        if !node.isPlaying { node.play() }
+    }
+
+    /// Stop at once (you talked over it, or the call ended).
+    func stop() {
+        generation += 1
+        queued = 0
+        node.stop()
     }
 }
