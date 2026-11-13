@@ -11,6 +11,7 @@ The owner is not a developer: explain outcomes, not mechanics. Lead reports with
 5. All profiles are equal. No "main agent". Every feature works for every profile, including create and delete.
 6. Every record carries `instance_id` and `profile_id` from day one.
 7. Agents get real tools from the plugin (send file, create artifact, request approval). Never inject behaviour by prompting every message.
+   - Exception (owner, 2026-11-12): Personality Voice. Only while a chat's voice replies use Personality Voice, the plugin passes Hermes' own per-turn chat instruction (`MessageEvent.channel_prompt`, part of the system prompt, never the user's message) telling the agent its reply will be spoken and how to sound (personality and cadence the user chose). Nothing is added in any other mode, and no reply is rewritten behind the agent's back.
 8. The plugin only writes to a clearly labelled app-owned section of Hermes config, backs up first, and confirms before any delete.
    - Exception (owner, 2026-11-09): OpenRouter routing for a model. When the user saves a routing choice in the model picker, the plugin writes only `provider_routing.models."<model id>"` in that agent's `config.yaml`, through Hermes' own config writer. It backs up to `<Hermes>/lekora-backups/config/<agent>/` first, keeping the original (pre-Lekora) copy forever plus the 10 newest, and tells the user what changed.
 9. Ask before: spending money, sending anything external, adding a dependency that needs an account.

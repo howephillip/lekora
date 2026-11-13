@@ -1016,8 +1016,8 @@ struct SpokenReplyBubble: View {
         return problem
     }
 
-    /// What you hear: for personality voice the rewritten script (as it arrives, then saved);
-    /// otherwise the reply's own text.
+    /// What you hear: the reply's own text (the agent writes personality voice replies to be
+    /// spoken). Older personality replies, from before, kept a separate spoken script.
     private var said: String {
         if personality {
             if let spoken = entry.spokenText, !spoken.isEmpty { return spoken }

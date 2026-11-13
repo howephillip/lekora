@@ -31,12 +31,11 @@ MAX_INSTRUCTIONS = 4000
 # Personality voice (owner, 2026-11-12): replies rewritten as natural, characterful speech before
 # Hermes speaks them. Generic on purpose: no user's own scripts or voices are assumed.
 BASE_SPEECH_RULES = (
-    "Write it the way a real person talks, not the way they write: contractions, varied sentence "
+    "Talk the way a real person talks, not the way they write: contractions, varied sentence "
     "lengths, now and then a small restart or self-correction (\"we could — actually, let's…\"), "
-    "natural emphasis. Keep every fact, name and number; spell out numbers, symbols and "
-    "abbreviations as they're spoken. Don't add greetings, sign-offs or new content. If the voice "
-    "understands delivery tags (e.g. [laughs], [whispers], [sighs], (excited)), use a few where "
-    "they fit; otherwise use none.")
+    "natural emphasis. Spell out numbers, symbols and abbreviations the way they're said. Your "
+    "voice may understand delivery tags such as [laughs], [whispers], [sighs] or (excited); use a "
+    "few where they fit, written inline.")
 FILLERS = {0: "Use no filler words.",
            1: "Use an occasional filler word (\"uh\", \"um\", \"like\", \"you know\", \"so\") where a person would naturally pause to think, roughly once every few sentences.",
            2: "Use filler words freely (\"uh\", \"um\", \"like\", \"you know\", \"I mean\", \"so, yeah\"), the way a relaxed, chatty person talks, but keep it understandable."}
@@ -50,21 +49,27 @@ PACE = {0: "Calm, unhurried delivery: longer, gentle sentences.",
 DEFAULT_STYLE_INSTRUCTIONS = BASE_SPEECH_RULES
 
 
-def personality_instructions(settings: dict, hermes_persona: str = "") -> str:
-    """What the rewrite is told: the speech rules, who's speaking, and the chosen cadence."""
+def voice_turn_instructions(settings: dict, preset_persona: str = "") -> str:
+    """Personality voice: told to the agent for the turn (Hermes' per-chat instruction), so it
+    writes exactly what it will say. Who's speaking: itself (nothing to add), one of Hermes'
+    personalities, or the user's own words; plus the chosen cadence."""
     if settings.get("style_source") == "custom" and settings.get("style_instructions"):
-        who = "THE SPEAKER'S PERSONALITY (from the user):\n" + settings["style_instructions"]
-    elif settings.get("style_source") == "preset" and hermes_persona.strip():
-        who = (f"THE SPEAKER'S PERSONALITY (Hermes' \"{settings.get('style_preset')}\" personality):\n"
-               + hermes_persona.strip()[:4000])
-    elif hermes_persona.strip():
-        who = "THE SPEAKER'S PERSONALITY (the agent's own, from Hermes):\n" + hermes_persona.strip()[:4000]
+        who = "Speak with this personality:\n" + settings["style_instructions"].strip()
+    elif settings.get("style_source") == "preset" and preset_persona.strip():
+        who = (f"Speak with Hermes' \"{settings.get('style_preset')}\" personality:\n" + preset_persona.strip()[:4000])
     else:
-        who = "THE SPEAKER'S PERSONALITY: warm, friendly and natural."
+        who = "Speak as yourself, in your own voice and personality."
     cadence = " ".join([FILLERS.get(settings.get("fillers", 1), FILLERS[1]),
                         PAUSES.get(settings.get("pauses", 1), PAUSES[1]),
                         PACE.get(settings.get("pace", 1), PACE[1])])
-    return f"{BASE_SPEECH_RULES}\n\n{who}\n\nCADENCE: {cadence}"
+    return ("VOICE CHAT (Lekora): every reply you write in this chat is spoken aloud to the user as a "
+            "voice note, word for word. Write exactly what you'd say out loud. Don't use Markdown, "
+            "headings, lists, tables, links or code; say them in words. " + BASE_SPEECH_RULES
+            + "\n\n" + who + "\n\nCadence: " + cadence)
+
+
+# The old name (a rewrite pass; replaced 2026-11-12 so the agent's words and the voice never differ).
+personality_instructions = voice_turn_instructions
 
 
 KEY = "voice"

@@ -146,7 +146,7 @@ struct PersonalityVoiceView: View {
             } header: {
                 Text("Cadence")
             } footer: {
-                Text("Filler words are the \"uh\", \"um\", \"like\" and \"you know\" of real speech; pauses are the beats between thoughts.\n\nBefore \(agentName)'s Hermes voice speaks, each part of a reply is rewritten as natural speech this way, by \(agentName)'s model through Hermes (like Hermes' own audio-tag option, so it uses that model's tokens). The reply you read stays as written.")
+                Text("Filler words are the \"uh\", \"um\", \"like\" and \"you know\" of real speech; pauses are the beats between thoughts.\n\nWhile Personality Voice is on, \(agentName) is told (through Hermes, for each message) to write its replies the way it talks, like this. Its Hermes voice then says exactly that, so what you hear, what you read and what \(agentName) remembers are the same.")
             }
         }
         .navigationTitle("Voice Personality")

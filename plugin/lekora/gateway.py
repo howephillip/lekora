@@ -923,10 +923,18 @@ class Gateway:
     async def _run_dispatch(self, conn: _Conn, msg_id: Optional[str],
                             profile_id: str, text: str, files: Optional[list] = None) -> None:
         try:
-            if files:  # only then: bridges from before files take (profile, text, id)
-                await self._dispatch(profile_id, text, msg_id or str(uuid.uuid4()), files=files)
-            else:
-                await self._dispatch(profile_id, text, msg_id or str(uuid.uuid4()))
+            extra: dict[str, Any] = {}
+            if files:  # only when needed: bridges from before take (profile, text, id)
+                extra["files"] = files
+            if self.voice_replies is not None:
+                try:
+                    instructions = await self.voice_replies.turn_instructions(profile_id)
+                except Exception:
+                    log.exception("Lekora: couldn't prepare personality voice")
+                    instructions = None
+                if instructions:
+                    extra["instructions"] = instructions  # personality voice (docs/voice.md §2)
+            await self._dispatch(profile_id, text, msg_id or str(uuid.uuid4()), **extra)
         except asyncio.CancelledError:
             raise
         except Exception:

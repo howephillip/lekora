@@ -7,6 +7,12 @@ one) and sent to the phones straight away (``voice.segment``), so they start pla
 When the reply is saved and every sentence is spoken, the parts are attached to the message
 (``spoken``) and it shows as a voice note from then on, with its text as the transcript.
 Turning voice mode off changes only the replies that come after.
+
+Personality voice: the agent itself writes the way it talks (Hermes' per-chat instruction for
+the turn, ``MessageEvent.channel_prompt``; see ``turn_instructions``), and exactly that text is
+spoken. Nothing is rewritten behind the agent's back, so what you hear, what you read and what
+the agent remembers are the same (owner, 2026-11-12: a hidden rewrite once made up a story the
+agent knew nothing about).
 """
 
 from __future__ import annotations
@@ -82,22 +88,19 @@ class _Reply:
 
 # (profile, text) -> audio files, in order (blocking; Hermes' own text_to_speech)
 Synthesize = Callable[[str, str], list[Path]]
-# (profile, text, instructions) -> the voice script to speak (blocking; Hermes' auxiliary model)
-Rewrite = Callable[[str, str, str], str]
 
 MIN_TTS_PIECE = 40            # very short sentences are spoken with the next (less choppy)
-MIN_PERSONALITY_PIECE = 160   # personality scripts are written a few sentences at a time
+MIN_PERSONALITY_PIECE = MIN_TTS_PIECE
 
 
 class VoiceReplies:
     def __init__(self, gateway: Any, settings: Any, synthesize: Optional[Synthesize],
-                 rewrite: Optional[Rewrite] = None, persona: Optional[Callable[[str, Optional[str]], str]] = None) -> None:
+                 persona: Optional[Callable[[str, Optional[str]], str]] = None) -> None:
         # (profile, Hermes personality name or None for the agent's own) -> its text (blocking)
         self.persona = persona
         self.gateway = gateway
         self.settings = settings          # VoiceSettings
         self.synthesize = synthesize
-        self.rewrite = rewrite
         self._replies: dict[str, _Reply] = {}
         self._decided: dict[str, Optional[str]] = {}
         self._last_was_voice: dict[str, bool] = {}
@@ -119,6 +122,24 @@ class VoiceReplies:
             return None
         return settings
 
+    async def turn_instructions(self, profile_id: str) -> Optional[str]:
+        """Personality voice: Hermes' per-chat instruction for the coming turn, so the agent
+        writes its reply the way it talks (who's speaking + cadence). None otherwise. Only
+        while personality voice is on for this chat; it stops when it's turned off."""
+        settings = await asyncio.to_thread(self._choose, profile_id)
+        if settings is None or settings.get("style") != "personality":
+            return None
+        from .voice_settings import voice_turn_instructions
+        persona = ""
+        source = settings.get("style_source", "hermes")
+        if source == "preset" and self.persona is not None:
+            # The agent already is its own Hermes self; a Hermes personality is described to it.
+            try:
+                persona = await asyncio.to_thread(self.persona, profile_id, settings.get("style_preset"))
+            except Exception:
+                log.warning("Lekora: couldn't read Hermes' %s personality", settings.get("style_preset"), exc_info=True)
+        return voice_turn_instructions(settings, persona)
+
     async def begin(self, profile_id: str, key: str) -> Optional[str]:
         """Decides once, at the very start of a reply, whether it's a voice note; phones are
         told straight away so they show a voice note from the first word (never text first)."""
@@ -128,19 +149,8 @@ class VoiceReplies:
         settings = await asyncio.to_thread(self._choose, profile_id)
         if settings is None:
             return None
-        style = settings.get("style") if settings.get("style") == "personality" and self.rewrite else "tts"
+        style = "personality" if settings.get("style") == "personality" else "tts"
         instructions = ""
-        if style == "personality":
-            from .voice_settings import personality_instructions
-            persona = ""
-            source = settings.get("style_source", "hermes")
-            if source in ("hermes", "preset") and self.persona is not None:
-                preset = settings.get("style_preset") if source == "preset" else None
-                try:
-                    persona = await asyncio.to_thread(self.persona, profile_id, preset)
-                except Exception:
-                    log.warning("Lekora: couldn't read %s's Hermes personality", profile_id, exc_info=True)
-            instructions = personality_instructions(settings, persona)
         reply = _Reply(profile_id, key, style, instructions)
         self._replies[key] = reply
         self._decided[key] = style
@@ -197,23 +207,16 @@ class VoiceReplies:
                     continue
                 reply.parts.append(part)
                 # The words go with the first audio part of each piece (what you hear).
-                await self.gateway.publish_voice_segment(reply.profile_id, reply.key, index, part,
-                                                         script if number == 0 else None)
+                await self.gateway.publish_voice_segment(reply.profile_id, reply.key, index, part)
                 index += 1
         self._replies.pop(reply.key, None)
         if reply.seq is not None:
-            spoken_text = " ".join(reply.scripts) if reply.style == "personality" and reply.scripts else None
-            await self.gateway.attach_spoken(reply.seq, reply.parts, reply.style, reply.problem, spoken_text)
+            await self.gateway.attach_spoken(reply.seq, reply.parts, reply.style, reply.problem)
 
     async def _speak(self, reply: _Reply, piece: str) -> tuple[str, list[Path]]:
-        """The script that was spoken (the piece, or its personality rewrite) and its audio."""
+        """The words spoken (the reply's own) and their audio."""
         from .playable_audio import UnplayableAudio, playable
-        script = piece
-        if reply.style == "personality" and self.rewrite is not None:
-            try:
-                script = await asyncio.to_thread(self.rewrite, reply.profile_id, piece, reply.instructions) or piece
-            except Exception as exc:
-                log.warning("Lekora: personality rewrite failed for %s; speaking the plain text: %s", reply.profile_id, exc)
+        script = piece  # exactly what the agent wrote (it wrote it to be spoken)
         for attempt in (1, 2):  # a provider hiccup gets one retry
             try:
                 paths = [Path(p) for p in await asyncio.to_thread(self.synthesize, reply.profile_id, script)]

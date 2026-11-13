@@ -95,19 +95,19 @@ async def test_over_the_connection(fgw, store, file_store, tmp_path):
 
 
 def test_personality_instructions():
-    from lekora.voice_settings import personality_instructions
-    hermes = personality_instructions(dict(DEFAULTS, style="personality"), "Brenda: dry wit, Southern warmth.")
-    assert "Brenda: dry wit" in hermes and "the agent's own, from Hermes" in hermes
-    assert "occasional filler" in hermes and "natural conversational pace" in hermes
-    custom = personality_instructions(dict(DEFAULTS, style_source="custom", style_instructions="A pirate.",
-                                           fillers=2, pauses=2, pace=2), "ignored persona")
-    assert "A pirate." in custom and "ignored persona" not in custom
+    from lekora.voice_settings import voice_turn_instructions
+    own = voice_turn_instructions(dict(DEFAULTS, style="personality"))
+    assert "word for word" in own and "Speak as yourself" in own
+    assert "occasional filler" in own and "natural conversational pace" in own
+    custom = voice_turn_instructions(dict(DEFAULTS, style_source="custom", style_instructions="A pirate.",
+                                          fillers=2, pauses=2, pace=2), "ignored")
+    assert "A pirate." in custom and "ignored" not in custom
     assert "filler words freely" in custom and "Pause often" in custom and "Lively" in custom
-    plain = personality_instructions(dict(DEFAULTS, fillers=0, pauses=0, pace=0), "")
-    assert "no filler words" in plain and "warm, friendly" in plain
-    assert clean({"style_source": "custom", "fillers": 2, "pauses": 0, "pace": 1})["fillers"] == 2
-    preset = personality_instructions(dict(DEFAULTS, style_source="preset", style_preset="catgirl"), "Nya~ playful.")
+    plain = voice_turn_instructions(dict(DEFAULTS, fillers=0, pauses=0, pace=0))
+    assert "no filler words" in plain
+    preset = voice_turn_instructions(dict(DEFAULTS, style_source="preset", style_preset="catgirl"), "Nya~ playful.")
     assert "Hermes' \"catgirl\" personality" in preset and "Nya~ playful." in preset
+    assert clean({"style_source": "custom", "fillers": 2, "pauses": 0, "pace": 1})["fillers"] == 2
     for bad in ({"style_source": "robot"}, {"fillers": 3}, {"pace": "fast"}, {"style_source": "preset"},
                 {"style_source": "preset", "style_preset": "a; rm"}):
         with pytest.raises(VoiceError):

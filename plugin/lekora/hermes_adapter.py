@@ -261,30 +261,13 @@ class LekoraAdapter(BasePlatformAdapter):
             parts.append(overlay[:3000])
         return "\n\n".join(parts)
 
-    def _voice_script(self, profile_id: str, text: str, instructions: str) -> str:
-        """Personality voice: part of a reply rewritten as a voice script with the user's
-        instructions, by the agent's own model through Hermes' auxiliary client (the task Hermes
-        uses for its own audio-tag rewrite, so it can be pointed at a cheaper model). The
-        visible reply is unchanged; on any failure the plain text is spoken."""
-        from agent.auxiliary_client import call_llm
-        from gateway.run import _profile_runtime_scope
-        from tools.tts_tool_providers import _auxiliary_reply_text
-        system = ("You turn part of a chat reply into the script a text-to-speech voice will read aloud. "
-                  "Follow the voice instructions. Keep the meaning and every fact; don't add new content, "
-                  "greetings or sign-offs. Return only the script.\n\nVOICE INSTRUCTIONS:\n" + instructions)
-        with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=True):
-            response = call_llm(task="tts_audio_tags", temperature=0.7,
-                                messages=[{"role": "system", "content": system},
-                                          {"role": "user", "content": text}])
-        return (_auxiliary_reply_text(response) or "").strip() or text
-
     @property
     def name(self) -> str:
         return "Lekora"
 
     # -- AgentBridge: phone -> agent -----------------------------------------
     async def deliver_to_agent(self, profile_id: str, text: str, message_id: str,
-                               files: Optional[list[dict]] = None) -> None:
+                               files: Optional[list[dict]] = None, instructions: Optional[str] = None) -> None:
         if not self._message_handler:
             return
         # Routes were refreshed when the gateway checked this profile (offered_profiles),
@@ -296,6 +279,10 @@ class LekoraAdapter(BasePlatformAdapter):
         event = MessageEvent(
             text=text, message_type=MessageType.TEXT, source=source,
             message_id=message_id, timestamp=datetime.datetime.now())
+        if instructions:
+            # Personality voice: Hermes' own per-chat instruction for this turn (its system prompt,
+            # not the message), so the agent writes the way it talks and exactly that is spoken.
+            event.channel_prompt = instructions
         if files:
             # Photos and files (docs/files.md): into Hermes' own media cache, as Telegram does.
             media = await asyncio.to_thread(inbound_media, text, files, _hermes_cache)
@@ -320,7 +307,7 @@ class LekoraAdapter(BasePlatformAdapter):
             self, config=self._cfg, hermes_version=_hermes_version(),
             profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers(),
             commands_provider=self._commands_for, settings_reader=self._settings_for,
-            hermes_voice=self._hermes_voice_for, speaker=self._speak_as, rewriter=self._voice_script,
+            hermes_voice=self._hermes_voice_for, speaker=self._speak_as,
             tools_reader=self._tools_for, persona=self._persona_for)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:

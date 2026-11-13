@@ -29,18 +29,13 @@ def make(fgw, store, file_store, tmp_path, mode="always", available=True, style=
         out.write_bytes(audio + script.encode())
         return [out]
 
-    def rewrite(profile, text, instructions):
-        rewrites.append(instructions)
-        return f"[warmly] {text}"
-
-    rewrites = []
-    fgw.rewrites = rewrites
 
     settings = VoiceSettings(store, file_store, hermes_voice=lambda p: {"available": available, "provider": "fish"},
                              speak=synthesize)
     settings.set("coder", {"speak": mode, "style": style})
     fgw.voice = settings
-    fgw.voice_replies = VoiceReplies(fgw, settings, synthesize, rewrite, persona=lambda p, preset=None: f"Preset {preset}." if preset else "Coder: terse and dry.")
+    fgw.voice_replies = VoiceReplies(fgw, settings, synthesize,
+                                     persona=lambda p, preset=None: f"Preset {preset}." if preset else "Coder: terse and dry.")
     return spoken
 
 
@@ -73,7 +68,7 @@ async def test_a_streamed_reply_is_a_voice_note_from_the_first_word(fgw, store, 
     assert told["data"] == {"message_id": "live-1", "style": "tts"}, "phones know before any audio"
     await fgw.publish_draft("coder", "live-1", "Sure! I booked ramen for two at seven tonight. The")
     first = (await until(ws, "voice.segment"))[0]
-    assert first["data"]["index"] == 0 and first["data"]["script"] == "Sure! I booked ramen for two at seven tonight."
+    assert first["data"]["index"] == 0 and "script" not in first["data"], "the words are the reply's own"
     seq = await fgw.publish_message("coder", LONG, draft_id="live-1")
     saved = [m for m in await until(ws, "chat.message")][0]
     assert saved["data"]["voicing"] == "tts", "saved as a voice note, never text first"
@@ -98,16 +93,24 @@ async def test_a_reply_saved_at_once_is_a_voice_note_too(fgw, store, file_store,
     await ws.close()
 
 
-async def test_personality_rewrites_then_speaks(fgw, store, file_store, tmp_path):
+async def test_personality_speaks_exactly_what_the_agent_wrote(fgw, store, file_store, tmp_path):
     spoken = make(fgw, store, file_store, tmp_path, style="personality")
     ws = await phone(fgw, store)
+    await ws.send(env(store, "chat.send", {"text": "how are you"}, profile_id="coder", msg_id="m1"))
+    for _ in range(50):
+        if fgw.received:
+            break
+        await asyncio.sleep(0.02)
+    told = fgw.received[0]
+    # The agent is told, for the turn, that its reply will be spoken: it writes the way it talks.
+    assert told[3] and "spoken aloud to the user as a voice note, word for word" in told[3]
+    assert "Speak as yourself" in told[3] and "occasional filler" in told[3]
     seq = await fgw.publish_message("coder", LONG)
     assert (await until(ws, "voice.reply"))[0]["data"]["style"] == "personality"
     event = await saved_spoken(store, seq)
-    assert all(s.startswith("[warmly] ") for s in spoken), "the voice script, not the plain text"
-    assert event.payload["voicing"] == "personality" and event.payload["text"] == LONG, "visible text unchanged"
-    assert "Coder: terse and dry." in fgw.rewrites[0], "sounds like the agent's own Hermes personality"
-    assert event.payload["spoken_text"].startswith("[warmly] "), "what you hear is kept, as its transcript"
+    assert " ".join(spoken) == "Sure! I booked ramen for two at seven tonight. The place is called Ichiran. See you there.", \
+        "nothing rewritten: what you hear is what it wrote (and what it remembers)"
+    assert event.payload["voicing"] == "personality" and "spoken_text" not in event.payload
     await ws.close()
 
 
@@ -177,7 +180,9 @@ async def test_personality_can_be_one_of_hermes_personalities(fgw, store, file_s
     make(fgw, store, file_store, tmp_path, style="personality")
     fgw.voice.set("coder", {"speak": "always", "style": "personality", "style_source": "preset", "style_preset": "hype",
                             "fillers": 2})
-    seq = await fgw.publish_message("coder", LONG)
-    await saved_spoken(store, seq)
-    assert "Preset hype." in fgw.rewrites[0] and "Hermes' \"hype\" personality" in fgw.rewrites[0]
-    assert "filler words freely" in fgw.rewrites[0]
+    told = await fgw.voice_replies.turn_instructions("coder")
+    assert "Preset hype." in told and "Hermes' \"hype\" personality" in told and "filler words freely" in told
+    fgw.voice.set("coder", {"speak": "always", "style": "tts"})
+    assert await fgw.voice_replies.turn_instructions("coder") is None, "plain voice: the agent isn't told anything"
+    fgw.voice.set("coder", {"speak": "off", "style": "personality"})
+    assert await fgw.voice_replies.turn_instructions("coder") is None, "voice replies off: nothing either"

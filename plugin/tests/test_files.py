@@ -25,8 +25,8 @@ async def fgw(store, file_store):
     """A gateway with files, whose stand-in Hermes records what it was given."""
     got = []
 
-    async def dispatch(profile_id, text, message_id, files=None):
-        got.append((profile_id, text, files))
+    async def dispatch(profile_id, text, message_id, files=None, instructions=None):
+        got.append((profile_id, text, files, instructions))
 
     g = Gateway(store, dispatch, lambda: PROFILES, host="127.0.0.1", auth_timeout=0.4)
     g.files = file_store
@@ -157,7 +157,7 @@ async def test_send_files_with_a_message(fgw, store):
         if fgw.received:
             break
         await asyncio.sleep(0.02)
-    profile, text, given = fgw.received[0]
+    profile, text, given, _ = fgw.received[0]
     assert profile == "coder" and text == ""
     assert [g["name"] for g in given] == ["IMG_1.jpg", "notes.txt"]
     assert Path(given[0]["path"]).read_bytes() == b"\xff\xd8\xff jpeg"
