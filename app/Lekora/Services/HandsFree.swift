@@ -628,6 +628,8 @@ public final class HandsFreeSession: ObservableObject {
         player.stop()
         speaker.stop()
         microphone.speech.stop()
+        // Whatever of an earlier reply is still arriving isn't played into this turn.
+        staleStreams.formUnion(seenStreams)
         streamKey = nil
         streamedParts = []
         playedFiles = []
@@ -697,6 +699,8 @@ public final class HandsFreeSession: ObservableObject {
     /// Parts ("key#index") heard as a stream; their saved files aren't played again.
     private var streamedParts: Set<String> = []
     private var playedFiles: Set<String> = []
+    private var seenStreams: Set<String> = []
+    private var staleStreams: Set<String> = []
 
     /// While the agent talks, only sound clearly louder than its own voice leaking back from
     /// the speaker counts as you (you close to the phone: about -20 dB; its voice: -30 to -45).
@@ -712,8 +716,11 @@ public final class HandsFreeSession: ObservableObject {
 
     private func streamed(_ chunk: VoiceStreamData) {
         guard phase == .thinking || phase == .speaking || (phase == .hearing && interrupting) else { return }
+        guard !staleStreams.contains(chunk.message_id) else { return }
+        seenStreams.insert(chunk.message_id)
         // This turn's reply (or the agent's next message in it): queued after what's playing.
         streamKey = chunk.message_id
+        if chunk.last == true { microphone.speech.flush() }
         guard let pcm = Data(base64Encoded: chunk.data), !pcm.isEmpty else { return }
         streamedParts.insert("\(chunk.message_id)#\(chunk.index)")
         let first = audioArrived == nil
@@ -811,9 +818,16 @@ final class StreamSpeaker {
     private var format: AVAudioFormat?
     private var queued = 0
     private var generation = 0
+    /// A little sound is kept in hand before playing, so uneven arrival over the internet
+    /// doesn't stutter (owner, 2026-11-13); after running dry, a little less to resume.
+    private var holding: [AVAudioPCMBuffer] = []
+    private var heldSeconds: Double = 0
+    private var flowing = false
+    private let startAfter: Double = 0.5
+    private let resumeAfter: Double = 0.3
     /// Everything queued has been heard.
     var onIdle: (() -> Void)?
-    var isSpeaking: Bool { queued > 0 }
+    var isSpeaking: Bool { queued > 0 || !holding.isEmpty }
 
     private func ready(rate: Double) -> AVAudioFormat? {
         if let format, format.sampleRate == rate, engine.isRunning { return format }
@@ -843,8 +857,32 @@ final class StreamSpeaker {
             let samples = raw.bindMemory(to: Int16.self)
             for i in 0..<frames { out[i] = Float(Int16(littleEndian: samples[i])) / 32_768 }
         }
-        schedule(buffer)
+        hold(buffer)
     }
+
+    /// The end of a streamed part: play whatever is held.
+    func flush() {
+        guard !holding.isEmpty else { return }
+        flowing = true
+        let held = holding
+        holding = []
+        heldSeconds = 0
+        held.forEach(schedule)
+    }
+
+    private func hold(_ buffer: AVAudioPCMBuffer) {
+        if flowing {
+            schedule(buffer)
+            return
+        }
+        holding.append(buffer)
+        heldSeconds += Double(buffer.frameLength) / buffer.format.sampleRate
+        if heldSeconds >= (generation == startedGeneration ? resumeAfter : startAfter) {
+            startedGeneration = generation
+            flush()
+        }
+    }
+    private var startedGeneration = -1
 
     func play(file url: URL) {
         guard let file = try? AVAudioFile(forReading: url),
@@ -862,7 +900,10 @@ final class StreamSpeaker {
             status.pointee = .haveData
             return input
         }
-        if error == nil, output.frameLength > 0 { schedule(output) }
+        if error == nil, output.frameLength > 0 {
+            flush()
+            schedule(output)
+        }
     }
 
     private func schedule(_ buffer: AVAudioPCMBuffer) {
@@ -872,7 +913,10 @@ final class StreamSpeaker {
             Task { @MainActor in
                 guard let self, self.generation == current else { return }
                 self.queued = max(self.queued - 1, 0)
-                if self.queued == 0 { self.onIdle?() }
+                if self.queued == 0 {
+                    self.flowing = false  // ran dry: hold a little again before resuming
+                    self.onIdle?()
+                }
             }
         }
         if !node.isPlaying { node.play() }
@@ -882,6 +926,9 @@ final class StreamSpeaker {
     func stop() {
         generation += 1
         queued = 0
+        holding = []
+        heldSeconds = 0
+        flowing = false
         node.stop()
     }
 }
