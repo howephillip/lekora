@@ -57,6 +57,27 @@ final class FakeHost: @unchecked Sendable {
         for connection in open { send(type: "voice.reply", data: data, profileId: profile, on: connection) }
     }
 
+    /// Direct voice (docs/voice.md §4).
+    var directVoice: [String: Any] = [
+        "source": "auto",
+        "fish": ["voice_id": "", "model": "s2.1-pro", "speed": 1.0],
+        "elevenlabs": ["voice_id": "", "model_id": "eleven_flash_v2_5"],
+        "openai": ["base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini-tts", "voice": "alloy"],
+    ]
+    var directKeys: [String: String] = ["fish": "FISH_API_KEY", "elevenlabs": "", "openai": ""]
+
+    func sendVoiceStream(messageId: String, index: Int, chunk: Int, pcm: Data, profile: String, streamingReply: Bool = true) {
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open {
+            if streamingReply, chunk == 0, index == 0 {
+                send(type: "voice.reply", data: ["message_id": messageId, "style": "tts", "streaming": true],
+                     profileId: profile, on: connection)
+            }
+            send(type: "voice.stream", data: ["message_id": messageId, "index": index, "chunk": chunk, "rate": 24000,
+                                              "data": pcm.base64EncodedString()], profileId: profile, on: connection)
+        }
+    }
+
     /// Voice mode: a spoken part of a reply, as the plugin streams it.
     func sendVoiceSegment(messageId: String, index: Int, file: [String: Any], profile: String, inline: Data? = nil) {
         var data: [String: Any] = ["message_id": messageId, "index": index, "file": file]
@@ -618,6 +639,22 @@ final class FakeHost: @unchecked Sendable {
         case "voice.settings.set":
             voiceSettings = data["settings"] as? [String: Any] ?? voiceSettings
             send(type: "voice.settings.set.result", id: id, data: ["settings": voiceSettings],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "voice.direct.get", "voice.direct.set":
+            if message["type"] as? String == "voice.direct.set" {
+                directVoice = data["settings"] as? [String: Any] ?? directVoice
+                if let key = data["key"] as? [String: Any], let provider = key["provider"] as? String {
+                    directKeys[provider] = (key["value"] as? String ?? "").isEmpty ? "" : "app"
+                }
+            }
+            send(type: (message["type"] as? String ?? "") + ".result", id: id,
+                 data: ["settings": directVoice, "keys": directKeys, "hermes_streaming": NSNull()],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "voice.direct.test":
+            let meta = storeFile(Data("RIFF sample".utf8), name: "Voice sample.wav", mime: "audio/wav")
+            send(type: "voice.direct.test.result", id: id, data: ["file": meta],
                  profileId: message["profile_id"] as? String, on: connection)
 
         case "voice.speak":

@@ -300,6 +300,17 @@ struct ChatSettingsView: View {
                     }
                 }
             }
+            if hermesVoice?.available == true {
+                NavigationLink {
+                    DirectVoiceView(gateway: gateway, profileId: profileId, agentName: agentName)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Direct Voice")
+                        Text("Faster calls: the sound streams while it's made.")
+                            .font(LK.Typography.footnote).foregroundStyle(.secondary)
+                    }
+                }
+            }
             if let hermes = hermesVoice, hermes.available {
                 Toggle(isOn: Binding(get: { usesHermes }, set: { on in changeVoice { $0.engine = on ? "hermes" : "iphone" } })) {
                     VStack(alignment: .leading, spacing: 2) {

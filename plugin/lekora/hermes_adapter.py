@@ -221,6 +221,54 @@ class LekoraAdapter(BasePlatformAdapter):
             raise RuntimeError(result.get("error") or "no audio")
         return [Path(p) for p in paths]
 
+    def _hermes_streamer_for(self, profile_id: str):
+        """(label, speak) when Hermes can stream this agent's own voice (its streaming voices:
+        ElevenLabs, OpenAI-compatible, Gemini, xAI, plugin voices that stream); else None.
+        Uses the agent's Hermes settings and keys as they are (docs/voice.md §4). Read only."""
+        from gateway.run import _profile_runtime_scope
+        from tools.tts_streaming import resolve_streaming_provider
+        from tools.tts_tool import _get_provider, _load_tts_config
+        home = self._profile_home(profile_id)
+        with _profile_runtime_scope(home, hydrate_secrets=True):
+            config = _load_tts_config()
+            if resolve_streaming_provider(config) is None:
+                return None
+            provider = _get_provider(config)
+
+        def speak(text: str):
+            from tools.tts_text_normalize import prepare_spoken_text
+
+            def chunks():
+                # Each sentence gets a fresh streamer, all of it inside the agent's settings.
+                with _profile_runtime_scope(home, hydrate_secrets=True):
+                    streamer = resolve_streaming_provider(_load_tts_config())
+                    if streamer is None:
+                        raise RuntimeError("Hermes can no longer stream this voice")
+                    for chunk in streamer.stream(prepare_spoken_text(text) or text):
+                        holder["rate"] = streamer.sample_rate
+                        yield chunk
+            holder = {"rate": 24000}
+            iterator = chunks()
+            first = next(iterator, b"")  # the real rate is known after the first chunk
+
+            def rest():
+                if first:
+                    yield first
+                yield from iterator
+            return holder["rate"], rest()
+        return f"Hermes ({provider})", speak
+
+    def _env_value_for(self, profile_id: str, names: tuple):
+        """(name, value) of the first of ``names`` set for this agent (its Hermes .env). Read only."""
+        from gateway.run import _profile_runtime_scope
+        from hermes_cli.config import get_env_value
+        with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=True):
+            for name in names:
+                value = (get_env_value(name) or "").strip()
+                if value:
+                    return name, value
+        return None
+
     def _tools_for(self, profile_id: str) -> dict:
         """The agent's toolsets as Hermes resolves them for Lekora chats, and the lists saved
         for its other chat platforms (to copy from). Read only (docs/agent-tools.md)."""
@@ -315,7 +363,8 @@ class LekoraAdapter(BasePlatformAdapter):
             profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers(),
             commands_provider=self._commands_for, settings_reader=self._settings_for,
             hermes_voice=self._hermes_voice_for, speaker=self._speak_as,
-            tools_reader=self._tools_for, persona=self._persona_for)
+            tools_reader=self._tools_for, persona=self._persona_for,
+            hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()

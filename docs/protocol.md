@@ -404,3 +404,10 @@ Requests with `profile_id` set, answered with `<type>.result`:
 ## 16. Your name (spec: `your-name.md`)
 - `hello.ack` carries `user_name` ("" until chosen).
 - `user.name.set` `{name}` (up to 80 characters; "" clears) → `user.name.set.result` `{user_name}`; other phones get `instance.changed` `{instance_name, user_name}`.
+
+## 17. Direct voice (spec: `voice.md` §4)
+- `voice.reply` may carry `streaming: true`: the reply's sound also comes as `voice.stream`.
+- `voice.stream` (plugin → phones, not stored; `profile_id`): `{message_id, index, chunk, rate, data, last?}`: part `index` of the reply, chunk number `chunk`, 16-bit little-endian mono PCM at `rate` Hz (base64). `last: true` (empty `data`) ends the part. The saved part follows as `voice.segment`.
+- `voice.direct.get` → `voice.direct.get.result` `{settings, keys, hermes_streaming}`: `settings` `{source: auto|fish|elevenlabs|openai|off, fish {voice_id, model, speed}, elevenlabs {voice_id, model_id}, openai {base_url, model, voice}}`; `keys` per service: "app", the Hermes `.env` name in use, or ""; `hermes_streaming`: e.g. "Hermes (elevenlabs)" or null.
+- `voice.direct.set` `{settings, key?: {provider, value}}` (value "" forgets a saved key) → `voice.direct.set.result` (same as get). Keys are never sent to phones.
+- `voice.direct.test` `{text?}` → `voice.direct.test.result` `{file}`: a short sample in the chosen voice.

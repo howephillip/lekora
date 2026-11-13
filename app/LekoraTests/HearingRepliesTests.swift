@@ -141,4 +141,42 @@ final class HearingRepliesTests: XCTestCase {
         tools = try await gateway.setAgentTools(["kanban": true], for: "default")
         XCTAssertEqual(tools.toolsets.first { $0.key == "kanban" }?.enabled, true)
     }
+
+    /// Direct voice (docs/voice.md §4): settings, a sample, and streamed sound.
+    @MainActor
+    func testDirectVoiceSettingsSampleAndStream() async throws {
+        let host = try FakeHost()
+        host.profiles = [["profile_id": "default", "name": "Default", "avatar": "sparkles"]]
+        try await host.start()
+        defer { host.stop() }
+        let store = InMemoryCredentialStore()
+        try SavedHost(instanceId: host.instanceId, instanceName: host.instanceName, deviceId: "dev_1",
+                      deviceToken: host.acceptedDeviceToken, endpoints: [host.endpoint],
+                      enabledProfileIds: ["default"], activeProfileId: "default").save(to: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
+        gateway.fileCacheRoot = FileManager.default.temporaryDirectory.appendingPathComponent("lk-direct-\(UUID().uuidString)")
+        await gateway.resumeSavedSession()
+
+        var info = try await gateway.directVoice(for: "default")
+        XCTAssertEqual(info.settings.source, "auto")
+        XCTAssertEqual(info.keys["fish"], "FISH_API_KEY", "the instance's own key is found")
+        var settings = info.settings
+        settings.source = "fish"
+        settings.fish.voice_id = "956470ee"
+        info = try await gateway.setDirectVoice(settings, key: ("elevenlabs", "sk-typed"), for: "default")
+        XCTAssertEqual(info.settings.fish.voice_id, "956470ee")
+        XCTAssertEqual(info.keys["elevenlabs"], "app", "saved on the instance; never shown again")
+
+        let sample = try await gateway.testDirectVoice(for: "default")
+        XCTAssertEqual(try Data(contentsOf: sample), Data("RIFF sample".utf8))
+
+        var heard: [VoiceStreamData] = []
+        gateway.onVoiceStream = { heard.append($0) }
+        host.sendVoiceStream(messageId: "live-9", index: 0, chunk: 0, pcm: Data([1, 0, 2, 0]), profile: "default")
+        let got = await waitUntil { heard.count == 1 }
+        XCTAssertTrue(got)
+        XCTAssertTrue(gateway.streamingReplies.contains("live-9"))
+        XCTAssertEqual(Data(base64Encoded: heard[0].data), Data([1, 0, 2, 0]))
+        XCTAssertEqual(heard[0].rate, 24000)
+    }
 }

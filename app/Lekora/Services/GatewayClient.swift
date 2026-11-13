@@ -1094,6 +1094,31 @@ public final class GatewayClient: ObservableObject {
         if let text = got.default_style_instructions { defaultStyleInstructions = text }
     }
 
+    /// Direct voice (docs/voice.md §4): replies whose sound is streamed while it's made.
+    public private(set) var streamingReplies: Set<String> = []
+    /// Streamed sound as it arrives (a hands-free call plays it at once).
+    var onVoiceStream: ((VoiceStreamData) -> Void)?
+
+    public func directVoice(for profileId: String) async throws -> DirectVoiceInfo {
+        try await request(type: "voice.direct.get", profileId: profileId, data: EmptyData(),
+                          reply: DirectVoiceInfo.self, timeout: 30)
+    }
+
+    /// Saves the choice; `key` (provider, value) saves a key on the instance ("" clears it).
+    public func setDirectVoice(_ settings: DirectVoiceSettings, key: (provider: String, value: String)? = nil,
+                               for profileId: String) async throws -> DirectVoiceInfo {
+        try await request(type: "voice.direct.set", profileId: profileId,
+                          data: DirectVoiceSetData(settings: settings, key: key.map { DirectVoiceKey(provider: $0.provider, value: $0.value) }),
+                          reply: DirectVoiceInfo.self, timeout: 30)
+    }
+
+    /// A short sample in the chosen direct voice, on the phone.
+    public func testDirectVoice(for profileId: String) async throws -> URL {
+        let got = try await request(type: "voice.direct.test", profileId: profileId, data: EmptyData(),
+                                    reply: DirectVoiceTestResult.self, timeout: 60)
+        return try await fileURL(for: got.file)
+    }
+
     /// Voice mode: replies the instance is making into voice notes, by message id (style, and
     /// why their audio can't play, if so).
     @Published public private(set) var voiceReplies: [String: (style: String, problem: String?)] = [:]
@@ -1180,6 +1205,10 @@ public final class GatewayClient: ObservableObject {
             guard let envelope = try? decoder.decode(Envelope<VoiceReplyData>.self, from: data) else { return }
             let known = voiceReplies[envelope.data.message_id]
             voiceReplies[envelope.data.message_id] = (envelope.data.style, envelope.data.problem ?? known?.problem)
+            if envelope.data.streaming == true { streamingReplies.insert(envelope.data.message_id) }
+        case "voice.stream":
+            guard let envelope = try? decoder.decode(Envelope<VoiceStreamData>.self, from: data) else { return }
+            onVoiceStream?(envelope.data)
         case "voice.segment":
             guard let envelope = try? decoder.decode(Envelope<VoiceSegmentData>.self, from: data) else { return }
             if let inline = envelope.data.data, cachedFileURL(envelope.data.file) == nil,

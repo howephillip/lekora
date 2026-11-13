@@ -270,11 +270,24 @@ class Gateway:
                 pass
         await self._broadcast_ephemeral(self._envelope("voice.segment", data, profile_id=profile_id))
 
-    async def publish_voice_reply(self, profile_id: str, key: str, style: str, problem: Optional[str] = None) -> None:
+    async def publish_voice_stream(self, profile_id: str, key: str, index: int, number: int, rate: int,
+                                   pcm: bytes, last: bool = False) -> None:
+        """Direct voice (docs/voice.md §4): sound for part ``index`` of a reply as it's made
+        (16-bit mono PCM at ``rate``), for phones in a hands-free call to play at once."""
+        data: dict[str, Any] = {"message_id": key, "index": index, "chunk": number, "rate": rate,
+                                "data": base64.b64encode(pcm).decode("ascii")}
+        if last:
+            data["last"] = True
+        await self._broadcast_ephemeral(self._envelope("voice.stream", data, profile_id=profile_id))
+
+    async def publish_voice_reply(self, profile_id: str, key: str, style: str, problem: Optional[str] = None,
+                                  streaming: bool = False) -> None:
         """Voice mode: this reply is (being made into) a voice note; or why its audio can't play."""
         data: dict[str, Any] = {"message_id": key, "style": style}
         if problem:
             data["problem"] = problem
+        if streaming:
+            data["streaming"] = True  # its sound also comes as voice.stream (docs/voice.md §4)
         await self._broadcast_ephemeral(self._envelope("voice.reply", data, profile_id=profile_id))
 
     async def attach_spoken(self, seq: int, parts: list[dict], style: str = "tts",
@@ -447,7 +460,8 @@ class Gateway:
             await self._file_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("agent.tools.get", "agent.tools.set"):
             await self._tools_request(conn, msg_id, type_, env.get("profile_id"), data)
-        elif type_ in ("voice.settings.get", "voice.settings.set", "voice.speak"):
+        elif type_ in ("voice.settings.get", "voice.settings.set", "voice.speak",
+                       "voice.direct.get", "voice.direct.set", "voice.direct.test"):
             await self._voice_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "instance.rename":
             await self._instance_rename(conn, msg_id, data)
@@ -885,6 +899,9 @@ class Gateway:
         if self.voice is None:
             raise _Reject("UNAVAILABLE", "Voice settings aren't available on this host", True, False, msg_id)
         voice = self.voice
+        if type_.startswith("voice.direct."):
+            await self._direct_voice_request(conn, msg_id, type_, profile_id, data)
+            return
         try:
             if type_ == "voice.settings.get":
                 result = await asyncio.to_thread(voice.get, profile_id)
@@ -912,6 +929,43 @@ class Gateway:
         except VoiceError as exc:
             raise _Reject(exc.code, exc.reason, True, False, msg_id)
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
+
+    async def _direct_voice_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                                    profile_id: str, data: dict) -> None:
+        """Direct voice settings and a test (docs/voice.md §4). Keys are never sent back."""
+        from .direct_voice import DirectVoiceError
+        direct = getattr(self.voice_replies, "direct", None)
+        if direct is None:
+            raise _Reject("UNAVAILABLE", "Direct voice isn't available on this host", True, False, msg_id)
+        if type_ == "voice.direct.get":
+            result = await asyncio.to_thread(direct.describe, profile_id)
+        elif type_ == "voice.direct.set":
+            result = await asyncio.to_thread(direct.set, profile_id, data.get("settings"), data.get("key"))
+        else:
+            try:
+                result = {"file": await self._direct_voice_test(profile_id, direct, str(data.get("text") or ""))}
+            except DirectVoiceError as exc:
+                raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
+
+    async def _direct_voice_test(self, profile_id: str, direct: Any, text: str) -> dict:
+        """A short sample in the chosen direct voice, as a file to play."""
+        from .direct_voice import DirectVoiceError
+        from .voice_replies import _write_audio
+        found = await asyncio.to_thread(direct.resolve, profile_id)
+        if found is None:
+            raise DirectVoiceError("VOICE_NOT_STREAMING",
+                                   "This choice can't stream here, so replies are made the usual way.")
+        _, speak = found
+
+        def make() -> tuple[int, bytes]:
+            rate, chunks = speak(" ".join(text.split())[:300] or "Hi! This is how I'll sound in our calls.")
+            return rate, b"".join(chunks)
+        rate, pcm = await asyncio.to_thread(make)
+        if not pcm:
+            raise DirectVoiceError("VOICE_FAILED", "The voice service sent no sound.")
+        path = await asyncio.to_thread(_write_audio, rate, pcm)
+        return await asyncio.to_thread(self.files.add_agent_file, profile_id, path, f"Voice sample{path.suffix}")  # type: ignore[union-attr]
 
     async def _instance_rename(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
         """Rename this computer as the app shows it (docs/multiple-instances.md)."""

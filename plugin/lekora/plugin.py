@@ -126,7 +126,12 @@ class LekoraService:
         speaker: Optional[Callable[[str, str], list[Path]]] = None,
         tools_reader: Optional[Callable[[str], dict]] = None,
         persona: Optional[Callable[[str, Optional[str]], str]] = None,
+        hermes_streamer: Optional[Callable[[str], Any]] = None,
+        env_value: Optional[Callable[[str, tuple], Any]] = None,
     ) -> None:
+        # Direct voice (docs/voice.md §4): Hermes' streaming voice per agent, and its .env keys.
+        self._hermes_streamer = hermes_streamer
+        self._env_value = env_value
         self._persona = persona  # the agent's own Hermes personality, for personality voice
         self._tools_reader = tools_reader  # an agent's tools in Lekora chats (docs/agent-tools.md)
         # Hermes' own voice per agent (docs/voice.md §2); from the adapter.
@@ -225,8 +230,10 @@ class LekoraService:
                 self._tools_reader, self._run_cli,
                 backup=lambda profile_id: backups.backup(profile_id, _profiles.profile_home(profile_id, root) / "config.yaml"))
         from .voice_replies import VoiceReplies
+        from .direct_voice import DirectVoice
+        direct = DirectVoice(self._store, hermes_streamer=self._hermes_streamer, env_value=self._env_value)
         self.gateway.voice_replies = VoiceReplies(self.gateway, self.gateway.voice, self._speaker,
-                                                  persona=self._persona)
+                                                  persona=self._persona, direct=direct)
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(

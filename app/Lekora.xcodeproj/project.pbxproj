@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00B16B742ADD4928CD95DC71 /* DirectVoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30340119CD6EC084AB905328 /* DirectVoiceView.swift */; };
 		05AB1DB29EB8104379D719FB /* LKFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8D84BFDD7B657B250DD3E0 /* LKFiles.swift */; };
 		122872783B46AFB360CFB885 /* LKAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6AA398351F711D345961F7 /* LKAgents.swift */; };
 		12606712B38BAC9B8534D097 /* AgentToolsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3009191A55C0F53236F945 /* AgentToolsView.swift */; };
@@ -92,6 +93,7 @@
 		203F8C1E0485F0F73E02F72F /* FilesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesTests.swift; sourceTree = "<group>"; };
 		2ABD387BEEB7005FD9DD1FC7 /* YourNameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YourNameView.swift; sourceTree = "<group>"; };
 		2CD6AF1AA6582890921BFB14 /* LekoraTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LekoraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		30340119CD6EC084AB905328 /* DirectVoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectVoiceView.swift; sourceTree = "<group>"; };
 		3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingSkeletonPingView.swift; sourceTree = "<group>"; };
 		33E50A84B543D54F9018D320 /* HearingRepliesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HearingRepliesTests.swift; sourceTree = "<group>"; };
 		354249C24E28051B0D46C7F7 /* AgentsHomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsHomeTests.swift; sourceTree = "<group>"; };
@@ -268,6 +270,7 @@
 				CA3009191A55C0F53236F945 /* AgentToolsView.swift */,
 				38A76BD582961EF84C909245 /* AttachmentPicking.swift */,
 				9B4C842A13935CD6B9F443EA /* ChatSettingsView.swift */,
+				30340119CD6EC084AB905328 /* DirectVoiceView.swift */,
 				622817F631FAE76347798210 /* HandsFreeView.swift */,
 				45AC25602609D1AD17992E2C /* VoicePickerView.swift */,
 				3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */,
@@ -371,6 +374,7 @@
 				40CC469576F60182124E5293 /* ChooseProfilesView.swift in Sources */,
 				19CD1FCE42A84FF380DADE3B /* ComputersView.swift in Sources */,
 				3E26C6FC055625CF828F3902 /* DeviceName.swift in Sources */,
+				00B16B742ADD4928CD95DC71 /* DirectVoiceView.swift in Sources */,
 				E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */,
 				5D2A5119A593B16782597B3B /* HandsFree.swift in Sources */,
 				5C64287E0F26509D713246FB /* HandsFreeView.swift in Sources */,

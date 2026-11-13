@@ -112,6 +112,16 @@ final class HandsFreeMicrophone {
     /// Every buffer, for the on-device transcriber.
     var onBuffer: ((AVAudioPCMBuffer) -> Void)?
 
+    /// The agent's streamed voice (docs/voice.md §4), played through the same engine so echo
+    /// cancellation knows exactly what to take out.
+    private let speech = AVAudioPlayerNode()
+    private var speechFormat: AVAudioFormat?
+    private var queued = 0
+    private var generation = 0
+    /// Everything scheduled has been heard.
+    var onSpeechIdle: (() -> Void)?
+    var isSpeaking: Bool { queued > 0 }
+
     func start() throws {
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
@@ -131,11 +141,80 @@ final class HandsFreeMicrophone {
             let duration = Double(buffer.frameLength) / format.sampleRate
             Task { @MainActor in self?.handle(buffer, level: level, duration: duration) }
         }
+        engine.attach(speech)
+        connectSpeech(rate: 24_000)
         engine.prepare()
         try engine.start()
     }
 
+    private func connectSpeech(rate: Double) {
+        guard speechFormat?.sampleRate != rate,
+              let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else { return }
+        if speechFormat != nil {
+            speech.stop()
+            engine.disconnectNodeOutput(speech)
+        }
+        engine.connect(speech, to: engine.mainMixerNode, format: format)
+        speechFormat = format
+    }
+
+    /// Streamed sound: 16-bit mono PCM at `rate`, played straight after what's already queued.
+    func play(pcm: Data, rate: Int) {
+        guard engine.isRunning, rate > 0 else { return }
+        if speechFormat?.sampleRate != Double(rate), queued == 0 { connectSpeech(rate: Double(rate)) }
+        guard let format = speechFormat else { return }
+        let frames = pcm.count / 2
+        guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+              let out = buffer.floatChannelData?[0] else { return }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        pcm.withUnsafeBytes { raw in
+            let samples = raw.bindMemory(to: Int16.self)
+            for i in 0..<frames { out[i] = Float(Int16(littleEndian: samples[i])) / 32_768 }
+        }
+        schedule(buffer)
+    }
+
+    /// A whole audio file (a part that wasn't streamed), queued after the rest.
+    func play(file url: URL) {
+        guard engine.isRunning, let file = try? AVAudioFile(forReading: url), let target = speechFormat,
+              let input = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+              (try? file.read(into: input)) != nil,
+              let converter = AVAudioConverter(from: file.processingFormat, to: target) else { return }
+        let capacity = AVAudioFrameCount(Double(input.frameLength) * target.sampleRate / file.processingFormat.sampleRate) + 1024
+        guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
+        var given = false
+        var error: NSError?
+        converter.convert(to: output, error: &error) { _, status in
+            if given { status.pointee = .endOfStream; return nil }
+            given = true
+            status.pointee = .haveData
+            return input
+        }
+        if error == nil, output.frameLength > 0 { schedule(output) }
+    }
+
+    private func schedule(_ buffer: AVAudioPCMBuffer) {
+        queued += 1
+        let current = generation
+        speech.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.generation == current else { return }
+                self.queued = max(self.queued - 1, 0)
+                if self.queued == 0 { self.onSpeechIdle?() }
+            }
+        }
+        if !speech.isPlaying { speech.play() }
+    }
+
+    /// Stop the agent's voice at once (you talked over it, or the call ended).
+    func stopSpeech() {
+        generation += 1
+        queued = 0
+        speech.stop()
+    }
+
     func stop() {
+        stopSpeech()
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         file = nil
@@ -442,6 +521,9 @@ public final class HandsFreeSession: ObservableObject {
             detector.startAfter = 0.3
             detector.minimumTurn = 1.2
         }
+        // Direct voice: the reply's sound as it's made (docs/voice.md §4).
+        gateway.onVoiceStream = { [weak self] chunk in self?.streamed(chunk) }
+        microphone.onSpeechIdle = { [weak self] in self?.tick() }
         microphone.onBuffer = { [weak self] buffer in
             guard let self else { return }
             self.transcriber.feed(buffer)
@@ -473,6 +555,7 @@ public final class HandsFreeSession: ObservableObject {
         ticker?.cancel()
         transcriber.stop()
         sounds.stop()
+        gateway.onVoiceStream = nil
         AudioSessionOwner.handsFree = false
         watching = nil
         microphone.stop()
@@ -515,6 +598,7 @@ public final class HandsFreeSession: ObservableObject {
             if interrupting, !transcriber.ready || !transcriber.wordsSoFar.isEmpty {
                 player.stop()
                 speaker.stop()
+                microphone.stopSpeech()
                 interrupting = false
             }
             if detector.feed(level: dB, duration: duration) == .ended {
@@ -545,7 +629,7 @@ public final class HandsFreeSession: ObservableObject {
                 try? FileManager.default.removeItem(at: turn.url)
                 guard !pieces.isEmpty else {
                     HandsFreeLog.log.info("Hands-free turn: no words, dropped")
-                    phase = wasInterrupting && (player.isPlaying || speaker.speakingId != nil) ? .speaking : .listening
+                    phase = wasInterrupting && agentTalking ? .speaking : .listening
                     return
                 }
                 // How it was said: laughs, sighs… where they happened.
@@ -588,6 +672,10 @@ public final class HandsFreeSession: ObservableObject {
     private func beginWaiting() {
         player.stop()
         speaker.stop()
+        microphone.stopSpeech()
+        streamKey = nil
+        streamedParts = []
+        playedFiles = []
         phase = .thinking
         turnEnded = nil
         wordsReady = nil
@@ -619,7 +707,9 @@ public final class HandsFreeSession: ObservableObject {
         }
         let key = reply.voiceKey ?? reply.id
         let isVoice = reply.voicing != nil || gateway.voiceReplies[key] != nil || reply.spoken != nil
-        if isVoice {
+        if isVoice, gateway.streamingReplies.contains(key) {
+            followStreamed(reply, key: key)
+        } else if isVoice {
             let parts = (reply.spoken?.isEmpty == false ? reply.spoken : gateway.liveSpeech[key]) ?? []
             let done = reply.spoken != nil || reply.voiceProblem != nil
             if !parts.isEmpty, audioArrived == nil { audioArrived = Date() }
@@ -639,6 +729,51 @@ public final class HandsFreeSession: ObservableObject {
     }
 
     private var fetching = false
+
+    // MARK: - Direct voice: sound streamed as it's made (docs/voice.md §4)
+
+    private var streamKey: String?
+    /// Parts ("key#index") heard as a stream; their saved files aren't played again.
+    private var streamedParts: Set<String> = []
+    private var playedFiles: Set<String> = []
+
+    private var agentTalking: Bool { player.isPlaying || speaker.speakingId != nil || microphone.isSpeaking }
+
+    private func streamed(_ chunk: VoiceStreamData) {
+        guard phase == .thinking || phase == .speaking || (phase == .hearing && interrupting) else { return }
+        // This turn's reply (or the agent's next message in it): queued after what's playing.
+        streamKey = chunk.message_id
+        guard let pcm = Data(base64Encoded: chunk.data), !pcm.isEmpty else { return }
+        streamedParts.insert("\(chunk.message_id)#\(chunk.index)")
+        let first = audioArrived == nil
+        if first { audioArrived = Date() }
+        thinkingTimeout?.cancel()
+        microphone.play(pcm: pcm, rate: chunk.rate)
+        if phase == .thinking { phase = .speaking }
+        if first { reportTiming() }
+    }
+
+    /// A streamed reply: parts that weren't streamed (the voice service failed) play from their
+    /// files; it's over once it's saved and everything has been heard.
+    private func followStreamed(_ reply: ChatEntry, key: String) {
+        let parts = (reply.spoken?.isEmpty == false ? reply.spoken : gateway.liveSpeech[key]) ?? []
+        for (index, part) in parts.enumerated()
+        where !streamedParts.contains("\(key)#\(index)") && !playedFiles.contains(part.file_id) {
+            playedFiles.insert(part.file_id)
+            fetching = true
+            Task {
+                defer { fetching = false }
+                guard let url = try? await gateway.fileURL(for: part) else { return }
+                thinkingTimeout?.cancel()
+                microphone.play(file: url)
+                if phase == .thinking { phase = .speaking }
+            }
+        }
+        let done = reply.spoken != nil || reply.voiceProblem != nil
+        if done, !fetching, !microphone.isSpeaking, phase == .speaking || (parts.isEmpty && reply.voiceProblem != nil) {
+            replyFinished()
+        }
+    }
 
     private func playNext(_ parts: [ChatFile], of id: String) {
         guard !fetching else { return }
@@ -701,7 +836,7 @@ public final class HandsFreeSession: ObservableObject {
     /// Checked a few times a second while speaking: playback ending means your turn.
     func tick() {
         guard phase == .speaking else { return }
-        if !player.isPlaying && speaker.speakingId == nil && !fetching {
+        if !agentTalking && !fetching {
             followReply()
             if phase == .speaking, let reply = messages.last(where: { $0.id == replyId }),
                reply.spoken != nil || reply.voicing == nil, appended >= (reply.spoken?.count ?? 0) {

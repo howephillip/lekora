@@ -301,7 +301,46 @@ struct VoiceSettingsGetResult: Codable {
 }
 /// Voice mode: this reply is a voice note (tts | personality), from its first word; or why its
 /// audio can't be played.
-struct VoiceReplyData: Codable { let message_id: String; let style: String; let problem: String? }
+struct VoiceReplyData: Codable {
+    let message_id: String; let style: String; let problem: String?
+    /// Its sound also comes as `voice.stream` while it's made (direct voice, docs/voice.md §4).
+    let streaming: Bool?
+}
+
+/// Direct voice: sound for one part of a reply as it's made (16-bit mono PCM, base64).
+public struct VoiceStreamData: Codable, Sendable {
+    public let message_id: String
+    public let index: Int
+    public let chunk: Int
+    public let rate: Int
+    public let data: String
+    public let last: Bool?
+}
+
+// MARK: - Direct voice (docs/voice.md §4)
+
+public struct DirectVoiceSettings: Codable, Equatable, Sendable {
+    public struct Fish: Codable, Equatable, Sendable { public var voice_id: String; public var model: String; public var speed: Double }
+    public struct ElevenLabs: Codable, Equatable, Sendable { public var voice_id: String; public var model_id: String }
+    public struct OpenAI: Codable, Equatable, Sendable { public var base_url: String; public var model: String; public var voice: String }
+    /// auto | fish | elevenlabs | openai | off
+    public var source: String
+    public var fish: Fish
+    public var elevenlabs: ElevenLabs
+    public var openai: OpenAI
+}
+
+public struct DirectVoiceInfo: Codable, Equatable, Sendable {
+    public let settings: DirectVoiceSettings
+    /// Where each service's key comes from: "app", a Hermes .env name (e.g. "FISH_API_KEY"), or "".
+    public let keys: [String: String]
+    /// Hermes' own streaming voice for this agent ("Hermes (elevenlabs)"), or nil when it can't stream it.
+    public let hermes_streaming: String?
+}
+
+struct DirectVoiceKey: Codable { let provider: String; let value: String }
+struct DirectVoiceSetData: Codable { let settings: DirectVoiceSettings; let key: DirectVoiceKey? }
+struct DirectVoiceTestResult: Codable { let file: ChatFile }
 
 // MARK: - An agent's tools in Lekora chats (docs/agent-tools.md)
 

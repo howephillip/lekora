@@ -89,6 +89,9 @@ class _Reply:
     asked: Optional[float] = None         # your message arrived
     began: float = field(default_factory=time.monotonic)  # the agent's first words
     queued: Optional[float] = None        # the first piece was ready to speak
+    # Direct voice (docs/voice.md §4): (label, speak) streaming this reply's sound, or None.
+    direct: Optional[tuple] = None
+    first_sent: bool = False
 
 
 # (profile, text) -> audio files, in order (blocking; Hermes' own text_to_speech)
@@ -98,11 +101,16 @@ MIN_TTS_PIECE = 40            # very short sentences are spoken with the next (l
 MIN_PERSONALITY_PIECE = MIN_TTS_PIECE
 # Small voice parts go to the phones with the segment itself (no extra round trip to fetch).
 INLINE_AUDIO_BYTES = 256 * 1024
+# Direct voice: the first sound goes out after this much audio, the rest in steady pieces.
+FIRST_STREAM_SECONDS = 0.1
+STREAM_SECONDS = 0.3
 
 
 class VoiceReplies:
     def __init__(self, gateway: Any, settings: Any, synthesize: Optional[Synthesize],
-                 persona: Optional[Callable[[str, Optional[str]], str]] = None) -> None:
+                 persona: Optional[Callable[[str, Optional[str]], str]] = None,
+                 direct: Any = None) -> None:
+        self.direct = direct              # DirectVoice, or None (docs/voice.md §4)
         # (profile, Hermes personality name or None for the agent's own) -> its text (blocking)
         self.persona = persona
         self.gateway = gateway
@@ -167,13 +175,18 @@ class VoiceReplies:
         style = "personality" if settings.get("style") == "personality" else "tts"
         instructions = ""
         reply = _Reply(profile_id, key, style, instructions, asked=self._asked.pop(profile_id, None))
+        if self.direct is not None:
+            try:
+                reply.direct = await asyncio.to_thread(self.direct.resolve, profile_id)
+            except Exception:
+                log.warning("Lekora: direct voice isn't usable for %s", profile_id, exc_info=True)
         self._replies[key] = reply
         self._decided[key] = style
         if len(self._decided) > 500:
             for old in list(self._decided)[:250]:
                 self._decided.pop(old, None)
         reply.worker = asyncio.create_task(self._speak_all(reply))
-        await self.gateway.publish_voice_reply(profile_id, key, style)
+        await self.gateway.publish_voice_reply(profile_id, key, style, streaming=reply.direct is not None)
         return style
 
     # ---- following replies -------------------------------------------------------------
@@ -217,8 +230,14 @@ class VoiceReplies:
             if reply.problem:
                 continue  # the voice can't be played here: nothing more to make
             made = time.monotonic()
-            script, paths = await self._speak(reply, piece)
             first = index == 0
+            if reply.direct is not None:
+                streamed = await self._stream_piece(reply, piece, index, made)
+                if streamed is not None:
+                    await self._keep_streamed(reply, piece, index, streamed)
+                    index += 1
+                    continue
+            script, paths = await self._speak(reply, piece)
             made = time.monotonic() - made
             if paths:
                 reply.scripts.append(script)
@@ -234,12 +253,76 @@ class VoiceReplies:
                 # The words go with the first audio part of each piece (what you hear).
                 await self.gateway.publish_voice_segment(reply.profile_id, reply.key, index, part,
                                                          inline=path if number == 0 and first else None)
-                if index == 0:
+                if not reply.first_sent:
+                    reply.first_sent = True
                     self._first_sound(reply, piece, made)
                 index += 1
         self._replies.pop(reply.key, None)
         if reply.seq is not None:
             await self.gateway.attach_spoken(reply.seq, reply.parts, reply.style, reply.problem)
+
+    # ---- direct voice (docs/voice.md §4) ---------------------------------------------
+
+    async def _stream_piece(self, reply: _Reply, piece: str, index: int, started: float) -> Optional[tuple[int, bytes]]:
+        """Streams one piece's sound to the phones as it's made. Its (rate, PCM), or None when
+        the voice service failed before any sound (then the old way speaks it, and the rest)."""
+        label, speak = reply.direct
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def work() -> None:
+            try:
+                rate, chunks = speak(piece)
+                for chunk in chunks:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("chunk", rate, chunk))
+                loop.call_soon_threadsafe(queue.put_nowait, ("end", rate, b""))
+            except Exception as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", 0, exc))
+
+        worker = loop.run_in_executor(None, work)
+        pcm, pending, number, rate = bytearray(), bytearray(), 0, 24000
+        try:
+            while True:
+                kind, given, item = await queue.get()
+                if kind == "error":
+                    reason = getattr(item, "reason", str(item))
+                    log.warning("Lekora: %s couldn't stream for %s: %s", label, reply.profile_id, reason)
+                    if number == 0:
+                        reply.direct = None  # the old way from here on
+                        return None
+                    break  # part of it was heard: keep what came
+                rate = given or rate
+                if kind == "chunk":
+                    pending += item
+                    pcm += item
+                enough = rate * 2 * (FIRST_STREAM_SECONDS if number == 0 else STREAM_SECONDS)
+                if pending and (len(pending) >= enough or kind == "end"):
+                    await self.gateway.publish_voice_stream(reply.profile_id, reply.key, index, number, rate, bytes(pending))
+                    pending.clear()
+                    number += 1
+                    if not reply.first_sent:
+                        reply.first_sent = True
+                        self._first_sound(reply, piece, time.monotonic() - started)
+                if kind == "end":
+                    break
+        finally:
+            await worker
+        await self.gateway.publish_voice_stream(reply.profile_id, reply.key, index, number, rate, b"", last=True)
+        return (rate, bytes(pcm)) if pcm else None
+
+    async def _keep_streamed(self, reply: _Reply, piece: str, index: int, streamed: tuple[int, bytes]) -> None:
+        """The streamed sound, kept as the voice note's part (for replay and other phones)."""
+        rate, pcm = streamed
+        try:
+            path = await asyncio.to_thread(_write_audio, rate, pcm)
+            part = await asyncio.to_thread(self.gateway.files.add_agent_file, reply.profile_id, path,
+                                           f"Voice reply part {index + 1}{path.suffix}")
+        except Exception:
+            log.exception("Lekora: couldn't keep a streamed voice part")
+            return
+        reply.scripts.append(piece)
+        reply.parts.append(part)
+        await self.gateway.publish_voice_segment(reply.profile_id, reply.key, index, part)
 
     # ---- speed (docs/voice.md §3) ------------------------------------------------------
 
@@ -301,3 +384,27 @@ class VoiceReplies:
             except Exception as exc:
                 log.warning("Lekora: Hermes couldn't speak for %s (try %d): %s", reply.profile_id, attempt, exc)
         return script, []
+
+
+def _write_audio(rate: int, pcm: bytes) -> Path:
+    """PCM as a file the iPhone plays: AAC (.m4a) when ffmpeg is here, else WAV."""
+    import shutil
+    import subprocess
+    import tempfile
+    import wave
+    folder = Path(tempfile.mkdtemp(prefix="lekora-voice-"))
+    wav = folder / "part.wav"
+    with wave.open(str(wav), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        out.writeframes(pcm)
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        m4a = folder / "part.m4a"
+        done = subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-i", str(wav), "-c:a", "aac", "-b:a", "64k", str(m4a)],
+                              capture_output=True, timeout=60)
+        if done.returncode == 0 and m4a.is_file() and m4a.stat().st_size > 0:
+            wav.unlink(missing_ok=True)
+            return m4a
+    return wav
