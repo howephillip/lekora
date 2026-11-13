@@ -530,7 +530,7 @@ public final class HandsFreeSession: ObservableObject {
         }
         switch phase {
         case .listening, .speaking, .thinking:
-            if detector.feed(level: dB, duration: duration) == .started {
+            if detector.feed(level: heardOverAgent(dB), duration: duration) == .started {
                 interrupting = phase != .listening
                 turnSeconds = 0
                 loudSeconds = 0
@@ -541,13 +541,15 @@ public final class HandsFreeSession: ObservableObject {
         case .hearing:
             // Talking over the agent stops it, but only once real words are heard (a cough, a
             // door or its own voice leaking back doesn't); echo cancellation keeps its voice out.
-            if interrupting, !transcriber.ready || !transcriber.wordsSoFar.isEmpty {
+            // Its voice leaking back can be heard as words, so it takes two words that aren't
+            // the agent's own (owner, 2026-11-13: random noises interrupted it).
+            if interrupting, !transcriber.ready || EchoFilter.fresh(heard: transcriber.wordsSoFar, agent: agentText) >= 2 {
                 player.stop()
                 speaker.stop()
                 microphone.speech.stop()
                 interrupting = false
             }
-            if detector.feed(level: dB, duration: duration) == .ended {
+            if detector.feed(level: interrupting ? heardOverAgent(dB) : dB, duration: duration) == .ended {
                 finishTurn()
             } else if !detector.talking {
                 microphone.dropTurn()  // too short to be meant
@@ -573,6 +575,13 @@ public final class HandsFreeSession: ObservableObject {
                 // Words, not loudness, decide: noise with nothing said is never sent.
                 let pieces = await transcriber.endTurn()
                 try? FileManager.default.removeItem(at: turn.url)
+                let said = pieces.map(\.text).joined(separator: " ")
+                if wasInterrupting, EchoFilter.fresh(heard: said, agent: agentText) < 2 {
+                    // Only the agent's own words (or a stray one) while it talked: not you.
+                    note("turn of \(String(format: "%.1f", turn.duration)) s while the agent talked: its own voice or noise, dropped")
+                    phase = agentTalking ? .speaking : .listening
+                    return
+                }
                 guard !pieces.isEmpty else {
                     note("turn of \(String(format: "%.1f", turn.duration)) s: no words recognised, dropped (\(transcriber.stats))")
                     phase = wasInterrupting && agentTalking ? .speaking : .listening
@@ -688,6 +697,16 @@ public final class HandsFreeSession: ObservableObject {
     /// Parts ("key#index") heard as a stream; their saved files aren't played again.
     private var streamedParts: Set<String> = []
     private var playedFiles: Set<String> = []
+
+    /// While the agent talks, only sound clearly louder than its own voice leaking back from
+    /// the speaker counts as you (you close to the phone: about -20 dB; its voice: -30 to -45).
+    private func heardOverAgent(_ dB: Float) -> Float {
+        guard agentTalking || phase == .speaking, dB < -30 else { return dB }
+        return min(dB, detector.threshold - 1)
+    }
+
+    /// What the agent is saying now (to tell its voice leaking back from yours).
+    private var agentText: String { messages.last(where: { $0.id == replyId })?.text ?? "" }
 
     private var agentTalking: Bool { player.isPlaying || speaker.speakingId != nil || microphone.speech.isSpeaking }
 
@@ -864,5 +883,19 @@ final class StreamSpeaker {
         generation += 1
         queued = 0
         node.stop()
+    }
+}
+
+
+/// Telling your words from the agent's own voice leaking back into the microphone.
+public enum EchoFilter {
+    static func words(_ text: String) -> [String] {
+        text.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "'" }.map(String.init)
+    }
+
+    /// How many of the words heard aren't in what the agent is saying.
+    public static func fresh(heard: String, agent: String) -> Int {
+        let theirs = Set(words(agent))
+        return words(heard).filter { !theirs.contains($0) }.count
     }
 }

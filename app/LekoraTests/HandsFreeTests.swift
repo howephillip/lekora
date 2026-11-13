@@ -103,4 +103,11 @@ final class HandsFreeLongTurnTests: XCTestCase {
         for _ in 0..<100 { if let e = detector.feed(level: -40, duration: 0.02) { events.append(e) } }
         XCTAssertEqual(events, [], "a louder room after the change isn't talking")
     }
+
+    func testTheAgentsOwnVoiceLeakingBackIsntYou() {
+        let agent = "Sure! I booked ramen for two at seven tonight."
+        XCTAssertEqual(EchoFilter.fresh(heard: "ramen for two", agent: agent), 0, "its own words")
+        XCTAssertEqual(EchoFilter.fresh(heard: "uh", agent: agent), 1, "a stray sound read as a word")
+        XCTAssertGreaterThanOrEqual(EchoFilter.fresh(heard: "wait, stop, make it eight", agent: agent), 2, "you talking over it")
+    }
 }
