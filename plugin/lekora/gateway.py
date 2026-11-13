@@ -96,6 +96,8 @@ class Gateway:
         # Each agent's voice settings and Hermes' voice (docs/voice.md §2); set by LekoraService.
         self.voice: Optional[Any] = None
         self.voice_replies: Optional[Any] = None
+        # An agent's tools in Lekora chats (docs/agent-tools.md); set by LekoraService.
+        self.tools: Optional[Any] = None
         # The voice note waiting for Hermes' transcript, per chat (docs/voice.md).
         self._awaiting_transcript: dict[str, int] = {}
         self._dispatch = dispatch
@@ -175,7 +177,9 @@ class Gateway:
                       client_id: Optional[str] = None, draft_id: Optional[str] = None,
                       at: Optional[str] = None, card: Optional[dict] = None,
                       files: Optional[list] = None, voice: Optional[dict] = None,
-                      transcript: Optional[str] = None, spoken: Optional[list] = None) -> dict:
+                      transcript: Optional[str] = None, spoken: Optional[list] = None,
+                      voicing: Optional[str] = None, voice_problem: Optional[str] = None,
+                      voice_key: Optional[str] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
         if files:
             data["files"] = files  # photos and files with the message (docs/files.md)
@@ -185,6 +189,12 @@ class Gateway:
             data["transcript"] = transcript  # what Hermes heard
         if spoken:
             data["spoken"] = spoken  # voice mode: the reply in the agent's Hermes voice, in parts
+        if voicing:
+            data["voicing"] = voicing  # voice mode: a voice note (tts | personality), from the first word
+        if voice_problem:
+            data["voice_problem"] = voice_problem
+        if voice_key:
+            data["voice_key"] = voice_key
         if card:
             data["card"] = card  # an approval or question card (docs/prompts.md)
         if at:
@@ -200,7 +210,9 @@ class Gateway:
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
             ev.payload.get("client_id"), at=ev.created_at, card=ev.payload.get("card"),
             files=ev.payload.get("files"), voice=ev.payload.get("voice"),
-            transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken")),
+            transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken"),
+            voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
+            voice_key=ev.payload.get("voice_key")),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
@@ -208,11 +220,24 @@ class Gateway:
     async def publish_message(self, profile_id: str, text: str,
                               role: str = "assistant", draft_id: Optional[str] = None) -> int:
         """Record a message as an event and push it to every connected phone."""
-        seq = self.store.append_event(
-            profile_id, "chat.message", {"role": role, "text": text})
+        payload: dict[str, Any] = {"role": role, "text": text}
+        key = draft_id
+        if role == "assistant" and self.voice_replies is not None and text.strip():
+            # Voice mode: decided before it's saved, so it never shows as text first.
+            key = draft_id or f"reply-{uuid.uuid4().hex[:12]}"
+            try:
+                style = await self.voice_replies.begin(profile_id, key)
+            except Exception:
+                log.exception("Lekora: voice reply failed")
+                style = None
+            if style:
+                payload["voicing"] = style
+                if key != draft_id:
+                    payload["voice_key"] = key  # the id its spoken parts arrive under
+        seq = self.store.append_event(profile_id, "chat.message", payload)
         await self._broadcast(self.store.get_event(seq), draft_id=draft_id)
-        if role == "assistant" and self.voice_replies is not None:
-            await self._follow_reply(profile_id, draft_id or f"seq-{seq}", text, True, seq)
+        if role == "assistant" and self.voice_replies is not None and key is not None:
+            await self._follow_reply(profile_id, key, text, True, seq)
         return seq
 
     async def _follow_reply(self, profile_id: str, key: str, text: str, final: bool, seq: Optional[int] = None) -> None:
@@ -228,12 +253,23 @@ class Gateway:
         await self._broadcast_ephemeral(self._envelope(
             "voice.segment", {"message_id": key, "index": index, "file": file}, profile_id=profile_id))
 
-    async def attach_spoken(self, seq: int, parts: list[dict]) -> None:
+    async def publish_voice_reply(self, profile_id: str, key: str, style: str, problem: Optional[str] = None) -> None:
+        """Voice mode: this reply is (being made into) a voice note; or why its audio can't play."""
+        data: dict[str, Any] = {"message_id": key, "style": style}
+        if problem:
+            data["problem"] = problem
+        await self._broadcast_ephemeral(self._envelope("voice.reply", data, profile_id=profile_id))
+
+    async def attach_spoken(self, seq: int, parts: list[dict], style: str = "tts",
+                            problem: Optional[str] = None) -> None:
         """Voice mode: the saved reply becomes a voice note (its text stays as the transcript)."""
         event = self.store.get_event(seq)
         if event is None:
             return
-        updated = self.store.update_event_payload(seq, dict(event.payload, spoken=parts))
+        payload = dict(event.payload, spoken=parts, voicing=style)
+        if problem:
+            payload["voice_problem"] = problem
+        updated = self.store.update_event_payload(seq, payload)
         if updated is not None:
             await self._broadcast(updated)
 
@@ -292,7 +328,9 @@ class Gateway:
             ev.seq, ev.payload.get("role", "assistant"), ev.payload.get("text", ""), ev.rev,
             ev.payload.get("client_id"), draft_id, at=ev.created_at, card=ev.payload.get("card"),
             files=ev.payload.get("files"), voice=ev.payload.get("voice"),
-            transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken")),
+            transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken"),
+            voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
+            voice_key=ev.payload.get("voice_key")),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -388,6 +426,8 @@ class Gateway:
             await self._commands_list(conn, msg_id, env.get("profile_id"))
         elif type_ in ("file.upload.begin", "file.upload.chunk", "file.upload.end", "file.read", "files.usage"):
             await self._file_request(conn, msg_id, type_, env.get("profile_id"), data)
+        elif type_ in ("agent.tools.get", "agent.tools.set"):
+            await self._tools_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("voice.settings.get", "voice.settings.set", "voice.speak"):
             await self._voice_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "instance.rename":
@@ -570,7 +610,8 @@ class Gateway:
                                        e.payload.get("text", ""), e.rev, e.payload.get("client_id"),
                                        at=e.created_at, card=e.payload.get("card"), files=e.payload.get("files"),
                                        voice=e.payload.get("voice"), transcript=e.payload.get("transcript"),
-                                       spoken=e.payload.get("spoken"))
+                                       spoken=e.payload.get("spoken"), voicing=e.payload.get("voicing"),
+                                       voice_problem=e.payload.get("voice_problem"), voice_key=e.payload.get("voice_key"))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
@@ -790,6 +831,25 @@ class Gateway:
                                       {"role": "assistant", "text": text, "files": files})
         await self._broadcast(self.store.get_event(seq))
         return seq
+
+    async def _tools_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                             profile_id: Any, data: dict) -> None:
+        """Which Hermes tools an agent has in Lekora chats (docs/agent-tools.md)."""
+        from .agent_tools import ToolsError
+        profile_id = self._known_profile(profile_id, msg_id)
+        if self.tools is None:
+            raise _Reject("UNAVAILABLE", "Tools can't be changed from the phone on this Hermes instance", True, False, msg_id)
+        try:
+            if type_ == "agent.tools.get":
+                result = await self.tools.get(profile_id)
+            else:
+                result = await self.tools.set(profile_id, data.get("changes"))
+        except ToolsError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except Exception:
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("UNAVAILABLE", "Couldn't read this agent's tools from Hermes", True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
     async def _voice_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
                              profile_id: Any, data: dict) -> None:

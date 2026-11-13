@@ -51,6 +51,11 @@ public struct WalkingSkeletonPingView: View {
     @State private var loadingSpeech: String?
     /// Only replies that arrive after the chat opened are spoken by themselves.
     @State private var openedAt = Date()
+    /// Voice mode: how many parts of a reply were handed to the player, and replies being fetched.
+    @State private var appendedParts: [String: Int] = [:]
+    @State private var pumping: Set<String> = []
+    /// Replies the iPhone voice is reading (followed to the end, whatever changes meanwhile).
+    @State private var iphoneReading: Set<String> = []
     /// The file shown in Quick Look, and the one being fetched to show.
     @State private var previewURL: URL?
     @State private var openingFile: String?
@@ -185,11 +190,22 @@ public struct WalkingSkeletonPingView: View {
                 }
                 // Voice mode, one tap away (docs/voice.md §2).
                 ToolbarItem(placement: .primaryAction) {
-                    Button(action: toggleVoiceMode) {
+                    // Tap: voice replies on/off. Hold: choose plain voice or personality voice.
+                    Menu {
+                        Button("Voice Replies Off", systemImage: voiceMode ? "text.bubble" : "checkmark") { setVoiceMode(nil) }
+                        Button("Voice", systemImage: voiceMode && voiceSettings.style != "personality" ? "checkmark" : "waveform") {
+                            setVoiceMode("tts")
+                        }
+                        Button("Personality Voice", systemImage: voiceMode && voiceSettings.style == "personality" ? "checkmark" : "theatermasks") {
+                            setVoiceMode("personality")
+                        }
+                    } label: {
                         Image(systemName: voiceMode ? "waveform.circle.fill" : "waveform.circle")
-                            .symbolRenderingMode(voiceMode ? .multicolor : .monochrome)
-                            .foregroundStyle(voiceMode ? LK.Palette.accent : .primary)
+                            .foregroundStyle(voiceMode ? (voiceSettings.style == "personality"
+                                                          ? LKVoiceBubble.personalityColor : LK.Palette.accent) : .primary)
                             .contentTransition(.symbolEffect(.replace))
+                    } primaryAction: {
+                        toggleVoiceMode()
                     }
                     .sensoryFeedback(.selection, trigger: voiceMode)
                     .disabled(!isConnected)
@@ -306,6 +322,78 @@ public struct WalkingSkeletonPingView: View {
             }
     }
 
+    /// One message in the list: a time line before it if due, then its bubble(s).
+    @ViewBuilder
+    private func messageRow(_ entry: ChatEntry, showsTime: Bool) -> some View {
+            if showsTime, let date = entry.date {
+                LKTimeSeparator(date)
+            }
+            if entry.role == .system {
+                LKSystemNotice(entry.text)
+            } else if let card = entry.card {
+                LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
+            } else {
+                if isVoiceReply(entry), !(spokenParts(entry).isEmpty && voiceProblem(entry) != nil) {
+                    SpokenReplyBubble(entry: entry, parts: spokenParts(entry), live: isLiveSpoken(entry),
+                                      personality: voiceStyle(entry) == "personality",
+                                      problem: voiceProblem(entry), gateway: gateway, player: player)
+                        .offset(x: -timeReveal)
+                } else if let voice = entry.voice, let file = entry.files?.first {
+                    LKVoiceBubble(voice, fromUser: entry.role == .user, transcript: entry.transcript,
+                                  isPlaying: player.currentId == entry.id && player.isPlaying,
+                                  progress: player.currentId == entry.id ? player.progress : 0,
+                                  loading: loadingVoice == entry.id,
+                                  onToggle: { toggleVoice(entry, file: file) },
+                                  onSeek: { seekVoice(entry, file: file, to: $0) })
+                        .offset(x: -timeReveal)
+                    fileOnlyStatus(for: entry)
+                } else if let files = entry.files, !files.isEmpty {
+                    LKMessageFiles(files, fromUser: entry.role == .user, opening: openingFile,
+                                   load: { file in try? await gateway.fileURL(for: file) },
+                                   open: openFile)
+                        .offset(x: -timeReveal)
+                }
+                if entry.voice != nil || (isVoiceReply(entry) && !(spokenParts(entry).isEmpty && voiceProblem(entry) != nil)) {
+                    EmptyView()
+                } else if entry.files?.isEmpty == false && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    fileOnlyStatus(for: entry)  // just photos or files: no empty text bubble
+                } else {
+                    LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
+                                    delivery: delivery(for: entry))
+                        .offset(x: -timeReveal)
+                        .overlay(alignment: .bottomLeading) {
+                            if entry.role == .agent, entry.status != .streaming,
+                               !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                LKListenButton(speaking: isSpeaking(entry), loading: loadingSpeech == entry.id) {
+                                    listen(to: entry)
+                                }
+                                .padding(.leading, LK.Spacing.xs)
+                                .offset(x: -timeReveal, y: 26)
+                            }
+                        }
+                        .padding(.bottom, entry.role == .agent && entry.status != .streaming ? 22 : 0)
+                        .overlay(alignment: .trailing) {
+                            if let date = entry.date {
+                                Text(date.formatted(date: .omitted, time: .shortened))
+                                    .font(LK.Typography.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize()
+                                    .offset(x: Self.timeRevealWidth - timeReveal)
+                                    .opacity(timeReveal / Self.timeRevealWidth)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                    if isVoiceReply(entry), let problem = voiceProblem(entry) {
+                        // Voice mode, but its audio couldn't be made: the text, and why.
+                        Label(problem, systemImage: "exclamationmark.triangle.fill")
+                            .font(LK.Typography.caption)
+                            .foregroundStyle(LK.Palette.warning)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+    }
+
     // MARK: - Hearing replies (docs/voice.md §2)
 
     private var voiceSettings: AgentVoiceSettings {
@@ -353,42 +441,75 @@ public struct WalkingSkeletonPingView: View {
         }
     }
 
-    /// Voice mode: a reply's spoken parts (saved, or still arriving).
-    private func spokenParts(_ entry: ChatEntry) -> [ChatFile]? {
-        if let saved = entry.spoken, !saved.isEmpty { return saved }
-        if let live = gateway.liveSpeech[entry.id], !live.isEmpty { return live }
-        return nil
+    /// Voice mode: the id a reply's spoken parts arrive under.
+    private func voiceKey(_ entry: ChatEntry) -> String { entry.voiceKey ?? entry.id }
+
+    /// Voice mode: this reply is a voice note, from its first word (never text first).
+    private func isVoiceReply(_ entry: ChatEntry) -> Bool {
+        entry.role == .agent && (entry.voicing != nil || gateway.voiceReplies[voiceKey(entry)] != nil
+                                 || entry.spoken?.isEmpty == false)
     }
 
+    /// Its spoken parts so far (saved, or still arriving).
+    private func spokenParts(_ entry: ChatEntry) -> [ChatFile] {
+        if let saved = entry.spoken, !saved.isEmpty { return saved }
+        return gateway.liveSpeech[voiceKey(entry)] ?? []
+    }
+
+    private func voiceStyle(_ entry: ChatEntry) -> String {
+        entry.voicing ?? gateway.voiceReplies[voiceKey(entry)]?.style ?? "tts"
+    }
+
+    private func voiceProblem(_ entry: ChatEntry) -> String? {
+        entry.voiceProblem ?? gateway.voiceReplies[voiceKey(entry)]?.problem
+    }
+
+    /// Still being spoken: more parts will come.
     private func isLiveSpoken(_ entry: ChatEntry) -> Bool {
-        entry.spoken == nil && gateway.liveSpeech[entry.id] != nil
+        entry.spoken == nil && voiceProblem(entry) == nil
     }
 
     /// Voice mode is on for this agent (its replies come as voice notes).
     private var voiceMode: Bool { voiceSettings.speak != "off" }
 
     private func toggleVoiceMode() {
+        setVoiceMode(voiceMode ? nil : voiceSettings.style)
+    }
+
+    /// nil = off; else on, with this style (tts | personality).
+    private func setVoiceMode(_ style: String?) {
         let profileId = gateway.activeProfileId
-        let mode = voiceMode ? "off" : "always"
-        if mode == "off" { speaker.stop(); player.stop() }
-        Task { try? await gateway.setVoiceReplies(mode, for: profileId) }
+        var settings = voiceSettings
+        settings.speak = style == nil ? "off" : (settings.speak == "off" ? "always" : settings.speak)
+        if let style { settings.style = style }
+        if style == nil { speaker.stop(); player.stop() }
+        Task { try? await gateway.setVoiceSettings(settings, for: profileId) }
     }
 
-    /// The newest reply's live spoken parts, to play each as it arrives.
+    /// The newest voice reply's parts, to play each as it arrives.
     private var newestLiveParts: LiveParts? {
-        guard let entry = messages.last(where: { $0.role == .agent }),
-              let parts = gateway.liveSpeech[entry.id] else { return nil }
-        return LiveParts(id: entry.id, count: parts.count, done: entry.spoken != nil)
+        guard let entry = messages.last(where: { $0.role == .agent }), isVoiceReply(entry) else { return nil }
+        return LiveParts(id: entry.id, count: spokenParts(entry).count, done: !isLiveSpoken(entry))
     }
 
+    /// Plays the newest reply's parts strictly in order, each once, as they arrive.
     private func playLiveParts(_ live: LiveParts) {
         guard scenePhase == .active, !recorder.isRecording, recorder.draft == nil,
-              let parts = gateway.liveSpeech[live.id], let part = parts.last else { return }
-        player.expectsMore = !live.done
-        let id = live.id
+              let entry = messages.last(where: { $0.id == live.id }),
+              entry.status == .streaming || (entry.date ?? .distantPast) > openedAt,
+              !pumping.contains(live.id) else { return }
+        pumping.insert(live.id)
         Task {
-            guard let url = try? await gateway.fileURL(for: part) else { return }
-            player.append(id: id, url: url)
+            defer { pumping.remove(live.id) }
+            while let entry = messages.last(where: { $0.id == live.id }) {
+                let parts = spokenParts(entry)
+                let next = appendedParts[live.id, default: 0]
+                guard next < parts.count else { break }
+                guard let url = try? await gateway.fileURL(for: parts[next]) else { break }
+                player.expectsMore = isLiveSpoken(entry) || next + 1 < parts.count
+                player.append(id: live.id, url: url)
+                appendedParts[live.id] = next + 1
+            }
         }
     }
 
@@ -399,18 +520,26 @@ public struct WalkingSkeletonPingView: View {
     }
 
     private func autoSpeak(_ reply: SpeakableReply) {
+        // Once the iPhone voice started a reply, it reads it to the end.
+        if iphoneReading.contains(reply.id) {
+            speaker.follow(id: reply.id, text: reply.text, final: reply.final, settings: voiceSettings)
+            if reply.final { iphoneReading.remove(reply.id) }
+            return
+        }
         guard voiceSettings.speak != "off", scenePhase == .active, !recorder.isRecording, recorder.draft == nil,
-              let entry = messages.last(where: { $0.id == reply.id }),
+              let entry = messages.last(where: { $0.id == reply.id }), !isVoiceReply(entry),
               entry.status == .streaming || (entry.date ?? .distantPast) > openedAt else { return }
         if voiceSettings.speak == "voice_notes" {
             // Only replies to a voice note.
             guard let index = messages.firstIndex(where: { $0.id == reply.id }),
                   messages[..<index].last(where: { $0.role == .user })?.voice != nil else { return }
         }
-        // With a Hermes voice the instance sends the reply as a voice note (streamed parts,
-        // played as they come); without one the iPhone voice reads it as it's written.
-        guard gateway.hermesVoice[gateway.activeProfileId]?.available != true else { return }
+        // With a Hermes voice the instance sends the reply as a voice note; only an agent known
+        // to have none is read aloud with the iPhone voice instead.
+        guard gateway.hermesVoice[gateway.activeProfileId]?.available == false else { return }
+        iphoneReading.insert(reply.id)
         speaker.follow(id: reply.id, text: reply.text, final: reply.final, settings: voiceSettings)
+        if reply.final { iphoneReading.remove(reply.id) }
     }
 
     // MARK: - Voice notes (docs/voice.md)
@@ -647,67 +776,7 @@ public struct WalkingSkeletonPingView: View {
                 }
                 let timeLines = LKTime.separatorIds(for: messages)
                 ForEach(messages) { entry in
-                    Group {
-                        if timeLines.contains(entry.id), let date = entry.date {
-                            LKTimeSeparator(date)
-                        }
-                        if entry.role == .system {
-                            LKSystemNotice(entry.text)
-                        } else if let card = entry.card {
-                            LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
-                        } else {
-                            if entry.role == .agent, let parts = spokenParts(entry) {
-                                SpokenReplyBubble(entry: entry, parts: parts, live: isLiveSpoken(entry),
-                                                  gateway: gateway, player: player)
-                                    .offset(x: -timeReveal)
-                            } else if let voice = entry.voice, let file = entry.files?.first {
-                                LKVoiceBubble(voice, fromUser: entry.role == .user, transcript: entry.transcript,
-                                              isPlaying: player.currentId == entry.id && player.isPlaying,
-                                              progress: player.currentId == entry.id ? player.progress : 0,
-                                              loading: loadingVoice == entry.id,
-                                              onToggle: { toggleVoice(entry, file: file) },
-                                              onSeek: { seekVoice(entry, file: file, to: $0) })
-                                    .offset(x: -timeReveal)
-                                fileOnlyStatus(for: entry)
-                            } else if let files = entry.files, !files.isEmpty {
-                                LKMessageFiles(files, fromUser: entry.role == .user, opening: openingFile,
-                                               load: { file in try? await gateway.fileURL(for: file) },
-                                               open: openFile)
-                                    .offset(x: -timeReveal)
-                            }
-                            if entry.voice != nil || (entry.role == .agent && spokenParts(entry) != nil) {
-                                EmptyView()
-                            } else if entry.files?.isEmpty == false && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                fileOnlyStatus(for: entry)  // just photos or files: no empty text bubble
-                            } else {
-                                LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent,
-                                                delivery: delivery(for: entry))
-                                    .offset(x: -timeReveal)
-                                    .overlay(alignment: .bottomLeading) {
-                                        if entry.role == .agent, entry.status != .streaming,
-                                           !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                            LKListenButton(speaking: isSpeaking(entry), loading: loadingSpeech == entry.id) {
-                                                listen(to: entry)
-                                            }
-                                            .padding(.leading, LK.Spacing.xs)
-                                            .offset(x: -timeReveal, y: 26)
-                                        }
-                                    }
-                                    .padding(.bottom, entry.role == .agent && entry.status != .streaming ? 22 : 0)
-                                    .overlay(alignment: .trailing) {
-                                        if let date = entry.date {
-                                            Text(date.formatted(date: .omitted, time: .shortened))
-                                                .font(LK.Typography.caption)
-                                                .foregroundStyle(.secondary)
-                                                .fixedSize()
-                                                .offset(x: Self.timeRevealWidth - timeReveal)
-                                                .opacity(timeReveal / Self.timeRevealWidth)
-                                                .accessibilityHidden(true)
-                                        }
-                                    }
-                            }
-                        }
-                    }
+                    messageRow(entry, showsTime: timeLines.contains(entry.id))
                     .id(entry.id)
                 }
                 if showsTypingIndicator {
@@ -930,6 +999,8 @@ struct SpokenReplyBubble: View {
     let entry: ChatEntry
     let parts: [ChatFile]
     let live: Bool
+    let personality: Bool
+    let problem: String?
     @ObservedObject var gateway: GatewayClient
     @ObservedObject var player: VoicePlayer
     @State private var details: VoiceDetails?
@@ -940,13 +1011,20 @@ struct SpokenReplyBubble: View {
                                 waveform: Array(repeating: 0.25, count: 32))
     }
 
+    private var note: String? {
+        if player.failedId == entry.id { return "This iPhone couldn't play this audio." }
+        return problem
+    }
+
     var body: some View {
-        LKVoiceBubble(shown, fromUser: false, transcript: entry.text,
+        LKVoiceBubble(shown, fromUser: false, transcript: SpeechText.clean(entry.text),
                       isPlaying: player.currentId == entry.id && player.isPlaying,
                       progress: player.currentId == entry.id ? player.progress : 0,
-                      loading: loading,
+                      loading: loading || (parts.isEmpty && live),
+                      fill: personality ? LKVoiceBubble.personalityColor : nil,
+                      note: note, live: live,
                       onToggle: toggle, onSeek: seek)
-            .task(id: parts.count) { await measure() }
+            .task(id: "\(parts.count)|\(live)") { if !live { await measure() } }
     }
 
     private func localParts() async -> [URL]? {
@@ -958,9 +1036,9 @@ struct SpokenReplyBubble: View {
         return urls
     }
 
-    /// Length and waveform from the audio itself, once it's here.
+    /// Length and waveform from the audio itself, once it's all here.
     private func measure() async {
-        guard let urls = await localParts() else { return }
+        guard !parts.isEmpty, let urls = await localParts() else { return }
         let measured = await Task.detached(priority: .utility) { () -> VoiceDetails in
             VoiceDetails(duration: urls.reduce(0) { $0 + VoicePlayer.lengthNonisolated(of: $1) },
                          waveform: VoiceWaveform.bars(of: urls))
@@ -969,6 +1047,7 @@ struct SpokenReplyBubble: View {
     }
 
     private func toggle() {
+        guard !parts.isEmpty else { return }
         if player.currentId == entry.id {
             player.toggle(id: entry.id, urls: [])
             return
@@ -983,6 +1062,7 @@ struct SpokenReplyBubble: View {
     }
 
     private func seek(_ fraction: Double) {
+        guard !parts.isEmpty else { return }
         Task {
             guard let urls = await localParts() else { return }
             player.seek(id: entry.id, urls: urls, to: fraction)

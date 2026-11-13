@@ -20,51 +20,100 @@ def test_sentences_as_they_come():
     assert spoken_text("**Bold** [site](https://x.com) `x`") == "Bold site x"
 
 
-def make(fgw, store, file_store, tmp_path, mode="always", available=True):
+def make(fgw, store, file_store, tmp_path, mode="always", available=True, style="tts", audio=b"ID3 "):
     spoken = []
 
-    def synthesize(profile, sentence):
-        spoken.append(sentence)
+    def synthesize(profile, script):
+        spoken.append(script)
         out = tmp_path / f"s{len(spoken)}.mp3"
-        out.write_bytes(b"ID3 " + sentence.encode())
+        out.write_bytes(audio + script.encode())
         return [out]
+
+    def rewrite(profile, text, instructions):
+        return f"[warmly] {text}"
 
     settings = VoiceSettings(store, file_store, hermes_voice=lambda p: {"available": available, "provider": "fish"},
                              speak=synthesize)
-    settings.set("coder", {"speak": mode})
+    settings.set("coder", {"speak": mode, "style": style})
     fgw.voice = settings
-    fgw.voice_replies = VoiceReplies(fgw, settings, synthesize)
+    fgw.voice_replies = VoiceReplies(fgw, settings, synthesize, rewrite)
     return spoken
 
 
-async def segments(ws, count):
+async def until(ws, kind, count=1):
     got = []
     while len(got) < count:
         msg = await recv(ws, timeout=3)
-        if msg["type"] == "voice.segment":
+        if msg["type"] == kind:
             got.append(msg)
     return got
 
 
-async def test_a_streamed_reply_is_spoken_then_becomes_a_voice_note(fgw, store, file_store, tmp_path):
+async def saved_spoken(store, seq):
+    for _ in range(150):
+        event = store.get_event(seq)
+        if event.payload.get("spoken") is not None:
+            return event
+        await asyncio.sleep(0.02)
+    return store.get_event(seq)
+
+
+LONG = "Sure! I booked ramen for two at seven tonight. The place is called Ichiran. See you there."
+
+
+async def test_a_streamed_reply_is_a_voice_note_from_the_first_word(fgw, store, file_store, tmp_path):
     spoken = make(fgw, store, file_store, tmp_path)
     ws = await phone(fgw, store)
-    await fgw.publish_draft("coder", "live-1", "Sure! I booked")
-    first = await segments(ws, 1)
-    assert first[0]["data"]["message_id"] == "live-1" and first[0]["data"]["index"] == 0, "the first sentence plays at once"
-    await fgw.publish_draft("coder", "live-1", "Sure! I booked ramen for two. See")
-    await segments(ws, 1)
-    seq = await fgw.publish_message("coder", "Sure! I booked ramen for two. See you there", draft_id="live-1")
-    await segments(ws, 1)
-    for _ in range(100):
-        event = store.get_event(seq)
-        if event.payload.get("spoken"):
-            break
-        await asyncio.sleep(0.02)
-    assert spoken == ["Sure!", "I booked ramen for two.", "See you there"], "each sentence once"
-    assert [p["name"] for p in event.payload["spoken"]] == ["Voice reply part 1.mp3", "Voice reply part 2.mp3",
-                                                           "Voice reply part 3.mp3"]
-    assert event.payload["text"] == "Sure! I booked ramen for two. See you there", "the text stays as its transcript"
+    await fgw.publish_draft("coder", "live-1", "Sure!")
+    told = (await until(ws, "voice.reply"))[0]
+    assert told["data"] == {"message_id": "live-1", "style": "tts"}, "phones know before any audio"
+    await fgw.publish_draft("coder", "live-1", "Sure! I booked ramen for two at seven tonight. The")
+    first = (await until(ws, "voice.segment"))[0]
+    assert first["data"]["index"] == 0
+    seq = await fgw.publish_message("coder", LONG, draft_id="live-1")
+    saved = [m for m in await until(ws, "chat.message")][0]
+    assert saved["data"]["voicing"] == "tts", "saved as a voice note, never text first"
+    event = await saved_spoken(store, seq)
+    assert spoken[0] == "Sure! I booked ramen for two at seven tonight.", "short sentences go with the next"
+    assert " ".join(spoken) == "Sure! I booked ramen for two at seven tonight. The place is called Ichiran. See you there."
+    assert len(event.payload["spoken"]) == len(spoken) and event.payload["voicing"] == "tts"
+    assert event.payload["text"] == LONG, "the text stays as its transcript"
+    await ws.close()
+
+
+async def test_a_reply_saved_at_once_is_a_voice_note_too(fgw, store, file_store, tmp_path):
+    make(fgw, store, file_store, tmp_path)
+    ws = await phone(fgw, store)
+    seq = await fgw.publish_message("coder", LONG)
+    saved = (await until(ws, "chat.message"))[0]["data"]
+    assert saved["voicing"] == "tts"
+    segment = (await until(ws, "voice.segment"))[0]["data"]
+    assert segment["message_id"] == saved["voice_key"], "the phone can match its parts"
+    assert (await saved_spoken(store, seq)).payload["spoken"]
+    await ws.close()
+
+
+async def test_personality_rewrites_then_speaks(fgw, store, file_store, tmp_path):
+    spoken = make(fgw, store, file_store, tmp_path, style="personality")
+    ws = await phone(fgw, store)
+    seq = await fgw.publish_message("coder", LONG)
+    assert (await until(ws, "voice.reply"))[0]["data"]["style"] == "personality"
+    event = await saved_spoken(store, seq)
+    assert all(s.startswith("[warmly] ") for s in spoken), "the voice script, not the plain text"
+    assert event.payload["voicing"] == "personality" and event.payload["text"] == LONG, "visible text unchanged"
+    await ws.close()
+
+
+async def test_audio_iphone_cant_play_is_explained(fgw, store, file_store, tmp_path, monkeypatch):
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: None)  # no ffmpeg on this machine
+    make(fgw, store, file_store, tmp_path, audio=b"OggS")
+    ws = await phone(fgw, store)
+    seq = await fgw.publish_message("coder", LONG)
+    problems = [m for m in await until(ws, "voice.reply", 2) if m["data"].get("problem")]
+    assert "iPhone can't play" in problems[0]["data"]["problem"]
+    event = await saved_spoken(store, seq)
+    assert event.payload["spoken"] == [] and "ffmpeg" in event.payload["voice_problem"]
     await ws.close()
 
 
@@ -72,11 +121,11 @@ async def test_off_or_no_hermes_voice_means_text(fgw, store, file_store, tmp_pat
     spoken = make(fgw, store, file_store, tmp_path, mode="off")
     seq = await fgw.publish_message("coder", "Plain reply.")
     await asyncio.sleep(0.1)
-    assert spoken == [] and "spoken" not in store.get_event(seq).payload
+    assert spoken == [] and "voicing" not in store.get_event(seq).payload
     spoken = make(fgw, store, file_store, tmp_path, mode="always", available=False)
-    await fgw.publish_message("coder", "Still text.")
+    seq = await fgw.publish_message("coder", "Still text.")
     await asyncio.sleep(0.1)
-    assert spoken == []
+    assert spoken == [] and "voicing" not in store.get_event(seq).payload
 
 
 async def test_voice_notes_mode_answers_voice_with_voice(fgw, store, file_store, tmp_path):
@@ -110,8 +159,8 @@ async def test_speech_trouble_never_stops_the_reply(fgw, store, file_store, tmp_
     fgw.voice_replies.synthesize = broken
     ws = await phone(fgw, store)
     seq = await fgw.publish_message("coder", "Hello.")
-    got = await recv(ws)
+    got = (await until(ws, "chat.message"))[0]
     assert got["data"]["seq"] == seq and got["data"]["text"] == "Hello."
-    await asyncio.sleep(0.1)
-    assert "spoken" not in store.get_event(seq).payload, "stays a text reply"
+    await asyncio.sleep(0.2)
+    assert store.get_event(seq).payload.get("spoken") == [], "no audio: the phone shows the text"
     await ws.close()

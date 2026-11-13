@@ -190,6 +190,8 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
     @Published public private(set) var isPlaying = false
     /// 0…1 through the current one.
     @Published public private(set) var progress: Double = 0
+    /// The note whose audio this iPhone couldn't play (shown, instead of a silent "playing").
+    @Published public private(set) var failedId: String?
 
     private var player: AVAudioPlayer?
     private var timer: Timer?
@@ -266,9 +268,13 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
             target -= lengths[at]
             at += 1
         }
-        index = at
-        load(at, at: target)
-        if play { resume() }
+        if at == index, let player {
+            player.currentTime = min(target, player.duration)  // same part: just move (no audio restart)
+        } else {
+            index = at
+            load(at, at: target)
+        }
+        if play, !(self.player?.isPlaying ?? false) { resume() }
     }
 
     private func load(_ part: Int, at time: TimeInterval) {
@@ -289,14 +295,19 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
             next.delegate = self
             next.currentTime = min(time, next.duration)
             player = next
+            if failedId == currentId { failedId = nil }
         } catch {
             player = nil
+            failedId = currentId  // e.g. a format iPhone can't play
         }
     }
 
     private func resume() {
-        guard let player else { return }
-        player.play()
+        guard let player, player.play() else {
+            isPlaying = false
+            if player != nil { failedId = currentId }
+            return
+        }
         isPlaying = true
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
@@ -326,6 +337,7 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
         waiting = false
         currentId = nil
         progress = 0
+        failedId = nil
         parts = []
         lengths = []
         index = 0

@@ -39,6 +39,22 @@ final class FakeHost: @unchecked Sendable {
     var voiceSettings: [String: Any] = ["speak": "off", "engine": "iphone", "rate": 0.5]
     var hermesVoiceAvailable = true
 
+    /// An agent's tools in Lekora chats (docs/agent-tools.md).
+    var enabledTools: Set<String> = ["web", "file"]
+
+    func toolsData() -> [String: Any] {
+        ["toolsets": ["web", "file", "kanban"].map { ["key": $0, "label": $0.capitalized, "description": "", "enabled": enabledTools.contains($0)] },
+         "elsewhere": ["telegram": ["file", "kanban", "web"]]]
+    }
+
+    /// Voice mode: a reply is being made into a voice note (or why its audio can't play).
+    func sendVoiceReply(messageId: String, style: String, problem: String? = nil, profile: String) {
+        var data: [String: Any] = ["message_id": messageId, "style": style]
+        if let problem { data["problem"] = problem }
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open { send(type: "voice.reply", data: data, profileId: profile, on: connection) }
+    }
+
     /// Voice mode: a spoken part of a reply, as the plugin streams it.
     func sendVoiceSegment(messageId: String, index: Int, file: [String: Any], profile: String) {
         lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
@@ -566,6 +582,17 @@ final class FakeHost: @unchecked Sendable {
         case "files.usage":
             send(type: "files.usage.result", id: id, data: [
                 "bytes": storedFiles.values.reduce(0) { $0 + $1.data.count }, "count": storedFiles.count], on: connection)
+
+        case "agent.tools.get":
+            send(type: "agent.tools.get.result", id: id, data: toolsData(),
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "agent.tools.set":
+            for (key, on) in data["changes"] as? [String: Bool] ?? [:] {
+                if on { enabledTools.insert(key) } else { enabledTools.remove(key) }
+            }
+            send(type: "agent.tools.set.result", id: id, data: toolsData(),
+                 profileId: message["profile_id"] as? String, on: connection)
 
         case "voice.settings.get":
             send(type: "voice.settings.get.result", id: id,

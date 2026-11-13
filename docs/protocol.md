@@ -387,5 +387,11 @@ Requests with `profile_id` set, answered with `<type>.result`:
 - `voice.settings.get` `{}` → `{settings: {speak: off|voice_notes|always, engine: iphone|hermes, voice: <iPhone voice id>|null, rate: 0…1}, hermes_voice: {available, provider}}`.
 - `voice.settings.set` `{settings}` → `{settings}`; other phones get `voice.settings.changed` `{settings}`.
 - `voice.speak` `{seq}` (an agent reply) → `{seq, file, files}`: the reply in the agent's Hermes voice (all parts, in order), read with `file.read`.
-- Voice mode (`speak` not off, with a Hermes voice): `voice.segment` (Host -> Client) `{message_id, index, file}` for each spoken part of a reply as it's made (`message_id` is the live draft id, or `seq-N`); the saved `chat.message` then carries `spoken: [file…]`.
+- Settings also carry `style: tts|personality` and `style_instructions` (text or null); `voice.settings.get` also returns `default_style_instructions`.
+- Voice mode (`speak` not off, with a Hermes voice): `voice.reply` (Host -> Client) `{message_id, style, problem?}` as soon as a reply is going to be a voice note (and again with `problem` if its audio can't be played on iPhone); `voice.segment` `{message_id, index, file}` for each spoken part as it's made. `message_id` is the live draft id, or the saved message's `voice_key`. The saved `chat.message` carries `voicing` (style) from the start, then `spoken: [file…]` (and `voice_problem`) when done.
 - Errors: `INVALID_SETTING`, `VOICE_UNAVAILABLE`, `UNKNOWN_MESSAGE`.
+
+## 14. Agent tools in Lekora chats (spec: `agent-tools.md`)
+- `agent.tools.get` `{}` → `{toolsets: [{key, label, description, enabled}], elsewhere: {platform: [keys]}}`.
+- `agent.tools.set` `{changes: {key: bool}}` → the same, read back from Hermes, plus `problem` if a change didn't apply.
+- Errors: `INVALID_SETTING`, `BACKUP_FAILED`, `TOOLS_FAILED`, `UNAVAILABLE`.

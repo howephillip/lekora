@@ -123,7 +123,11 @@ class LekoraService:
         settings_reader: Optional[Callable[[str], dict]] = None,
         hermes_voice: Optional[Callable[[str], dict]] = None,
         speaker: Optional[Callable[[str, str], list[Path]]] = None,
+        rewriter: Optional[Callable[[str, str, str], str]] = None,
+        tools_reader: Optional[Callable[[str], dict]] = None,
     ) -> None:
+        self._tools_reader = tools_reader  # an agent's tools in Lekora chats (docs/agent-tools.md)
+        self._rewriter = rewriter  # personality voice scripts (docs/voice.md §2)
         # Hermes' own voice per agent (docs/voice.md §2); from the adapter.
         self._hermes_voice = hermes_voice
         self._speaker = speaker
@@ -211,8 +215,16 @@ class LekoraService:
         self.gateway.voice = VoiceSettings(self._store, self.gateway.files,
                                            **({"hermes_voice": self._hermes_voice} if self._hermes_voice else {}),
                                            speak=self._speaker)
+        if self._tools_reader is not None:
+            from .agent_tools import AgentTools
+            from .routing_config import RoutingConfig
+            root = Path(self.config.hermes_root) if self.config.hermes_root else _profiles.hermes_root()
+            backups = RoutingConfig(root / "lekora-backups" / "config")
+            self.gateway.tools = AgentTools(
+                self._tools_reader, self._run_cli,
+                backup=lambda profile_id: backups.backup(profile_id, _profiles.profile_home(profile_id, root) / "config.yaml"))
         from .voice_replies import VoiceReplies
-        self.gateway.voice_replies = VoiceReplies(self.gateway, self.gateway.voice, self._speaker)
+        self.gateway.voice_replies = VoiceReplies(self.gateway, self.gateway.voice, self._speaker, self._rewriter)
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(

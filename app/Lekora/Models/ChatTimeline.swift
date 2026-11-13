@@ -39,11 +39,20 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
     public var transcript: String?
     /// Voice mode: the reply in the agent's Hermes voice (its text is the transcript).
     public var spoken: [ChatFile]?
+    /// Voice mode: tts | personality; why its audio couldn't be made.
+    public var voicing: String?
+    public var voiceProblem: String?
+    /// The id its spoken parts arrive under (its own id when it was streamed).
+    public var voiceKey: String?
 
     public init(id: String, profileId: String, role: Role, text: String, seq: Int? = nil,
                 status: Status = .sent, date: Date? = nil, card: PromptCard? = nil, files: [ChatFile]? = nil,
-                voice: VoiceDetails? = nil, transcript: String? = nil, spoken: [ChatFile]? = nil) {
+                voice: VoiceDetails? = nil, transcript: String? = nil, spoken: [ChatFile]? = nil,
+                voicing: String? = nil, voiceProblem: String? = nil, voiceKey: String? = nil) {
+        self.voiceKey = voiceKey
         self.spoken = spoken
+        self.voicing = voicing
+        self.voiceProblem = voiceProblem
         self.files = files
         self.voice = voice
         self.transcript = transcript
@@ -98,7 +107,9 @@ public struct ChatTimeline: Equatable {
             applyIncoming(seq: message.seq, profileId: profileId, role: message.role,
                           text: message.text, clientId: message.client_id,
                           date: message.date, card: message.card, files: message.files,
-                          voice: message.voice, transcript: message.transcript, spoken: message.spoken, isPage: true)
+                          voice: message.voice, transcript: message.transcript, spoken: message.spoken,
+                          voicing: message.voicing, voiceProblem: message.voice_problem,
+                          voiceKey: message.voice_key, isPage: true)
         }
         if !hasMore { completeProfiles.insert(profileId) }
     }
@@ -177,7 +188,8 @@ public struct ChatTimeline: Equatable {
                                        draftId: String? = nil, clientId: String? = nil,
                                        date: Date? = nil, card: PromptCard? = nil, files: [ChatFile]? = nil,
                                        voice: VoiceDetails? = nil, transcript: String? = nil,
-                                       spoken: [ChatFile]? = nil, isPage: Bool = false) {
+                                       spoken: [ChatFile]? = nil, voicing: String? = nil, voiceProblem: String? = nil,
+                                       voiceKey: String? = nil, isPage: Bool = false) {
         if let index = entries.firstIndex(where: { $0.seq == seq }) {
             // Seen before (replay) — or a correction the agent made after saving it.
             if entries[index].text != text { entries[index].text = text }
@@ -185,6 +197,8 @@ public struct ChatTimeline: Equatable {
             if let voice, entries[index].voice != voice { entries[index].voice = voice }
             if let transcript, entries[index].transcript != transcript { entries[index].transcript = transcript }
             if let spoken, entries[index].spoken != spoken { entries[index].spoken = spoken }
+            if let voicing, entries[index].voicing != voicing { entries[index].voicing = voicing }
+            if let voiceProblem, entries[index].voiceProblem != voiceProblem { entries[index].voiceProblem = voiceProblem }
             if let date, entries[index].date != date { entries[index].date = date }
             if let card, entries[index].card != card { entries[index].card = card }  // a card's new state
             return
@@ -196,6 +210,7 @@ public struct ChatTimeline: Equatable {
             entries[index].text = text
             if let files { entries[index].files = files }
             if let spoken { entries[index].spoken = spoken }
+            if let voicing { entries[index].voicing = voicing }
             entries[index].status = .sent
             if let date { entries[index].date = date }
             settle(at: index)
@@ -236,7 +251,10 @@ public struct ChatTimeline: Equatable {
             files: files,
             voice: voice,
             transcript: transcript,
-            spoken: spoken
+            spoken: spoken,
+            voicing: voicing,
+            voiceProblem: voiceProblem,
+            voiceKey: voiceKey
         )
         entries.insert(entry, at: insertionIndex(for: seq))
     }

@@ -11,9 +11,12 @@ from tests.test_gateway import recv
 
 def test_clean():
     assert clean({}) == DEFAULTS
-    assert clean({"speak": "always", "engine": "hermes", "voice": "com.apple.voice.premium.en-US.Zoe", "rate": 7}) == \
-        {"speak": "always", "engine": "hermes", "voice": "com.apple.voice.premium.en-US.Zoe", "rate": 1.0}
-    for bad in ({"speak": "loud"}, {"engine": "robot"}, {"rate": "fast"}, {"voice": 3}, "nope"):
+    assert clean({"speak": "always", "engine": "hermes", "voice": "com.apple.voice.premium.en-US.Zoe", "rate": 7,
+                  "style": "personality", "style_instructions": "  Speak like a pirate. "}) == \
+        {"speak": "always", "engine": "hermes", "voice": "com.apple.voice.premium.en-US.Zoe", "rate": 1.0,
+         "style": "personality", "style_instructions": "Speak like a pirate."}
+    for bad in ({"speak": "loud"}, {"engine": "robot"}, {"rate": "fast"}, {"voice": 3}, "nope",
+                {"style": "opera"}, {"style_instructions": "x" * 4001}):
         with pytest.raises(VoiceError):
             clean(bad)
 

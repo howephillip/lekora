@@ -44,6 +44,20 @@ final class HearingRepliesTests: XCTestCase {
         XCTAssertEqual(LKVoiceNames.provider("fish_audio"), "Fish Audio", "custom voices get a tidy name")
     }
 
+    func testOlderSettingsAndVoiceRepliesDecode() throws {
+        let old = try JSONDecoder().decode(AgentVoiceSettings.self, from: Data(#"{"speak":"always","engine":"iphone","rate":0.5}"#.utf8))
+        XCTAssertEqual(old.style, "tts", "hosts from before voice styles")
+        let json = #"{"seq":3,"role":"assistant","text":"Hi.","voicing":"personality","voice_key":"reply-1","voice_problem":"no ffmpeg"}"#
+        let message = try JSONDecoder().decode(ChatMessageData.self, from: Data(json.utf8))
+        var timeline = ChatTimeline()
+        timeline.applyIncoming(seq: 3, profileId: "default", role: "assistant", text: message.text,
+                               voicing: message.voicing, voiceProblem: message.voice_problem, voiceKey: message.voice_key)
+        let entry = try XCTUnwrap(timeline.entries.first)
+        XCTAssertEqual(entry.voicing, "personality")
+        XCTAssertEqual(entry.voiceKey, "reply-1")
+        XCTAssertEqual(entry.voiceProblem, "no ffmpeg")
+    }
+
     func testRates() {
         XCTAssertEqual(ReplySpeaker.rate(0.5), AVSpeechUtteranceDefaultSpeechRate)
         XCTAssertLessThan(ReplySpeaker.rate(0.2), ReplySpeaker.rate(0.5))
@@ -91,5 +105,20 @@ final class HearingRepliesTests: XCTestCase {
 
         try await gateway.setVoiceReplies("always", for: "default")
         XCTAssertEqual(host.voiceSettings["speak"] as? String, "always")
+
+        // The instance says a reply is a voice note before any audio; then why it can't play.
+        host.sendVoiceReply(messageId: "live-2", style: "personality", profile: "default")
+        let told = await waitUntil { gateway.voiceReplies["live-2"]?.style == "personality" }
+        XCTAssertTrue(told)
+        host.sendVoiceReply(messageId: "live-2", style: "personality", problem: "iPhone can't play OGG", profile: "default")
+        let problem = await waitUntil { gateway.voiceReplies["live-2"]?.problem != nil }
+        XCTAssertTrue(problem)
+
+        // Tools in Lekora chats.
+        var tools = try await gateway.agentTools(for: "default")
+        XCTAssertEqual(tools.toolsets.first { $0.key == "kanban" }?.enabled, false)
+        XCTAssertEqual(tools.elsewhere?["telegram"], ["file", "kanban", "web"])
+        tools = try await gateway.setAgentTools(["kanban": true], for: "default")
+        XCTAssertEqual(tools.toolsets.first { $0.key == "kanban" }?.enabled, true)
     }
 }

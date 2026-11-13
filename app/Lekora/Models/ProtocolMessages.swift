@@ -225,20 +225,38 @@ struct FileReadResult: Codable { let file_id: String; let offset: Int; let data:
 
 /// An agent's voice settings, kept on the Hermes instance.
 public struct AgentVoiceSettings: Codable, Equatable, Sendable {
-    /// off | voice_notes | always
+    /// Voice replies: off | voice_notes | always
     public var speak: String
-    /// iphone | hermes
+    /// Listen button: iphone | hermes
     public var engine: String
     /// An iPhone voice identifier; nil = the iPhone's default for its language.
     public var voice: String?
     /// 0…1 (0.5 = normal speed).
     public var rate: Double
+    /// Voice replies: tts (the reply as written) | personality (rewritten as a voice script).
+    public var style: String
+    /// Personality voice: how to turn a reply into a voice script; nil = the default.
+    public var style_instructions: String?
 
-    public init(speak: String = "off", engine: String = "iphone", voice: String? = nil, rate: Double = 0.5) {
+    public init(speak: String = "off", engine: String = "iphone", voice: String? = nil, rate: Double = 0.5,
+                style: String = "tts", style_instructions: String? = nil) {
         self.speak = speak
         self.engine = engine
         self.voice = voice
         self.rate = rate
+        self.style = style
+        self.style_instructions = style_instructions
+    }
+
+    /// Hosts from before voice styles don't send them.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        speak = try c.decodeIfPresent(String.self, forKey: .speak) ?? "off"
+        engine = try c.decodeIfPresent(String.self, forKey: .engine) ?? "iphone"
+        voice = try c.decodeIfPresent(String.self, forKey: .voice)
+        rate = try c.decodeIfPresent(Double.self, forKey: .rate) ?? 0.5
+        style = try c.decodeIfPresent(String.self, forKey: .style) ?? "tts"
+        style_instructions = try c.decodeIfPresent(String.self, forKey: .style_instructions)
     }
 
     public static let standard = AgentVoiceSettings()
@@ -250,7 +268,33 @@ public struct HermesVoiceInfo: Codable, Equatable, Sendable {
     public let provider: String?
 }
 
-struct VoiceSettingsGetResult: Codable { let settings: AgentVoiceSettings; let hermes_voice: HermesVoiceInfo }
+struct VoiceSettingsGetResult: Codable {
+    let settings: AgentVoiceSettings
+    let hermes_voice: HermesVoiceInfo
+    let default_style_instructions: String?
+}
+/// Voice mode: this reply is a voice note (tts | personality), from its first word; or why its
+/// audio can't be played.
+struct VoiceReplyData: Codable { let message_id: String; let style: String; let problem: String? }
+
+// MARK: - An agent's tools in Lekora chats (docs/agent-tools.md)
+
+public struct AgentToolset: Codable, Equatable, Identifiable, Sendable {
+    public let key: String
+    public let label: String
+    public let description: String?
+    public var enabled: Bool
+    public var id: String { key }
+}
+
+public struct AgentToolsData: Codable, Equatable, Sendable {
+    public var toolsets: [AgentToolset]
+    /// The lists saved for the agent's other chat platforms (e.g. telegram), to copy from.
+    public let elsewhere: [String: [String]]?
+    public let problem: String?
+}
+
+struct AgentToolsChange: Codable { let changes: [String: Bool] }
 struct VoiceSettingsData: Codable { let settings: AgentVoiceSettings }
 struct VoiceSpeakData: Codable { let seq: Int }
 struct VoiceSpeakResult: Codable { let seq: Int; let file: ChatFile; let files: [ChatFile]? }
@@ -284,12 +328,21 @@ public struct ChatMessageData: Codable, Equatable {
     public let transcript: String?
     /// Voice mode: the reply in the agent's Hermes voice, in parts (docs/voice.md §2).
     public let spoken: [ChatFile]?
+    /// Voice mode: this reply is a voice note (tts | personality), and why its audio couldn't be made.
+    public let voicing: String?
+    public let voice_problem: String?
+    /// The id its spoken parts arrive under, when it wasn't streamed.
+    public let voice_key: String?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
                 rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
                 files: [ChatFile]? = nil, voice: VoiceDetails? = nil, transcript: String? = nil,
-                spoken: [ChatFile]? = nil) {
+                spoken: [ChatFile]? = nil, voicing: String? = nil, voice_problem: String? = nil,
+                voice_key: String? = nil) {
+        self.voice_key = voice_key
         self.spoken = spoken
+        self.voicing = voicing
+        self.voice_problem = voice_problem
         self.files = files
         self.voice = voice
         self.transcript = transcript

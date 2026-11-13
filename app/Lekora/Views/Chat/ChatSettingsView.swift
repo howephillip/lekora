@@ -38,6 +38,7 @@ struct ChatSettingsView: View {
                 thisChat
                 wholeAgent
                 voiceSection
+                toolsSection
                 actions
             }
             .navigationTitle("Chat Settings")
@@ -277,6 +278,26 @@ struct ChatSettingsView: View {
                      : "\(agentName) has no voice set up in Hermes, so replies are read aloud with the iPhone voice below.")
                     .font(LK.Typography.footnote).foregroundStyle(.secondary)
             }
+            if hermesVoice?.available == true {
+                Picker("Style", selection: Binding(get: { voice.style }, set: { value in changeVoice { $0.style = value } })) {
+                    Text("Voice").tag("tts")
+                    Text("Personality Voice").tag("personality")
+                }
+                if voice.style == "personality" {
+                    NavigationLink {
+                        PersonalityInstructionsView(agentName: agentName, text: voice.style_instructions,
+                                                    defaultText: gateway.defaultStyleInstructions ?? "") { value in
+                            changeVoice { $0.style_instructions = value }
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Personality Instructions")
+                            Text(voice.style_instructions == nil ? "Default" : "Your own")
+                                .font(LK.Typography.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
             if let hermes = hermesVoice, hermes.available {
                 Toggle(isOn: Binding(get: { usesHermes }, set: { on in changeVoice { $0.engine = on ? "hermes" : "iphone" } })) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -306,6 +327,18 @@ struct ChatSettingsView: View {
             Text("Voice")
         } footer: {
             Text("Tap the speaker under a text reply to hear it. Turning voice replies off keeps the voice notes you have; new replies come as text. Saved on the Hermes instance, so your other phones use it too.")
+        }
+    }
+
+    private var toolsSection: some View {
+        Section {
+            NavigationLink {
+                AgentToolsView(gateway: gateway, profileId: profileId, agentName: agentName)
+            } label: {
+                Label("Tools in Lekora Chats", systemImage: "wrench.and.screwdriver")
+            }
+        } footer: {
+            Text("What \(agentName) can use in this app: the task board, web, files, terminal and more. Saved in \(agentName)'s Hermes settings for Lekora only.")
         }
     }
 

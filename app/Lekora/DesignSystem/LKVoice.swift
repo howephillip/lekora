@@ -54,9 +54,19 @@ public struct LKVoiceBubble: View {
     private let loading: Bool
     private let onToggle: () -> Void
     private let onSeek: (Double) -> Void
+    /// A coloured note (personality voice replies are burnt orange), with light text.
+    private let fill: Color?
+    /// A small line under it (e.g. why its audio can't play).
+    private let note: String?
+    /// Still arriving: the waveform shimmers until there's sound.
+    private let live: Bool
 
     public init(_ voice: VoiceDetails, fromUser: Bool, transcript: String?, isPlaying: Bool, progress: Double,
-                loading: Bool = false, onToggle: @escaping () -> Void, onSeek: @escaping (Double) -> Void) {
+                loading: Bool = false, fill: Color? = nil, note: String? = nil, live: Bool = false,
+                onToggle: @escaping () -> Void, onSeek: @escaping (Double) -> Void) {
+        self.fill = fill
+        self.note = note
+        self.live = live
         self.voice = voice
         self.fromUser = fromUser
         self.transcript = transcript
@@ -67,7 +77,10 @@ public struct LKVoiceBubble: View {
         self.onSeek = onSeek
     }
 
-    private var foreground: Color { fromUser ? LK.Palette.onAccent : LK.Palette.accent }
+    private var foreground: Color { fromUser || fill != nil ? LK.Palette.onAccent : LK.Palette.accent }
+
+    /// Personality voice replies (owner's choice: burnt orange).
+    public static let personalityColor = Color(red: 0.80, green: 0.36, blue: 0.13)
 
     public var body: some View {
         HStack {
@@ -92,20 +105,30 @@ public struct LKVoiceBubble: View {
 
                     LKWaveform(voice.waveform, progress: progress, color: foreground, onSeek: onSeek)
                         .frame(width: 150, height: 28)
+                        .opacity(live && !isPlaying && progress == 0 ? 0.55 : 1)
+                        .phaseAnimator(live && !isPlaying ? [0.6, 1.0] : [1.0]) { view, phase in
+                            view.opacity(phase)
+                        } animation: { _ in .easeInOut(duration: 0.7) }
                         .accessibilityHidden(true)
 
                     Text(LKVoiceText.duration(isPlaying || progress > 0 ? voice.duration * (1 - progress) : voice.duration))
                         .font(LK.Typography.caption.monospacedDigit())
-                        .foregroundStyle(fromUser ? LK.Palette.onAccent.opacity(0.85) : .secondary)
+                        .foregroundStyle(fromUser || fill != nil ? LK.Palette.onAccent.opacity(0.85) : .secondary)
                         .frame(minWidth: 32, alignment: .trailing)
                 }
                 .padding(.horizontal, LK.Spacing.md)
                 .padding(.vertical, LK.Spacing.sm)
-                .background(fromUser ? LK.Surface.accent : LK.Surface.inset,
+                .background(fromUser ? AnyShapeStyle(LK.Surface.accent) : fill.map { AnyShapeStyle($0) } ?? AnyShapeStyle(LK.Surface.inset),
                             in: RoundedRectangle(cornerRadius: LK.Radius.bubble, style: .continuous))
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Voice note, \(LKVoiceText.duration(voice.duration))")
 
+                if let note {
+                    Label(note, systemImage: "exclamationmark.triangle.fill")
+                        .font(LK.Typography.caption)
+                        .foregroundStyle(LK.Palette.warning)
+                        .frame(maxWidth: 260, alignment: fromUser ? .trailing : .leading)
+                }
                 if let transcript, !transcript.isEmpty {
                     Text(transcript)
                         .font(LK.Typography.footnote)

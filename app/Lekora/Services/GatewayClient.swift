@@ -1077,11 +1077,31 @@ public final class GatewayClient: ObservableObject {
     /// Each agent's Hermes voice, if it has a cloud one.
     @Published public private(set) var hermesVoice: [String: HermesVoiceInfo] = [:]
 
+    /// The default personality-voice instructions, from the instance.
+    @Published public private(set) var defaultStyleInstructions: String?
+
     public func loadVoiceSettings(for profileId: String) async {
         guard let got = try? await request(type: "voice.settings.get", profileId: profileId, data: EmptyData(),
                                            reply: VoiceSettingsGetResult.self, timeout: 20) else { return }
         voiceSettings[profileId] = got.settings
         hermesVoice[profileId] = got.hermes_voice
+        if let text = got.default_style_instructions { defaultStyleInstructions = text }
+    }
+
+    /// Voice mode: replies the instance is making into voice notes, by message id (style, and
+    /// why their audio can't play, if so).
+    @Published public private(set) var voiceReplies: [String: (style: String, problem: String?)] = [:]
+
+    // MARK: - An agent's tools in Lekora chats (docs/agent-tools.md)
+
+    public func agentTools(for profileId: String) async throws -> AgentToolsData {
+        try await request(type: "agent.tools.get", profileId: profileId, data: EmptyData(),
+                          reply: AgentToolsData.self, timeout: 30)
+    }
+
+    public func setAgentTools(_ changes: [String: Bool], for profileId: String) async throws -> AgentToolsData {
+        try await request(type: "agent.tools.set", profileId: profileId, data: AgentToolsChange(changes: changes),
+                          reply: AgentToolsData.self, timeout: 60)
     }
 
     /// Saves an agent's voice settings on the instance (shown here straight away).
@@ -1147,6 +1167,10 @@ public final class GatewayClient: ObservableObject {
         if let from = header.instance_id, let host = savedHost, from != host.instanceId { return }
 
         switch header.type {
+        case "voice.reply":
+            guard let envelope = try? decoder.decode(Envelope<VoiceReplyData>.self, from: data) else { return }
+            let known = voiceReplies[envelope.data.message_id]
+            voiceReplies[envelope.data.message_id] = (envelope.data.style, envelope.data.problem ?? known?.problem)
         case "voice.segment":
             guard let envelope = try? decoder.decode(Envelope<VoiceSegmentData>.self, from: data) else { return }
             var parts = liveSpeech[envelope.data.message_id] ?? []
@@ -1181,7 +1205,10 @@ public final class GatewayClient: ObservableObject {
                 files: envelope.data.files,
                 voice: envelope.data.voice,
                 transcript: envelope.data.transcript,
-                spoken: envelope.data.spoken
+                spoken: envelope.data.spoken,
+                voicing: envelope.data.voicing,
+                voiceProblem: envelope.data.voice_problem,
+                voiceKey: envelope.data.voice_key
             )
             if profileId == activeProfileId { markActiveChatRead() }
             if envelope.data.role == "system", chatSettings[profileId] != nil {

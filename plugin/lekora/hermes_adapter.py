@@ -214,6 +214,49 @@ class LekoraAdapter(BasePlatformAdapter):
             raise RuntimeError(result.get("error") or "no audio")
         return [Path(p) for p in paths]
 
+    def _tools_for(self, profile_id: str) -> dict:
+        """The agent's toolsets as Hermes resolves them for Lekora chats, and the lists saved
+        for its other chat platforms (to copy from). Read only (docs/agent-tools.md)."""
+        from gateway.run import _profile_runtime_scope
+        from hermes_cli.config import load_config
+        from hermes_cli.tools_config import (CONFIGURABLE_TOOLSETS, _get_platform_tools,
+                                             _get_plugin_toolset_keys, _toolset_label)
+        with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=False):
+            config = load_config()
+            enabled = _get_platform_tools(config, PLATFORM_NAME, include_default_mcp_servers=False)
+            entries = [(key, label, description) for key, label, description in CONFIGURABLE_TOOLSETS]
+            known = {key for key, _, _ in entries}
+            entries += [(key, _toolset_label(key), "") for key in sorted(_get_plugin_toolset_keys()) if key not in known]
+            saved = config.get("platform_toolsets") or {}
+            elsewhere = {}
+            for platform in saved:
+                if platform != PLATFORM_NAME:
+                    try:
+                        elsewhere[str(platform)] = sorted(_get_platform_tools(config, str(platform),
+                                                                              include_default_mcp_servers=False))
+                    except Exception:
+                        continue
+        return {"toolsets": [{"key": key, "label": label, "description": description, "enabled": key in enabled}
+                             for key, label, description in entries],
+                "elsewhere": elsewhere}
+
+    def _voice_script(self, profile_id: str, text: str, instructions: str) -> str:
+        """Personality voice: part of a reply rewritten as a voice script with the user's
+        instructions, by the agent's own model through Hermes' auxiliary client (the task Hermes
+        uses for its own audio-tag rewrite, so it can be pointed at a cheaper model). The
+        visible reply is unchanged; on any failure the plain text is spoken."""
+        from agent.auxiliary_client import call_llm
+        from gateway.run import _profile_runtime_scope
+        from tools.tts_tool_providers import _auxiliary_reply_text
+        system = ("You turn part of a chat reply into the script a text-to-speech voice will read aloud. "
+                  "Follow the voice instructions. Keep the meaning and every fact; don't add new content, "
+                  "greetings or sign-offs. Return only the script.\n\nVOICE INSTRUCTIONS:\n" + instructions)
+        with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=True):
+            response = call_llm(task="tts_audio_tags", temperature=0.7,
+                                messages=[{"role": "system", "content": system},
+                                          {"role": "user", "content": text}])
+        return (_auxiliary_reply_text(response) or "").strip() or text
+
     @property
     def name(self) -> str:
         return "Lekora"
@@ -256,7 +299,8 @@ class LekoraAdapter(BasePlatformAdapter):
             self, config=self._cfg, hermes_version=_hermes_version(),
             profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers(),
             commands_provider=self._commands_for, settings_reader=self._settings_for,
-            hermes_voice=self._hermes_voice_for, speaker=self._speak_as)
+            hermes_voice=self._hermes_voice_for, speaker=self._speak_as, rewriter=self._voice_script,
+            tools_reader=self._tools_for)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()

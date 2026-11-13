@@ -68,24 +68,35 @@ def next_sentences(text: str, after: int, final: bool) -> tuple[list[str], int]:
 class _Reply:
     profile_id: str
     key: str                      # the phone's id for the message: draft id, or "seq-N"
+    style: str                    # tts | personality
+    instructions: str = ""
     spoken: int = 0
+    pending: str = ""             # text waiting to be spoken with the next piece
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     parts: list[dict] = field(default_factory=list)
     seq: Optional[int] = None
     worker: Optional[asyncio.Task] = None
-    sentences: int = 0
+    problem: Optional[str] = None
 
 
-# (profile, sentence) -> list of audio files (blocking; Hermes' own text_to_speech)
+# (profile, text) -> audio files, in order (blocking; Hermes' own text_to_speech)
 Synthesize = Callable[[str, str], list[Path]]
+# (profile, text, instructions) -> the voice script to speak (blocking; Hermes' auxiliary model)
+Rewrite = Callable[[str, str, str], str]
+
+MIN_TTS_PIECE = 40            # very short sentences are spoken with the next (less choppy)
+MIN_PERSONALITY_PIECE = 160   # personality scripts are written a few sentences at a time
 
 
 class VoiceReplies:
-    def __init__(self, gateway: Any, settings: Any, synthesize: Optional[Synthesize]) -> None:
+    def __init__(self, gateway: Any, settings: Any, synthesize: Optional[Synthesize],
+                 rewrite: Optional[Rewrite] = None) -> None:
         self.gateway = gateway
         self.settings = settings          # VoiceSettings
         self.synthesize = synthesize
+        self.rewrite = rewrite
         self._replies: dict[str, _Reply] = {}
+        self._decided: dict[str, Optional[str]] = {}
         self._last_was_voice: dict[str, bool] = {}
 
     # ---- when is it on ---------------------------------------------------------------
@@ -93,40 +104,73 @@ class VoiceReplies:
     def user_message(self, profile_id: str, voice: bool) -> None:
         self._last_was_voice[profile_id] = voice
 
-    def _wanted(self, profile_id: str) -> bool:
+    def _choose(self, profile_id: str) -> Optional[dict]:
+        """Voice-mode settings for a new reply, or None (a text reply)."""
         if self.synthesize is None or self.gateway.files is None:
-            return False
-        mode = (self.settings.store.get_app_setting(profile_id, "voice") or {}).get("speak", "off")
-        if mode == "always" or (mode == "voice_notes" and self._last_was_voice.get(profile_id)):
-            return bool(self.settings.hermes_voice(profile_id).get("available"))
-        return False
+            return None
+        settings = self.settings.get_settings(profile_id)
+        mode = settings.get("speak", "off")
+        if not (mode == "always" or (mode == "voice_notes" and self._last_was_voice.get(profile_id))):
+            return None
+        if not self.settings.hermes_voice(profile_id).get("available"):
+            return None
+        return settings
+
+    async def begin(self, profile_id: str, key: str) -> Optional[str]:
+        """Decides once, at the very start of a reply, whether it's a voice note; phones are
+        told straight away so they show a voice note from the first word (never text first)."""
+        if key in self._decided:
+            return self._decided[key]
+        self._decided[key] = None  # while deciding: a second update doesn't decide again
+        settings = await asyncio.to_thread(self._choose, profile_id)
+        if settings is None:
+            return None
+        style = settings.get("style") if settings.get("style") == "personality" and self.rewrite else "tts"
+        from .voice_settings import DEFAULT_STYLE_INSTRUCTIONS
+        reply = _Reply(profile_id, key, style, settings.get("style_instructions") or DEFAULT_STYLE_INSTRUCTIONS)
+        self._replies[key] = reply
+        self._decided[key] = style
+        if len(self._decided) > 500:
+            for old in list(self._decided)[:250]:
+                self._decided.pop(old, None)
+        reply.worker = asyncio.create_task(self._speak_all(reply))
+        await self.gateway.publish_voice_reply(profile_id, key, style)
+        return style
 
     # ---- following replies -------------------------------------------------------------
 
     async def reply_text(self, profile_id: str, key: str, text: str, final: bool, seq: Optional[int] = None) -> None:
         """A reply's text so far (or saved, when ``final``)."""
+        if not text.strip():
+            return
+        if key not in self._decided:
+            await self.begin(profile_id, key)
         reply = self._replies.get(key)
         if reply is None:
-            if not text.strip() or not await asyncio.to_thread(self._wanted, profile_id):
-                return
-            reply = _Reply(profile_id, key)
-            self._replies[key] = reply
-            reply.worker = asyncio.create_task(self._speak_all(reply))
+            return
         sentences, reply.spoken = next_sentences(text, reply.spoken, final)
+        least = MIN_PERSONALITY_PIECE if reply.style == "personality" else MIN_TTS_PIECE
         for sentence in sentences:
-            reply.sentences += 1
-            reply.queue.put_nowait(sentence)
+            reply.pending = f"{reply.pending} {sentence}".strip()
+            if len(reply.pending) >= least:
+                reply.queue.put_nowait(reply.pending)
+                reply.pending = ""
         if final:
+            if reply.pending:
+                reply.queue.put_nowait(reply.pending)
+                reply.pending = ""
             reply.seq = seq
             reply.queue.put_nowait(None)  # done once these are spoken
 
     async def _speak_all(self, reply: _Reply) -> None:
         index = 0
         while True:
-            sentence = await reply.queue.get()
-            if sentence is None:
+            piece = await reply.queue.get()
+            if piece is None:
                 break
-            for path in await self._speak(reply.profile_id, sentence):
+            if reply.problem:
+                continue  # the voice can't be played here: nothing more to make
+            for path in await self._speak(reply, piece):
                 try:
                     part = await asyncio.to_thread(
                         self.gateway.files.add_agent_file, reply.profile_id, path,
@@ -138,13 +182,26 @@ class VoiceReplies:
                 await self.gateway.publish_voice_segment(reply.profile_id, reply.key, index, part)
                 index += 1
         self._replies.pop(reply.key, None)
-        if reply.seq is not None and reply.parts:
-            await self.gateway.attach_spoken(reply.seq, reply.parts)
+        if reply.seq is not None:
+            await self.gateway.attach_spoken(reply.seq, reply.parts, reply.style, reply.problem)
 
-    async def _speak(self, profile_id: str, sentence: str) -> list[Path]:
+    async def _speak(self, reply: _Reply, piece: str) -> list[Path]:
+        from .playable_audio import UnplayableAudio, playable
+        script = piece
+        if reply.style == "personality" and self.rewrite is not None:
+            try:
+                script = await asyncio.to_thread(self.rewrite, reply.profile_id, piece, reply.instructions) or piece
+            except Exception as exc:
+                log.warning("Lekora: personality rewrite failed for %s; speaking the plain text: %s", reply.profile_id, exc)
         for attempt in (1, 2):  # a provider hiccup gets one retry
             try:
-                return [Path(p) for p in await asyncio.to_thread(self.synthesize, profile_id, sentence)]
+                paths = [Path(p) for p in await asyncio.to_thread(self.synthesize, reply.profile_id, script)]
+                return [await asyncio.to_thread(playable, p) for p in paths]
+            except UnplayableAudio as exc:
+                reply.problem = exc.reason
+                log.warning("Lekora: %s", exc.reason)
+                await self.gateway.publish_voice_reply(reply.profile_id, reply.key, reply.style, exc.reason)
+                return []
             except Exception as exc:
-                log.warning("Lekora: Hermes couldn't speak a sentence for %s (try %d): %s", profile_id, attempt, exc)
+                log.warning("Lekora: Hermes couldn't speak for %s (try %d): %s", reply.profile_id, attempt, exc)
         return []
