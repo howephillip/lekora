@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Hands-free conversation, full screen like a call (docs/voice.md §3): the agent's face,
-/// whether it's listening, thinking or speaking, what was last said, plain or personality
-/// voice, and Mute / End. Keeps going with the screen locked.
+/// whether it's listening, thinking or speaking, plain or personality voice, and Mute / End.
+/// What was said lives in the chat history, not on this screen. Keeps going with the screen locked.
 struct HandsFreeView: View {
     @ObservedObject var gateway: GatewayClient
     let agentName: String
@@ -78,14 +78,6 @@ struct HandsFreeView: View {
                     .animation(.easeInOut(duration: 0.2), value: status)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, LK.Spacing.xl)
-
-                Text(session.caption)
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.65))
-                    .lineLimit(4)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, LK.Spacing.xl)
-                    .frame(minHeight: 80, alignment: .top)
 
                 Spacer()
 

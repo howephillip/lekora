@@ -621,6 +621,7 @@ public final class GatewayClient: ObservableObject {
 
             self.profiles = ack.profiles
             applyInstanceName(ack.instance_name)
+            userName = ack.user_name
             reconcileProfileChoice()
             // Live bubbles from before the reconnect are previews; the replay is the truth.
             timeline.dropUnfinishedReplies()
@@ -1181,6 +1182,13 @@ public final class GatewayClient: ObservableObject {
             voiceReplies[envelope.data.message_id] = (envelope.data.style, envelope.data.problem ?? known?.problem)
         case "voice.segment":
             guard let envelope = try? decoder.decode(Envelope<VoiceSegmentData>.self, from: data) else { return }
+            if let inline = envelope.data.data, cachedFileURL(envelope.data.file) == nil,
+               let bytes = Data(base64Encoded: inline) {
+                // Came with the segment: kept like a fetched file, so it plays straight away.
+                let target = localFileURL(envelope.data.file)
+                try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? bytes.write(to: target, options: .atomic)
+            }
             var parts = liveSpeech[envelope.data.message_id] ?? []
             if envelope.data.index >= parts.count { parts.append(envelope.data.file) }
             liveSpeech[envelope.data.message_id] = parts
@@ -1198,6 +1206,7 @@ public final class GatewayClient: ObservableObject {
             // Renamed from another phone.
             guard let envelope = try? decoder.decode(Envelope<InstanceNameData>.self, from: data) else { return }
             applyInstanceName(envelope.data.instance_name)
+            if let name = envelope.data.user_name { userName = name }
         case "profiles.changed":
             guard let envelope = try? decoder.decode(Envelope<ProfilesChangedData>.self, from: data) else { return }
             applyProfiles(envelope.data.profiles)
@@ -1324,6 +1333,25 @@ public final class GatewayClient: ObservableObject {
         let result = try await request(type: "instance.rename", profileId: nil, data: InstanceRenameData(name: name),
                                        reply: InstanceNameData.self, timeout: 10)
         applyInstanceName(result.instance_name)
+    }
+
+    // MARK: - Your name (docs/your-name.md)
+
+    /// What this instance's agents call you: "" when not chosen yet, nil from an older plugin
+    /// (or before connecting). Kept on the instance, so a new phone gets it too.
+    @Published public private(set) var userName: String?
+
+    public func setUserName(_ name: String) async throws {
+        let result = try await request(type: "user.name.set", profileId: nil, data: UserNameSetData(name: name),
+                                       reply: UserNameData.self, timeout: 10)
+        userName = result.user_name
+    }
+
+    /// A hands-free turn's timing, written to the instance's log next to its own (docs/voice.md §3).
+    func reportVoiceTiming(_ timing: VoiceTimingData, profileId: String) {
+        guard case .connected = state, let wsTask = webSocketTask, let instanceId = savedHost?.instanceId else { return }
+        let envelope = Envelope(type: "voice.timing", instance_id: instanceId, profile_id: profileId, data: timing)
+        Task { [weak self] in try? await self?.send(envelope, on: wsTask) }
     }
 
     private func applyInstanceName(_ name: String) {

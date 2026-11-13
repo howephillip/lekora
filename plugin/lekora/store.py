@@ -153,6 +153,9 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# Who agents are talking to before you choose a name (docs/your-name.md).
+DEFAULT_USER_NAME = "the Lekora app's owner"
+
 class Store:
     def __init__(
         self,
@@ -255,6 +258,23 @@ class Store:
             self._meta_set("instance_name_user", name)
             self._db.commit()
         return name
+
+    def get_user_name(self) -> str:
+        """What this Hermes instance's agents call you (docs/your-name.md); "" when not set."""
+        with self._lock:
+            return self._meta_get("user_name") or ""
+
+    def set_user_name(self, name: str) -> str:
+        """Chosen in the app (setup, or Settings); kept here so every phone and a new phone see it."""
+        with self._lock:
+            self._meta_set("user_name", name)
+            self._db.commit()
+        return name
+
+    def user_name_for_agents(self) -> str:
+        """The user as Hermes shows them to agents: your name, or until you choose one, plainly
+        the app's owner (never "Lekora", which agents took for your name)."""
+        return self.get_user_name() or DEFAULT_USER_NAME
 
     def get_persisted_port(self) -> Optional[int]:
         with self._lock:

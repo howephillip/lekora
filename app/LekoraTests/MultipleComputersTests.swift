@@ -172,6 +172,31 @@ final class MultipleComputersTests: XCTestCase {
         XCTAssertTrue(ok949)
     }
 
+    /// What the agents call you (docs/your-name.md): kept on the instance, not the phone.
+    func testYourNameIsKeptOnTheInstance() async throws {
+        pi.userName = "Phil"
+        let store = InMemoryCredentialStore()
+        try saved(pi).save(to: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
+        await gateway.resumeSavedSession()
+        XCTAssertEqual(gateway.userName, "Phil", "a new phone gets it from the instance")
+        try await gateway.setUserName("Phillip")
+        XCTAssertEqual(gateway.userName, "Phillip")
+        XCTAssertEqual(pi.userName, "Phillip")
+        pi.userNameElsewhere("P")  // changed on another phone
+        let followed = await waitUntil { gateway.userName == "P" }
+        XCTAssertTrue(followed)
+    }
+
+    func testAnOlderPluginHasNoNameToAskFor() async throws {
+        pi.userName = nil
+        let store = InMemoryCredentialStore()
+        try saved(pi).save(to: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
+        await gateway.resumeSavedSession()
+        XCTAssertNil(gateway.userName, "setup doesn't ask; Your Name says it needs updating")
+    }
+
     func testTheNameFromTheComputerWinsOnConnect() async throws {
         let store = InMemoryCredentialStore()
         var old = saved(pi)

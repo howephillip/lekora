@@ -183,9 +183,16 @@ class LekoraAdapter(BasePlatformAdapter):
         from .hermes_settings import read_settings
         from .profiles import profile_home
         source = self.build_source(chat_id=profile_id, chat_name=profile_id, chat_type="dm",
-                                   user_id="lekora-owner", user_name="Lekora")
+                                   user_id="lekora-owner", user_name=self._user_name())
         root = Path(self._cfg.hermes_root) if self._cfg.hermes_root else None
         return read_settings(self.gateway_runner, source, profile_home(profile_id, root))
+
+    def _user_name(self) -> str:
+        """Who the agents are talking to: the name chosen in the app (docs/your-name.md).
+        Hermes shows it to the agent as the user; the user id stays the same."""
+        from .store import DEFAULT_USER_NAME
+        store = self._service.gateway.store if self._service is not None else None
+        return store.user_name_for_agents() if store is not None else DEFAULT_USER_NAME
 
     def _profile_home(self, profile_id: str) -> Path:
         from .profiles import profile_home
@@ -274,7 +281,7 @@ class LekoraAdapter(BasePlatformAdapter):
         # so Hermes stamps the routed profile here. Never deliver to a different agent.
         source = self.build_source(
             chat_id=profile_id, chat_name=profile_id, chat_type="dm",
-            user_id="lekora-owner", user_name="Lekora")
+            user_id="lekora-owner", user_name=self._user_name())
         check_routed(source, profile_id)
         event = MessageEvent(
             text=text, message_type=MessageType.TEXT, source=source,

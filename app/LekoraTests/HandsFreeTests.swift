@@ -69,4 +69,22 @@ final class HandsFreeLongTurnTests: XCTestCase {
         for _ in 0..<100 { if let e = detector.feed(level: -60, duration: 0.02) { events.append(e) } }
         XCTAssertEqual(events, [.started, .ended])
     }
+
+    // MARK: - The vibe: laughs, sighs… with the words
+
+    func testSoundsAreWovenInWhereTheyHappened() {
+        let words: [(start: Double, text: String)] = [(10.0, "that's hilarious"), (13.0, "okay so anyway")]
+        let woven = SoundCue.weave(words: words, sounds: [(11.6, "[laughs]"), (12.3, "[laughs]")])
+        XCTAssertEqual(woven, "that's hilarious [laughs] okay so anyway", "overlapping moments of one laugh count once")
+        XCTAssertEqual(SoundCue.weave(words: words, sounds: [(9.5, "[sighs]"), (15, "[laughs]")]),
+                       "[sighs] that's hilarious okay so anyway [laughs]")
+        XCTAssertEqual(SoundCue.weave(words: words, sounds: []), "that's hilarious okay so anyway", "nothing heard: just the words")
+    }
+
+    func testOnlyMeaningfulSoundsBecomeTags() {
+        XCTAssertEqual(SoundCue.tags["laughter"]?.tag, "[laughs]")
+        XCTAssertEqual(SoundCue.tags["sigh"]?.tag, "[sighs]")
+        XCTAssertNil(SoundCue.tags["cough"], "a cough isn't the vibe")
+        XCTAssertNil(SoundCue.tags["car_passing_by"])
+    }
 }

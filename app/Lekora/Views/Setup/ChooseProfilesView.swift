@@ -19,10 +19,13 @@ public struct ChooseProfilesView: View {
     @State private var pendingDelete: ProfileData?
     @State private var deleting: ProfileData?
     @State private var failure: String?
+    /// What the agents call you (setup only; later from Your Name in the Agents menu).
+    @State private var userName: String
 
     public init(gateway: GatewayClient, mode: Mode) {
         self.gateway = gateway
         self.mode = mode
+        _userName = State(initialValue: gateway.userName ?? "")
         // Setup starts with everything on; editing starts from the current choice.
         let current = gateway.enabledProfiles.map(\.profile_id)
         _selected = State(initialValue: Set(current.isEmpty ? gateway.profiles.map(\.profile_id) : current))
@@ -46,6 +49,20 @@ public struct ChooseProfilesView: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
 
+                // Asked once here; an instance that already knows you fills it in.
+                if mode == .setup, gateway.userName != nil {
+                    Section {
+                        TextField("Your name", text: $userName)
+                            .textContentType(.givenName)
+                            .accessibilityLabel("Your name")
+                    } header: {
+                        Text("What should your agents call you?")
+                    } footer: {
+                        Text("Optional. Your agents see this name instead of “Lekora”. You can change it later with Your Name on the Agents screen.")
+                            .font(LK.Typography.caption)
+                    }
+                }
+
                 Section {
                     ForEach(gateway.profiles) { profile in
                         row(profile)
@@ -68,6 +85,7 @@ public struct ChooseProfilesView: View {
                 VStack(spacing: LK.Spacing.xs) {
                     LKPrimaryButton(mode == .setup ? "Continue" : "Done") {
                         gateway.chooseProfiles(chosen)
+                        saveUserName()
                         if mode == .edit { dismiss() }
                     }
                     .disabled(chosen.isEmpty)
@@ -184,6 +202,12 @@ public struct ChooseProfilesView: View {
                 }
             }
         }
+    }
+
+    private func saveUserName() {
+        let name = userName.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard mode == .setup, let current = gateway.userName, name != current else { return }
+        Task { try? await gateway.setUserName(name) }
     }
 
     private func delete(_ profile: ProfileData) {

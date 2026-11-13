@@ -10,12 +10,14 @@ Agent replies come back through :meth:`Gateway.publish_message`.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hashlib
 import json
 import logging
 import time
 import uuid
+from pathlib import Path
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -50,6 +52,7 @@ def _now() -> str:
 
 
 MAX_INSTANCE_NAME = 40
+MAX_USER_NAME = 80
 
 
 @dataclass(eq=False)  # identity hashing: connections live in a set
@@ -250,13 +253,21 @@ class Gateway:
             log.exception("Lekora: voice reply failed")
 
     async def publish_voice_segment(self, profile_id: str, key: str, index: int, file: dict,
-                                    script: Optional[str] = None) -> None:
+                                    script: Optional[str] = None, inline: Optional[Path] = None) -> None:
         """A spoken part of a reply in voice mode, for phones to play at once (not stored:
         the saved message gets them all as ``spoken``). ``script``: the words it says, when
         they differ from the reply's text (personality voice)."""
         data: dict[str, Any] = {"message_id": key, "index": index, "file": file}
         if script:
             data["script"] = script
+        if inline is not None:
+            # A small part comes with the segment, so the phone can play it without fetching.
+            from .voice_replies import INLINE_AUDIO_BYTES
+            try:
+                if inline.stat().st_size <= INLINE_AUDIO_BYTES:
+                    data["data"] = base64.b64encode(await asyncio.to_thread(inline.read_bytes)).decode("ascii")
+            except OSError:
+                pass
         await self._broadcast_ephemeral(self._envelope("voice.segment", data, profile_id=profile_id))
 
     async def publish_voice_reply(self, profile_id: str, key: str, style: str, problem: Optional[str] = None) -> None:
@@ -440,6 +451,11 @@ class Gateway:
             await self._voice_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "instance.rename":
             await self._instance_rename(conn, msg_id, data)
+        elif type_ == "user.name.set":
+            await self._user_name_set(conn, msg_id, data)
+        elif type_ == "voice.timing":
+            if self.voice_replies is not None:
+                self.voice_replies.phone_timing(env.get("profile_id"), data)
         elif type_ == "prompt.respond":
             await self._prompt_respond(conn, msg_id, env.get("profile_id"), data)
         elif type_ in ("profile.create", "profile.delete"):
@@ -527,6 +543,7 @@ class Gateway:
             "status": "ok",
             "current_seq": self.store.current_seq(),
             "instance_name": self.store.get_instance_name(),
+            "user_name": self.store.get_user_name(),
             "profiles": profiles,
         }
         # No await between reading the store and choosing what to send, so nothing saved
@@ -904,7 +921,23 @@ class Gateway:
         self.store.rename_instance(name)
         await self._send(conn, self._envelope("instance.rename.result", {"instance_name": name}, msg_id=msg_id))
         # Every other phone shows the new name straight away.
-        payload = self._envelope("instance.changed", {"instance_name": name})
+        payload = self._envelope("instance.changed", {"instance_name": name,
+                                                      "user_name": self.store.get_user_name()})
+        for other in list(self._conns):
+            if other is conn or not other.authed or not self.store.is_device_active(other.device_id):
+                continue
+            with contextlib.suppress(ConnectionClosed):
+                await self._send(other, payload)
+
+    async def _user_name_set(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
+        """What this instance's agents call you (docs/your-name.md); "" clears it."""
+        name = " ".join(str(data.get("name") or "").split())
+        if len(name) > MAX_USER_NAME or any(ord(c) < 32 for c in name):
+            raise _Reject("INVALID_NAME", f"Use up to {MAX_USER_NAME} characters", True, False, msg_id)
+        self.store.set_user_name(name)
+        await self._send(conn, self._envelope("user.name.set.result", {"user_name": name}, msg_id=msg_id))
+        payload = self._envelope("instance.changed", {"instance_name": self.store.get_instance_name(),
+                                                      "user_name": name})
         for other in list(self._conns):
             if other is conn or not other.authed or not self.store.is_device_active(other.device_id):
                 continue

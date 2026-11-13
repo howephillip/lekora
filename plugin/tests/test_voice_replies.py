@@ -73,7 +73,9 @@ async def test_a_streamed_reply_is_a_voice_note_from_the_first_word(fgw, store, 
     saved = [m for m in await until(ws, "chat.message")][0]
     assert saved["data"]["voicing"] == "tts", "saved as a voice note, never text first"
     event = await saved_spoken(store, seq)
-    assert spoken[0] == "Sure! I booked ramen for two at seven tonight.", "short sentences go with the next"
+    assert spoken[0] == "Sure!", "the first sentence is spoken at once (the first sound is what you wait for)"
+    assert spoken[1] == "I booked ramen for two at seven tonight.", "later short sentences go with the next"
+    assert "data" in first["data"], "a small first part comes with the segment: no fetch before it plays"
     assert " ".join(spoken) == "Sure! I booked ramen for two at seven tonight. The place is called Ichiran. See you there."
     assert len(event.payload["spoken"]) == len(spoken) and event.payload["voicing"] == "tts"
     assert event.payload["text"] == LONG, "the text stays as its transcript"
@@ -202,4 +204,20 @@ async def test_hands_free_replies_are_always_spoken(fgw, store, file_store, tmp_
     seq = await fgw.publish_message("coder", "Text again.")
     await asyncio.sleep(0.1)
     assert "voicing" not in store.get_event(seq).payload, "back to the chat's own setting"
+    await ws.close()
+
+
+async def test_timings_are_logged_for_the_first_sound_and_the_phones_half(fgw, store, file_store, tmp_path, caplog):
+    import logging
+    make(fgw, store, file_store, tmp_path)
+    ws = await phone(fgw, store)
+    fgw.voice_replies.user_message("coder", False, hands_free=True)
+    caplog.set_level(logging.INFO, logger="lekora.voice_replies")
+    await fgw.publish_message("coder", LONG)
+    await until(ws, "voice.segment")
+    assert any("voice timing (coder)" in r.getMessage() for r in caplog.records)
+    fgw.voice_replies.phone_timing("coder", {"silence_wait": 0.8, "recognize": 0.2, "audio_received": 1.5,
+                                              "playing": 0.1, "total": 3.4})
+    line = next(r.getMessage() for r in caplog.records if "hands-free timing (coder)" in r.getMessage())
+    assert "waited for quiet 0.8s" in line and "last word to the agent's first: 3.4s" in line
     await ws.close()

@@ -397,4 +397,10 @@ Requests with `profile_id` set, answered with `<type>.result`:
 - Errors: `INVALID_SETTING`, `BACKUP_FAILED`, `TOOLS_FAILED`, `UNAVAILABLE`.
 
 ## 15. Hands-free (spec: `voice.md` §3)
-- `chat.send` may carry `hands_free: true` (text recognised on the phone, or a voice note): the reply is spoken (as with voice replies "always"), whatever the chat's own setting.
+- `chat.send` may carry `hands_free: true` (text recognised on the phone, or a voice note): the reply is spoken (as with voice replies "always"), whatever the chat's own setting. Its text may contain sound tags such as `[laughs]` (voice.md §3, "The vibe").
+- `voice.segment` may carry `data`: the part's audio (base64) when it's small (≤ 256 KB), so the phone keeps it as if fetched and plays it at once.
+- `voice.timing` (phone → plugin, no reply; `profile_id`): `{silence_wait, recognize, audio_received, playing, total}` in seconds, for the first sound of a hands-free reply. The plugin logs it next to its own timings.
+
+## 16. Your name (spec: `your-name.md`)
+- `hello.ack` carries `user_name` ("" until chosen).
+- `user.name.set` `{name}` (up to 80 characters; "" clears) → `user.name.set.result` `{user_name}`; other phones get `instance.changed` `{instance_name, user_name}`.

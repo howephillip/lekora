@@ -330,14 +330,19 @@ final class LiveTranscriber {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Talking ended: what was said in this turn, once recognition has caught up.
-    func endTurn() async -> String {
+    /// Where this turn starts in the audio (seconds), for the sounds heard alongside.
+    var turnStartSeconds: Double { turnStart }
+
+    /// Talking ended: what was said in this turn (each piece with where it starts), once
+    /// recognition has caught up.
+    func endTurn() async -> [(start: Double, text: String)] {
         if let analyzer, let input {
             _ = input  // keep feeding: recognition goes on for the next turn
             try? await analyzer.finalize(through: CMTime(seconds: fedSeconds, preferredTimescale: 48_000))
         }
-        let words = pieces.filter { $0.end > turnStart }.map(\.text).joined(separator: " ")
-        return words.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return pieces.filter { $0.end > turnStart }
+            .map { (start: $0.start, text: $0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .filter { !$0.text.isEmpty }
     }
 
     func stop() {
@@ -369,14 +374,13 @@ public final class HandsFreeSession: ObservableObject {
     }
     /// 0…1, for the listening animation.
     @Published public private(set) var level: Double = 0
-    /// What was last said, either way, for the caption.
-    @Published public private(set) var caption: String = ""
 
     let gateway: GatewayClient
     let player = VoicePlayer()
     let speaker = ReplySpeaker()
     private let microphone = HandsFreeMicrophone()
     private let transcriber = LiveTranscriber()
+    private let sounds = SoundListener()
     private var detector = SpeechDetector()
     private var watching: AnyCancellable?
     /// The reply being waited for or played: everything after this point in the chat.
@@ -392,6 +396,11 @@ public final class HandsFreeSession: ObservableObject {
     /// Without recognition: how much of the turn was clearly sound (noise blips aren't sent).
     private var turnSeconds: TimeInterval = 0
     private var loudSeconds: TimeInterval = 0
+    /// This turn's timing (docs/voice.md §3, "Speed"), sent to the instance's log.
+    private var turnEnded: Date?
+    private var wordsReady: Date?
+    private var sentAt: Date?
+    private var audioArrived: Date?
 
     public init(gateway: GatewayClient) {
         self.gateway = gateway
@@ -405,6 +414,8 @@ public final class HandsFreeSession: ObservableObject {
         microphone.onLevel = { [weak self] level, duration in self?.heard(level: level, duration: duration) }
         if await transcriber.prepare() {
             HandsFreeLog.log.info("Hands-free: on-device recognition (\(self.transcriber.kind ?? "?", privacy: .public))")
+            // The words tell a turn from noise, so the end of one can come sooner.
+            detector.endAfter = 0.9
         } else {
             // No recognition here: only clearer, longer sound counts as talking.
             HandsFreeLog.log.info("Hands-free: no on-device recognition; sending recordings")
@@ -412,7 +423,11 @@ public final class HandsFreeSession: ObservableObject {
             detector.startAfter = 0.3
             detector.minimumTurn = 1.2
         }
-        microphone.onBuffer = { [weak self] buffer in self?.transcriber.feed(buffer) }
+        microphone.onBuffer = { [weak self] buffer in
+            guard let self else { return }
+            self.transcriber.feed(buffer)
+            if self.transcriber.ready { self.sounds.feed(buffer) }  // laughs etc. go with the words
+        }
         AudioSessionOwner.handsFree = true
         do {
             try microphone.start()
@@ -438,6 +453,7 @@ public final class HandsFreeSession: ObservableObject {
         thinkingTimeout?.cancel()
         ticker?.cancel()
         transcriber.stop()
+        sounds.stop()
         AudioSessionOwner.handsFree = false
         watching = nil
         microphone.stop()
@@ -502,18 +518,27 @@ public final class HandsFreeSession: ObservableObject {
         let wasInterrupting = interrupting
         interrupting = false
         detector.reset()
+        let ended = Date()
         Task {
             if transcriber.ready {
                 // Words, not loudness, decide: noise with nothing said is never sent.
-                let words = await transcriber.endTurn()
+                let pieces = await transcriber.endTurn()
                 try? FileManager.default.removeItem(at: turn.url)
-                HandsFreeLog.log.info("Hands-free turn: \(words.isEmpty ? "no words, dropped" : "sent \(words.count) characters", privacy: .public)")
-                guard !words.isEmpty else {
+                guard !pieces.isEmpty else {
+                    HandsFreeLog.log.info("Hands-free turn: no words, dropped")
                     phase = wasInterrupting && (player.isPlaying || speaker.speakingId != nil) ? .speaking : .listening
                     return
                 }
-                beginWaiting(caption: words)
+                // How it was said: laughs, sighs… where they happened.
+                let heard = await sounds.sounds(since: transcriber.turnStartSeconds)
+                let words = SoundCue.weave(words: pieces, sounds: heard)
+                let tags = Set(heard.map(\.tag)).sorted().joined(separator: " ")
+                HandsFreeLog.log.info("Hands-free turn: sent \(words.count) characters\(tags.isEmpty ? "" : ", heard \(tags)", privacy: .public)")
+                beginWaiting()
+                turnEnded = ended
+                wordsReady = Date()
                 await gateway.sendMessage(words, handsFree: true)  // straight to the agent: no upload
+                sentAt = Date()
                 return
             }
             // No recognition on this iPhone: send the recording (Hermes transcribes it), but
@@ -529,22 +554,25 @@ public final class HandsFreeSession: ObservableObject {
                 return
             }
             HandsFreeLog.log.info("Hands-free turn: sent the recording")
-            beginWaiting(caption: "…")
+            beginWaiting()
             do {
                 try await gateway.sendVoiceNote(at: turn.url, duration: turn.duration, waveform: turn.waveform, handsFree: true)
             } catch {
-                caption = "That didn't send: \(error.localizedDescription)"
+                HandsFreeLog.log.error("Hands-free turn didn't send: \(error.localizedDescription, privacy: .public)")
                 phase = .listening
             }
             try? FileManager.default.removeItem(at: turn.url)
         }
     }
 
-    private func beginWaiting(caption text: String) {
+    private func beginWaiting() {
         player.stop()
         speaker.stop()
         phase = .thinking
-        caption = text
+        turnEnded = nil
+        wordsReady = nil
+        sentAt = nil
+        audioArrived = nil
         since = Date()
         replyId = nil
         appended = 0
@@ -562,9 +590,6 @@ public final class HandsFreeSession: ObservableObject {
 
     /// Watches the chat after your turn: your transcript, then the agent's reply, played as it comes.
     private func followReply() {
-        if phase == .thinking, let mine = messages.last(where: { $0.role == .user }), let heard = mine.transcript {
-            caption = heard
-        }
         guard phase == .thinking || phase == .speaking,
               let reply = messages.last(where: { $0.role == .agent && ($0.date ?? .distantPast) >= since.addingTimeInterval(-1) })
         else { return }
@@ -577,6 +602,7 @@ public final class HandsFreeSession: ObservableObject {
         if isVoice {
             let parts = (reply.spoken?.isEmpty == false ? reply.spoken : gateway.liveSpeech[key]) ?? []
             let done = reply.spoken != nil || reply.voiceProblem != nil
+            if !parts.isEmpty, audioArrived == nil { audioArrived = Date() }
             if appended < parts.count { playNext(parts, of: reply.id) }
             player.expectsMore = !done
             if done, appended >= parts.count, !player.isPlaying, phase == .speaking || parts.isEmpty {
@@ -588,10 +614,8 @@ public final class HandsFreeSession: ObservableObject {
             phase = .speaking
             let settings = gateway.voiceSettings[gateway.activeProfileId] ?? .standard
             speaker.follow(id: reply.id, text: reply.text, final: reply.status != .streaming, settings: settings)
-            caption = SpeechText.clean(reply.text)
             if reply.status != .streaming, speaker.speakingId == nil { replyFinished() }
         }
-        if isVoice { caption = SpeechText.clean(reply.text) }
     }
 
     private var fetching = false
@@ -606,10 +630,27 @@ public final class HandsFreeSession: ObservableObject {
                 thinkingTimeout?.cancel()
                 phase = .speaking
                 player.append(id: id, url: url)
+                if appended == 0 { reportTiming() }
                 appended += 1
             }
             followReply()
         }
+    }
+
+    /// The first sound of the reply is playing: how long each step took on this side.
+    private func reportTiming() {
+        guard let ended = turnEnded, let words = wordsReady, let sent = sentAt else { return }
+        let now = Date()
+        let arrived = audioArrived ?? now
+        let timing = VoiceTimingData(
+            silence_wait: detector.endAfter,
+            recognize: words.timeIntervalSince(ended),
+            audio_received: arrived.timeIntervalSince(sent),
+            playing: now.timeIntervalSince(arrived),
+            total: now.timeIntervalSince(ended) + detector.endAfter)
+        HandsFreeLog.log.info("Hands-free timing: \(timing.total, format: .fixed(precision: 1), privacy: .public)s from your last word to the first sound")
+        gateway.reportVoiceTiming(timing, profileId: gateway.activeProfileId)
+        turnEnded = nil
     }
 
     /// The reply is done: your turn.

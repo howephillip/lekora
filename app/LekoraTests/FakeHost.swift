@@ -8,6 +8,8 @@ final class FakeHost: @unchecked Sendable {
     let instanceId: String
     /// The computer's name; `instance.rename` changes it (docs/multiple-instances.md).
     var instanceName: String
+    /// What the agents call the user (docs/your-name.md); nil acts like an older plugin.
+    var userName: String? = ""
     /// Sends everything as if from this other computer (to check the app ignores it).
     var pretendInstanceId: String?
     let validPairingToken = "pair_ok"
@@ -56,11 +58,12 @@ final class FakeHost: @unchecked Sendable {
     }
 
     /// Voice mode: a spoken part of a reply, as the plugin streams it.
-    func sendVoiceSegment(messageId: String, index: Int, file: [String: Any], profile: String) {
+    func sendVoiceSegment(messageId: String, index: Int, file: [String: Any], profile: String, inline: Data? = nil) {
+        var data: [String: Any] = ["message_id": messageId, "index": index, "file": file]
+        if let inline { data["data"] = inline.base64EncodedString() }
         lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
         for connection in open {
-            send(type: "voice.segment", data: ["message_id": messageId, "index": index, "file": file],
-                 profileId: profile, on: connection)
+            send(type: "voice.segment", data: data, profileId: profile, on: connection)
         }
     }
 
@@ -253,6 +256,14 @@ final class FakeHost: @unchecked Sendable {
         for connection in open { send(type: "instance.changed", data: ["instance_name": name], on: connection) }
     }
 
+    func userNameElsewhere(_ name: String) {
+        userName = name
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open {
+            send(type: "instance.changed", data: ["instance_name": instanceName, "user_name": name], on: connection)
+        }
+    }
+
     func broadcastProfiles() {
         lock.lock(); let open = connections; lock.unlock()
         for connection in open where connection.state == .ready {
@@ -357,6 +368,7 @@ final class FakeHost: @unchecked Sendable {
                 "status": "ok", "current_seq": history.last?.seq ?? 0, "instance_name": instanceName,
                 "profiles": profiles,
             ]
+            if let userName { ack["user_name"] = userName }
             var replay = history.filter { $0.seq > lastSeq }
             if !legacyHello, let sinceRev = data["since_rev"] as? Int {
                 if sinceRev > 0 {
@@ -410,6 +422,10 @@ final class FakeHost: @unchecked Sendable {
             reply["backup"] = "/home/x/.hermes/lekora-backups/config/bruce/config.yaml.20261109-120000"
             send(type: "models.routing.set.result", id: id, data: reply,
                  profileId: message["profile_id"] as? String, on: connection)
+
+        case "user.name.set":
+            userName = data["name"] as? String ?? ""
+            send(type: "user.name.set.result", id: id, data: ["user_name": userName ?? ""], on: connection)
 
         case "instance.rename":
             instanceName = data["name"] as? String ?? instanceName

@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -84,6 +85,10 @@ class _Reply:
     seq: Optional[int] = None
     worker: Optional[asyncio.Task] = None
     problem: Optional[str] = None
+    # Timing (docs/voice.md §3, "Speed"): seconds on one clock, for the log.
+    asked: Optional[float] = None         # your message arrived
+    began: float = field(default_factory=time.monotonic)  # the agent's first words
+    queued: Optional[float] = None        # the first piece was ready to speak
 
 
 # (profile, text) -> audio files, in order (blocking; Hermes' own text_to_speech)
@@ -91,6 +96,8 @@ Synthesize = Callable[[str, str], list[Path]]
 
 MIN_TTS_PIECE = 40            # very short sentences are spoken with the next (less choppy)
 MIN_PERSONALITY_PIECE = MIN_TTS_PIECE
+# Small voice parts go to the phones with the segment itself (no extra round trip to fetch).
+INLINE_AUDIO_BYTES = 256 * 1024
 
 
 class VoiceReplies:
@@ -105,6 +112,8 @@ class VoiceReplies:
         self._decided: dict[str, Optional[str]] = {}
         self._last_was_voice: dict[str, bool] = {}
         self._hands_free: dict[str, bool] = {}
+        self._asked: dict[str, float] = {}
+        self._timings: dict[str, dict] = {}   # profile -> the last reply's timing
 
     # ---- when is it on ---------------------------------------------------------------
 
@@ -112,6 +121,7 @@ class VoiceReplies:
         self._last_was_voice[profile_id] = voice
         # Hands-free conversation (docs/voice.md §3): its replies are always spoken.
         self._hands_free[profile_id] = hands_free
+        self._asked[profile_id] = time.monotonic()
 
     def _choose(self, profile_id: str) -> Optional[dict]:
         """Voice-mode settings for a new reply, or None (a text reply)."""
@@ -156,7 +166,7 @@ class VoiceReplies:
             return None
         style = "personality" if settings.get("style") == "personality" else "tts"
         instructions = ""
-        reply = _Reply(profile_id, key, style, instructions)
+        reply = _Reply(profile_id, key, style, instructions, asked=self._asked.pop(profile_id, None))
         self._replies[key] = reply
         self._decided[key] = style
         if len(self._decided) > 500:
@@ -181,15 +191,22 @@ class VoiceReplies:
         least = MIN_PERSONALITY_PIECE if reply.style == "personality" else MIN_TTS_PIECE
         for sentence in sentences:
             reply.pending = f"{reply.pending} {sentence}".strip()
-            if len(reply.pending) >= least:
-                reply.queue.put_nowait(reply.pending)
-                reply.pending = ""
+            # The first sentence is spoken at once, however short: what you wait for is the
+            # first sound. Later short ones join the next (less choppy).
+            if reply.queued is None or len(reply.pending) >= least:
+                self._queue(reply)
         if final:
             if reply.pending:
-                reply.queue.put_nowait(reply.pending)
-                reply.pending = ""
+                self._queue(reply)
             reply.seq = seq
             reply.queue.put_nowait(None)  # done once these are spoken
+
+    @staticmethod
+    def _queue(reply: _Reply) -> None:
+        if reply.queued is None:
+            reply.queued = time.monotonic()
+        reply.queue.put_nowait(reply.pending)
+        reply.pending = ""
 
     async def _speak_all(self, reply: _Reply) -> None:
         index = 0
@@ -199,7 +216,10 @@ class VoiceReplies:
                 break
             if reply.problem:
                 continue  # the voice can't be played here: nothing more to make
+            made = time.monotonic()
             script, paths = await self._speak(reply, piece)
+            first = index == 0
+            made = time.monotonic() - made
             if paths:
                 reply.scripts.append(script)
             for number, path in enumerate(paths):
@@ -212,11 +232,49 @@ class VoiceReplies:
                     continue
                 reply.parts.append(part)
                 # The words go with the first audio part of each piece (what you hear).
-                await self.gateway.publish_voice_segment(reply.profile_id, reply.key, index, part)
+                await self.gateway.publish_voice_segment(reply.profile_id, reply.key, index, part,
+                                                         inline=path if number == 0 and first else None)
+                if index == 0:
+                    self._first_sound(reply, piece, made)
                 index += 1
         self._replies.pop(reply.key, None)
         if reply.seq is not None:
             await self.gateway.attach_spoken(reply.seq, reply.parts, reply.style, reply.problem)
+
+    # ---- speed (docs/voice.md §3) ------------------------------------------------------
+
+    def _first_sound(self, reply: _Reply, piece: str, made: float) -> None:
+        """The first voice part just went to the phones: how long each step took."""
+        now = time.monotonic()
+        base = reply.asked if reply.asked is not None else reply.began
+        timing = {
+            "agent_first_words": round(reply.began - base, 2) if reply.asked is not None else None,
+            "first_sentence": round((reply.queued or now) - base, 2),
+            "voice_made": round(made, 2),
+            "voice_chars": len(piece),
+            "sent_to_phone": round(now - base, 2),
+        }
+        self._timings[reply.profile_id] = timing
+        log.info("Lekora voice timing (%s): agent's first words %ss after your message, first sentence "
+                 "%ss, voice made in %ss (%d characters), first sound sent %ss after your message",
+                 reply.profile_id, timing["agent_first_words"], timing["first_sentence"],
+                 timing["voice_made"], timing["voice_chars"], timing["sent_to_phone"])
+
+    def phone_timing(self, profile_id: Any, data: dict) -> None:
+        """The phone's half of a hands-free turn (voice.timing), logged with this side's."""
+        def seconds(key: str) -> Optional[float]:
+            try:
+                return round(float(data[key]), 2)
+            except (KeyError, TypeError, ValueError):
+                return None
+        mine = self._timings.get(str(profile_id), {})
+        log.info("Lekora hands-free timing (%s): waited for quiet %ss, words ready %ss later, "
+                 "on this instance: agent's first words %ss, first sentence %ss, voice made in %ss, "
+                 "sent %ss; phone: audio in hand %ss after sending, playing %ss later; "
+                 "from your last word to the agent's first: %ss",
+                 profile_id, seconds("silence_wait"), seconds("recognize"),
+                 mine.get("agent_first_words"), mine.get("first_sentence"), mine.get("voice_made"),
+                 mine.get("sent_to_phone"), seconds("audio_received"), seconds("playing"), seconds("total"))
 
     async def _speak(self, reply: _Reply, piece: str) -> tuple[str, list[Path]]:
         """The words spoken (the reply's own) and their audio."""

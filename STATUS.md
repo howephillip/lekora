@@ -14,7 +14,13 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 - **Your choices (2026-11-12):** full screen, interrupting, background audio; plus the Voice/Personality switch and, for speed, the iPhone's own speech recognition: your words are sent the moment you stop talking, instead of uploading a recording for Hermes to transcribe.
 - **Safety from noise:** only recognised words make a turn, so background noise, coughs or the agent's own voice never get sent or cut it off. (Found in the simulator: at first, noise alone kept sending empty voice notes; fixed and rechecked with 110 s of silence.)
 - **Checked:** plugin 335 tests, app 173 (5 new for the speech detector); in the simulator: call screen, mute, switch, end, silence sends nothing, a spoken phrase (the Mac talking) goes through and is answered. The simulator has no on-device recognition, so the fast word path and interrupting need your iPhone.
-- **Needs from you:** `hermes plugins update lekora`, restart Hermes; then tap the headphones and talk (allow the microphone and speech recognition if asked).
+- **Your first try (2026-11-12): "working amazing", 8/10.** Your four notes, all built:
+  1. **No transcript on the call screen** (it's in the chat).
+  2. **Speed:** couldn't measure your instance from here, so every hands-free turn now writes one timing line to the Hermes log (`Lekora hands-free timing`), splitting the wait into: waiting for you to stop, recognition, the agent's first words, its first sentence, making the voice, getting it to the phone, starting playback. Quick wins already in: your turn ends after 0.9 s of quiet (was 1.2), the first sentence is voiced right away however short, and the first voice part comes with its notice so the phone doesn't fetch it.
+  3. **Your name:** agents no longer see you as "Lekora". Setup asks "What should your agents call you?"; change it any time at Agents › "…" › Your Name. Kept on the Hermes instance (spec: `docs/your-name.md`).
+  4. **Laughter and vibe:** the iPhone's own sound recognition (free, on the phone; no Fish costs) notices laughs, sighs, gasps, whispering, shouting, singing etc. and writes them into your words where they happened, like "[laughs]".
+- **Checked:** plugin 338 tests, app 177.
+- **Needs from you:** `hermes plugins update lekora`, restart Hermes; set your name (Agents › "…" › Your Name); try a call, laugh at something; then send me (or let me read) the `Lekora hands-free timing` lines from the Hermes log so we can see exactly where the remaining seconds go.
 
 ## Done: hearing replies (Phase 4, feature 2; spec: `docs/voice.md` §2)
 ✅ Confirmed on your iPhone with real Hermes 2026-11-12 (after five rounds of your feedback). Last change: a custom or Hermes voice personality now takes priority over the agent's usual tone in voice chats.

@@ -141,6 +141,8 @@ public struct HelloAckData: Codable, Equatable {
     public let read: [String: Int]?
     /// True when messages carry the time they were saved (`at`).
     public let message_times: Bool?
+    /// What this instance's agents call you ("" not chosen yet; absent from older plugins).
+    public let user_name: String?
 
     public init(
         status: String = "ok",
@@ -150,7 +152,8 @@ public struct HelloAckData: Codable, Equatable {
         rev: Int? = nil,
         replay: String? = nil,
         read: [String: Int]? = nil,
-        message_times: Bool? = nil
+        message_times: Bool? = nil,
+        user_name: String? = nil
     ) {
         self.status = status
         self.current_seq = current_seq
@@ -160,6 +163,7 @@ public struct HelloAckData: Codable, Equatable {
         self.replay = replay
         self.read = read
         self.message_times = message_times
+        self.user_name = user_name
     }
 }
 
@@ -321,7 +325,16 @@ struct VoiceSettingsData: Codable { let settings: AgentVoiceSettings }
 struct VoiceSpeakData: Codable { let seq: Int }
 struct VoiceSpeakResult: Codable { let seq: Int; let file: ChatFile; let files: [ChatFile]? }
 /// A spoken part of a reply in voice mode, to play at once.
-struct VoiceSegmentData: Codable { let message_id: String; let index: Int; let file: ChatFile; let script: String? }
+struct VoiceSegmentData: Codable {
+    let message_id: String; let index: Int; let file: ChatFile; let script: String?
+    /// A small part's audio itself (base64), so it plays without fetching.
+    let data: String?
+}
+
+/// How long a hands-free turn took on the phone, for the instance's log (docs/voice.md §3).
+struct VoiceTimingData: Codable {
+    let silence_wait: Double; let recognize: Double; let audio_received: Double; let playing: Double; let total: Double
+}
 
 /// Space the files take on a Hermes instance.
 public struct FilesUsage: Codable, Equatable, Sendable {
@@ -883,7 +896,13 @@ public struct ProfileDeleteAckData: Codable, Equatable {
 /// `instance.rename` (Client -> Host) and its result / `instance.changed` (Host -> Client)
 /// (docs/multiple-instances.md).
 struct InstanceRenameData: Codable { let name: String }
-public struct InstanceNameData: Codable, Equatable { public let instance_name: String }
+public struct InstanceNameData: Codable, Equatable {
+    public let instance_name: String
+    /// What the agents call you (docs/your-name.md); absent from older plugins.
+    public let user_name: String?
+}
+struct UserNameSetData: Codable { let name: String }
+struct UserNameData: Codable { let user_name: String }
 
 public struct ProfilesChangedData: Codable, Equatable {
     public let profiles: [ProfileData]

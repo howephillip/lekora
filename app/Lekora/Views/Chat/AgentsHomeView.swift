@@ -16,6 +16,7 @@ public struct AgentsHomeView: View {
     @State private var addingAgentOn: GatewayClient?
     @State private var managingAgentsOn: GatewayClient?
     @State private var showingComputers = false
+    @State private var editingName = false
     @AppStorage("homeLayout") private var layoutChoice = Layout.recent.rawValue
 
     public init(hosts: HostsModel) {
@@ -112,6 +113,9 @@ public struct AgentsHomeView: View {
             .sheet(isPresented: $showingComputers) {
                 ComputersView(hosts: hosts)
             }
+            .sheet(isPresented: $editingName) {
+                YourNameView(hosts: hosts)
+            }
             // A computer just paired (e.g. from a link) whose agents haven't been chosen yet.
             // "Add Hermes Instance" shows this itself.
             .sheet(item: Binding(get: { showingComputers ? nil : hosts.clients.first { $0.needsProfileChoice } },
@@ -195,6 +199,9 @@ public struct AgentsHomeView: View {
                 }
             }
             Divider()
+            Button("Your Name…", systemImage: "person.crop.circle") {
+                editingName = true
+            }
             Button("Hermes Instances…", systemImage: "server.rack") {
                 showingComputers = true
             }

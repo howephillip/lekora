@@ -115,6 +115,14 @@ final class HearingRepliesTests: XCTestCase {
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(gateway.liveSpeech["live-1"]?.count, 1, "the same part only once")
 
+        // A small part comes with its segment: on the phone before it's asked for (no fetch).
+        let small = host.storeFile(Data("ID3 small".utf8), name: "Voice reply part 1.mp3", mime: "audio/mpeg")
+        host.sendVoiceSegment(messageId: "live-3", index: 0, file: small, profile: "default", inline: Data("ID3 small".utf8))
+        let came = await waitUntil { gateway.liveSpeech["live-3"]?.count == 1 }
+        XCTAssertTrue(came)
+        let here = try XCTUnwrap(gateway.liveSpeech["live-3"]?.first.flatMap { gateway.cachedFileURL($0) })
+        XCTAssertEqual(try Data(contentsOf: here), Data("ID3 small".utf8))
+
         try await gateway.setVoiceReplies("always", for: "default")
         XCTAssertEqual(host.voiceSettings["speak"] as? String, "always")
 
