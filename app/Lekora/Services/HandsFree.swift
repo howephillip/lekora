@@ -79,6 +79,12 @@ public struct SpeechDetector {
         return nil
     }
 
+    /// Measure the room again (the microphone's sound just changed).
+    public mutating func remeasure() {
+        reset()
+        measured = false
+    }
+
     /// Start over (e.g. after the agent spoke).
     public mutating func reset() {
         talking = false
@@ -115,6 +121,8 @@ final class HandsFreeMicrophone {
         #endif
         let input = engine.inputNode
         try? input.setVoiceProcessingEnabled(true)  // echo cancellation: it doesn't hear the agent
+        // No automatic volume levelling: it flattens shouting and laughter into ordinary talk.
+        input.isVoiceProcessingAGCEnabled = false
         let format = input.outputFormat(forBus: 0)
         sampleRate = format.sampleRate
         input.removeTap(onBus: 0)
@@ -136,6 +144,14 @@ final class HandsFreeMicrophone {
     }
 
     var isRunning: Bool { engine.isRunning }
+
+    /// While the agent is quiet there's no echo to cancel, and the voice processing's noise
+    /// suppression also takes out laughs, sighs and shouts; so it's set aside until it speaks.
+    func setEchoCancellation(_ on: Bool) {
+        let input = engine.inputNode
+        guard input.isVoiceProcessingEnabled, input.isVoiceProcessingBypassed == on else { return }
+        input.isVoiceProcessingBypassed = !on
+    }
 
     private func handle(_ buffer: AVAudioPCMBuffer, level: Float, duration: TimeInterval) {
         onBuffer?(buffer)
@@ -365,7 +381,9 @@ public final class HandsFreeSession: ObservableObject {
         case failed(String)
     }
 
-    @Published public private(set) var phase: Phase = .starting
+    @Published public private(set) var phase: Phase = .starting {
+        didSet { updateEchoCancellation() }
+    }
     @Published public var muted = false {
         didSet {
             if muted, phase == .hearing { microphone.dropTurn(); phase = .listening }
@@ -401,6 +419,7 @@ public final class HandsFreeSession: ObservableObject {
     private var wordsReady: Date?
     private var sentAt: Date?
     private var audioArrived: Date?
+    private var turnSounds = ""
 
     public init(gateway: GatewayClient) {
         self.gateway = gateway
@@ -532,6 +551,7 @@ public final class HandsFreeSession: ObservableObject {
                 // How it was said: laughs, sighs… where they happened.
                 let heard = await sounds.sounds(since: transcriber.turnStartSeconds)
                 let words = SoundCue.weave(words: pieces, sounds: heard)
+                turnSounds = SoundCue.summary(sounds.peaks(since: transcriber.turnStartSeconds))
                 let tags = Set(heard.map(\.tag)).sorted().joined(separator: " ")
                 HandsFreeLog.log.info("Hands-free turn: sent \(words.count) characters\(tags.isEmpty ? "" : ", heard \(tags)", privacy: .public)")
                 beginWaiting()
@@ -647,10 +667,28 @@ public final class HandsFreeSession: ObservableObject {
             recognize: words.timeIntervalSince(ended),
             audio_received: arrived.timeIntervalSince(sent),
             playing: now.timeIntervalSince(arrived),
-            total: now.timeIntervalSince(ended) + detector.endAfter)
+            total: now.timeIntervalSince(ended) + detector.endAfter,
+            sounds: turnSounds.isEmpty ? nil : turnSounds)
         HandsFreeLog.log.info("Hands-free timing: \(timing.total, format: .fixed(precision: 1), privacy: .public)s from your last word to the first sound")
         gateway.reportVoiceTiming(timing, profileId: gateway.activeProfileId)
         turnEnded = nil
+    }
+
+    private var echoCancelling = true
+
+    /// Echo cancellation only while the agent may be talking (it also removes laughs and shouts).
+    private func updateEchoCancellation() {
+        let needed: Bool
+        switch phase {
+        case .thinking, .speaking: needed = true
+        case .hearing: needed = interrupting || echoCancelling  // never switched mid-turn
+        default: needed = false
+        }
+        guard needed != echoCancelling, microphone.isRunning else { return }
+        echoCancelling = needed
+        microphone.setEchoCancellation(needed)
+        if phase == .listening { detector.remeasure() }  // the room sounds different now
+        HandsFreeLog.log.info("Hands-free: echo cancellation \(needed ? "on" : "off", privacy: .public)")
     }
 
     /// The reply is done: your turn.

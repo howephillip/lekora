@@ -87,4 +87,20 @@ final class HandsFreeLongTurnTests: XCTestCase {
         XCTAssertNil(SoundCue.tags["cough"], "a cough isn't the vibe")
         XCTAssertNil(SoundCue.tags["car_passing_by"])
     }
+
+    func testLaughsAndShoutsNeedLessCertaintyThanSighs() {
+        XCTAssertLessThan(SoundCue.tags["laughter"]!.confidence, SoundCue.tags["sigh"]!.confidence,
+                          "laughing over your words scores lower than a lone sigh")
+        XCTAssertLessThan(SoundCue.tags["shout"]!.confidence, SoundCue.tags["whispering"]!.confidence)
+        XCTAssertEqual(SoundCue.summary(["[sighs]": 0.2, "[laughs]": 0.41]), "[laughs] 0.41, [sighs] 0.20")
+    }
+
+    func testTheRoomIsMeasuredAgainWhenTheMicrophoneChanges() {
+        var detector = SpeechDetector()
+        for _ in 0..<50 { _ = detector.feed(level: -60, duration: 0.02) }
+        detector.remeasure()
+        var events: [SpeechDetector.Event] = []
+        for _ in 0..<100 { if let e = detector.feed(level: -40, duration: 0.02) { events.append(e) } }
+        XCTAssertEqual(events, [], "a louder room after the change isn't talking")
+    }
 }

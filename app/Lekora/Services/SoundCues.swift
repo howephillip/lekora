@@ -7,26 +7,35 @@ import SoundAnalysis
 /// written into what you said where they happened, e.g. "that's hilarious [laughs] okay so…",
 /// so the agent knows how it was said, not just the words.
 public enum SoundCue {
-    /// Apple's sound names → what the agent reads, and how sure the iPhone must be.
+    /// Apple's sound names → what the agent reads, and how sure the iPhone must be. Laughing
+    /// and shouting mixed with talking score much lower than a lone sigh or whisper (owner,
+    /// 2026-11-13: sighs and whispers came through, laughs and shouts didn't), so they need less.
     static let tags: [String: (tag: String, confidence: Double)] = [
-        "laughter": ("[laughs]", 0.6),
-        "belly_laugh": ("[laughs]", 0.6),
-        "giggling": ("[giggles]", 0.6),
-        "snicker": ("[chuckles]", 0.6),
-        "chuckle_chortle": ("[chuckles]", 0.6),
+        "laughter": ("[laughs]", 0.3),
+        "belly_laugh": ("[laughs]", 0.3),
+        "giggling": ("[giggles]", 0.3),
+        "snicker": ("[chuckles]", 0.3),
+        "chuckle_chortle": ("[chuckles]", 0.3),
         "sigh": ("[sighs]", 0.6),
-        "gasp": ("[gasps]", 0.6),
-        "crying_sobbing": ("[crying]", 0.6),
+        "gasp": ("[gasps]", 0.5),
+        "crying_sobbing": ("[crying]", 0.4),
         "whispering": ("[whispering]", 0.75),
-        "shout": ("[shouting]", 0.75),
-        "yell": ("[shouting]", 0.75),
-        "screaming": ("[screams]", 0.75),
-        "singing": ("[singing]", 0.7),
-        "humming": ("[humming]", 0.7),
-        "whistling": ("[whistles]", 0.7),
-        "clapping": ("[claps]", 0.7),
-        "applause": ("[claps]", 0.7),
+        "shout": ("[shouting]", 0.4),
+        "yell": ("[shouting]", 0.4),
+        "screaming": ("[screams]", 0.5),
+        "singing": ("[singing]", 0.5),
+        "humming": ("[humming]", 0.6),
+        "whistling": ("[whistles]", 0.6),
+        "clapping": ("[claps]", 0.5),
+        "applause": ("[claps]", 0.5),
     ]
+
+    /// For the log: the strongest of each sound in a turn, heard or not ("[laughs] 0.24, …"),
+    /// so the bars above can be set from real calls.
+    public static func summary(_ peaks: [String: Double]) -> String {
+        peaks.sorted { $0.value > $1.value }.prefix(5)
+            .map { "\($0.key) \(String(format: "%.2f", $0.value))" }.joined(separator: ", ")
+    }
 
     /// The words of a turn (each piece with where it starts, in seconds) with the sounds heard
     /// woven in by time. The same sound heard in overlapping moments counts once.
@@ -62,6 +71,8 @@ final class SoundListener: NSObject, SNResultsObserving, @unchecked Sendable {
     private var fedSeconds: Double = 0
     private var unavailable = false
     private var heard: [(time: Double, tag: String)] = []
+    /// Every meaningful sound with any real chance, for the log.
+    private var candidates: [(time: Double, tag: String, confidence: Double)] = []
 
     func feed(_ buffer: AVAudioPCMBuffer) {
         queue.async { [self] in
@@ -92,18 +103,20 @@ final class SoundListener: NSObject, SNResultsObserving, @unchecked Sendable {
 
     func request(_ request: SNRequest, didProduce result: SNResult) {
         guard let result = result as? SNClassificationResult else { return }
-        // The likeliest of the sounds that mean something, if the iPhone is sure enough.
-        let best = result.classifications
-            .compactMap { item -> (tag: String, confidence: Double)? in
-                guard let rule = SoundCue.tags[item.identifier], item.confidence >= rule.confidence else { return nil }
-                return (rule.tag, item.confidence)
-            }
-            .max { $0.confidence < $1.confidence }
-        guard let best else { return }
         let time = offset + result.timeRange.start.seconds + result.timeRange.duration.seconds / 2
+        let meaningful = result.classifications.compactMap { item -> (tag: String, confidence: Double, sure: Bool)? in
+            guard let rule = SoundCue.tags[item.identifier], item.confidence >= 0.05 else { return nil }
+            return (rule.tag, item.confidence, item.confidence >= rule.confidence)
+        }
+        // The likeliest of the sounds that mean something, if the iPhone is sure enough.
+        let best = meaningful.filter(\.sure).max { $0.confidence < $1.confidence }
         lock.lock()
-        heard.append((time, best.tag))
-        if heard.count > 200 { heard.removeFirst(heard.count - 200) }
+        candidates += meaningful.map { (time, $0.tag, $0.confidence) }
+        if candidates.count > 600 { candidates.removeFirst(candidates.count - 600) }
+        if let best {
+            heard.append((time, best.tag))
+            if heard.count > 200 { heard.removeFirst(heard.count - 200) }
+        }
         lock.unlock()
     }
 
@@ -113,6 +126,15 @@ final class SoundListener: NSObject, SNResultsObserving, @unchecked Sendable {
             queue.async { done.resume() }
         }
         return lock.withLock { heard.filter { $0.time >= start } }
+    }
+
+    /// The strongest chance of each sound from `start` on (call after `sounds(since:)`).
+    func peaks(since start: Double) -> [String: Double] {
+        lock.withLock {
+            candidates.filter { $0.time >= start }.reduce(into: [:]) { peaks, item in
+                peaks[item.tag] = max(peaks[item.tag] ?? 0, item.confidence)
+            }
+        }
     }
 
     func stop() {

@@ -254,6 +254,13 @@ class VoiceReplies:
             "voice_chars": len(piece),
             "sent_to_phone": round(now - base, 2),
         }
+        if reply.asked is None:
+            # A further message in the same turn (the agent sent more than one): from its start.
+            log.info("Lekora voice timing (%s, a further message): first sentence %ss after it began, "
+                     "voice made in %ss (%d characters), sent %ss after it began",
+                     reply.profile_id, timing["first_sentence"], timing["voice_made"],
+                     timing["voice_chars"], timing["sent_to_phone"])
+            return
         self._timings[reply.profile_id] = timing
         log.info("Lekora voice timing (%s): agent's first words %ss after your message, first sentence "
                  "%ss, voice made in %ss (%d characters), first sound sent %ss after your message",
@@ -267,14 +274,16 @@ class VoiceReplies:
                 return round(float(data[key]), 2)
             except (KeyError, TypeError, ValueError):
                 return None
-        mine = self._timings.get(str(profile_id), {})
+        mine = self._timings.pop(str(profile_id), {})
+        sounds = " ".join(str(data.get("sounds") or "").split())[:200]
         log.info("Lekora hands-free timing (%s): waited for quiet %ss, words ready %ss later, "
                  "on this instance: agent's first words %ss, first sentence %ss, voice made in %ss, "
                  "sent %ss; phone: audio in hand %ss after sending, playing %ss later; "
-                 "from your last word to the agent's first: %ss",
+                 "from your last word to the agent's first: %ss; sounds noticed: %s",
                  profile_id, seconds("silence_wait"), seconds("recognize"),
                  mine.get("agent_first_words"), mine.get("first_sentence"), mine.get("voice_made"),
-                 mine.get("sent_to_phone"), seconds("audio_received"), seconds("playing"), seconds("total"))
+                 mine.get("sent_to_phone"), seconds("audio_received"), seconds("playing"), seconds("total"),
+                 sounds or "none")
 
     async def _speak(self, reply: _Reply, piece: str) -> tuple[str, list[Path]]:
         """The words spoken (the reply's own) and their audio."""

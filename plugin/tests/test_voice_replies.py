@@ -217,7 +217,8 @@ async def test_timings_are_logged_for_the_first_sound_and_the_phones_half(fgw, s
     await until(ws, "voice.segment")
     assert any("voice timing (coder)" in r.getMessage() for r in caplog.records)
     fgw.voice_replies.phone_timing("coder", {"silence_wait": 0.8, "recognize": 0.2, "audio_received": 1.5,
-                                              "playing": 0.1, "total": 3.4})
+                                              "playing": 0.1, "total": 3.4, "sounds": "[laughs] 0.41"})
     line = next(r.getMessage() for r in caplog.records if "hands-free timing (coder)" in r.getMessage())
     assert "waited for quiet 0.8s" in line and "last word to the agent's first: 3.4s" in line
+    assert "sounds noticed: [laughs] 0.41" in line
     await ws.close()
