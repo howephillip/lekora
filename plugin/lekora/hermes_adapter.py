@@ -240,6 +240,27 @@ class LekoraAdapter(BasePlatformAdapter):
                              for key, label, description in entries],
                 "elsewhere": elsewhere}
 
+    def _persona_for(self, profile_id: str, preset: Optional[str] = None) -> str:
+        """Who's speaking, for personality voice. A Hermes personality by name (catgirl, hype…,
+        as listed in the agent's Hermes settings); else the agent's own: its SOUL.md and active
+        personality (or system prompt). Read only."""
+        from gateway.run import _profile_runtime_scope
+        from hermes_cli.config import load_config
+        from hermes_cli.personality import resolve_ephemeral_system_prompt, resolve_personality
+        home = self._profile_home(profile_id)
+        if preset:
+            with _profile_runtime_scope(home, hydrate_secrets=False):
+                return resolve_personality(preset, load_config())[1]
+        parts = []
+        soul = home / "SOUL.md"
+        if soul.is_file():
+            parts.append(soul.read_text(encoding="utf-8", errors="replace")[:6000])
+        with _profile_runtime_scope(home, hydrate_secrets=False):
+            overlay = resolve_ephemeral_system_prompt(load_config())
+        if overlay:
+            parts.append(overlay[:3000])
+        return "\n\n".join(parts)
+
     def _voice_script(self, profile_id: str, text: str, instructions: str) -> str:
         """Personality voice: part of a reply rewritten as a voice script with the user's
         instructions, by the agent's own model through Hermes' auxiliary client (the task Hermes
@@ -300,7 +321,7 @@ class LekoraAdapter(BasePlatformAdapter):
             profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers(),
             commands_provider=self._commands_for, settings_reader=self._settings_for,
             hermes_voice=self._hermes_voice_for, speaker=self._speak_as, rewriter=self._voice_script,
-            tools_reader=self._tools_for)
+            tools_reader=self._tools_for, persona=self._persona_for)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()

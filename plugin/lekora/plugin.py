@@ -125,7 +125,9 @@ class LekoraService:
         speaker: Optional[Callable[[str, str], list[Path]]] = None,
         rewriter: Optional[Callable[[str, str, str], str]] = None,
         tools_reader: Optional[Callable[[str], dict]] = None,
+        persona: Optional[Callable[[str, Optional[str]], str]] = None,
     ) -> None:
+        self._persona = persona  # the agent's own Hermes personality, for personality voice
         self._tools_reader = tools_reader  # an agent's tools in Lekora chats (docs/agent-tools.md)
         self._rewriter = rewriter  # personality voice scripts (docs/voice.md §2)
         # Hermes' own voice per agent (docs/voice.md §2); from the adapter.
@@ -224,7 +226,8 @@ class LekoraService:
                 self._tools_reader, self._run_cli,
                 backup=lambda profile_id: backups.backup(profile_id, _profiles.profile_home(profile_id, root) / "config.yaml"))
         from .voice_replies import VoiceReplies
-        self.gateway.voice_replies = VoiceReplies(self.gateway, self.gateway.voice, self._speaker, self._rewriter)
+        self.gateway.voice_replies = VoiceReplies(self.gateway, self.gateway.voice, self._speaker, self._rewriter,
+                                                  persona=self._persona)
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(

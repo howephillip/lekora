@@ -13,8 +13,8 @@ def test_clean():
     assert clean({}) == DEFAULTS
     assert clean({"speak": "always", "engine": "hermes", "voice": "com.apple.voice.premium.en-US.Zoe", "rate": 7,
                   "style": "personality", "style_instructions": "  Speak like a pirate. "}) == \
-        {"speak": "always", "engine": "hermes", "voice": "com.apple.voice.premium.en-US.Zoe", "rate": 1.0,
-         "style": "personality", "style_instructions": "Speak like a pirate."}
+        dict(DEFAULTS, speak="always", engine="hermes", voice="com.apple.voice.premium.en-US.Zoe", rate=1.0,
+             style="personality", style_instructions="Speak like a pirate.")
     for bad in ({"speak": "loud"}, {"engine": "robot"}, {"rate": "fast"}, {"voice": 3}, "nope",
                 {"style": "opera"}, {"style_instructions": "x" * 4001}):
         with pytest.raises(VoiceError):
@@ -92,3 +92,23 @@ async def test_over_the_connection(fgw, store, file_store, tmp_path):
     assert (await ask(ws, store, "voice.speak", {"seq": mine}, msg_id="u"))["data"]["code"] == "UNKNOWN_MESSAGE"
     await ws.close()
     await other.close()
+
+
+def test_personality_instructions():
+    from lekora.voice_settings import personality_instructions
+    hermes = personality_instructions(dict(DEFAULTS, style="personality"), "Brenda: dry wit, Southern warmth.")
+    assert "Brenda: dry wit" in hermes and "the agent's own, from Hermes" in hermes
+    assert "occasional filler" in hermes and "natural conversational pace" in hermes
+    custom = personality_instructions(dict(DEFAULTS, style_source="custom", style_instructions="A pirate.",
+                                           fillers=2, pauses=2, pace=2), "ignored persona")
+    assert "A pirate." in custom and "ignored persona" not in custom
+    assert "filler words freely" in custom and "Pause often" in custom and "Lively" in custom
+    plain = personality_instructions(dict(DEFAULTS, fillers=0, pauses=0, pace=0), "")
+    assert "no filler words" in plain and "warm, friendly" in plain
+    assert clean({"style_source": "custom", "fillers": 2, "pauses": 0, "pace": 1})["fillers"] == 2
+    preset = personality_instructions(dict(DEFAULTS, style_source="preset", style_preset="catgirl"), "Nya~ playful.")
+    assert "Hermes' \"catgirl\" personality" in preset and "Nya~ playful." in preset
+    for bad in ({"style_source": "robot"}, {"fillers": 3}, {"pace": "fast"}, {"style_source": "preset"},
+                {"style_source": "preset", "style_preset": "a; rm"}):
+        with pytest.raises(VoiceError):
+            clean(bad)

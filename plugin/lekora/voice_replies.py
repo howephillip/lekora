@@ -90,7 +90,9 @@ MIN_PERSONALITY_PIECE = 160   # personality scripts are written a few sentences 
 
 class VoiceReplies:
     def __init__(self, gateway: Any, settings: Any, synthesize: Optional[Synthesize],
-                 rewrite: Optional[Rewrite] = None) -> None:
+                 rewrite: Optional[Rewrite] = None, persona: Optional[Callable[[str, Optional[str]], str]] = None) -> None:
+        # (profile, Hermes personality name or None for the agent's own) -> its text (blocking)
+        self.persona = persona
         self.gateway = gateway
         self.settings = settings          # VoiceSettings
         self.synthesize = synthesize
@@ -126,8 +128,19 @@ class VoiceReplies:
         if settings is None:
             return None
         style = settings.get("style") if settings.get("style") == "personality" and self.rewrite else "tts"
-        from .voice_settings import DEFAULT_STYLE_INSTRUCTIONS
-        reply = _Reply(profile_id, key, style, settings.get("style_instructions") or DEFAULT_STYLE_INSTRUCTIONS)
+        instructions = ""
+        if style == "personality":
+            from .voice_settings import personality_instructions
+            persona = ""
+            source = settings.get("style_source", "hermes")
+            if source in ("hermes", "preset") and self.persona is not None:
+                preset = settings.get("style_preset") if source == "preset" else None
+                try:
+                    persona = await asyncio.to_thread(self.persona, profile_id, preset)
+                except Exception:
+                    log.warning("Lekora: couldn't read %s's Hermes personality", profile_id, exc_info=True)
+            instructions = personality_instructions(settings, persona)
+        reply = _Reply(profile_id, key, style, instructions)
         self._replies[key] = reply
         self._decided[key] = style
         if len(self._decided) > 500:

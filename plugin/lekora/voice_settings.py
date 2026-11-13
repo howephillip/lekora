@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import logging
+import re
 from typing import Any, Callable, Optional
 
 log = logging.getLogger(__name__)
@@ -18,17 +19,54 @@ log = logging.getLogger(__name__)
 SPEAK = ("off", "voice_notes", "always")
 ENGINES = ("iphone", "hermes")
 STYLES = ("tts", "personality")
+# Who's speaking: the agent's own Hermes persona, one of Hermes' personalities (catgirl, hype…),
+# or the user's own words.
+SOURCES = ("hermes", "preset", "custom")
+LEVELS = (0, 1, 2)                  # cadence: fillers, pauses, pace
 DEFAULTS: dict[str, Any] = {"speak": "off", "engine": "iphone", "voice": None, "rate": 0.5,
-                            "style": "tts", "style_instructions": None}
+                            "style": "tts", "style_source": "hermes", "style_preset": None, "style_instructions": None,
+                            "fillers": 1, "pauses": 1, "pace": 1}
 MAX_INSTRUCTIONS = 4000
-# Personality voice (owner's idea, 2026-11-12): how a reply is turned into a voice script before
-# Hermes speaks it. Generic on purpose; users write their own for their voice and provider.
-DEFAULT_STYLE_INSTRUCTIONS = (
-    "Rewrite the reply as natural speech, the way this agent would say it out loud: conversational, "
-    "warm, with contractions and short sentences. Keep every fact and name. Spell out numbers, "
-    "symbols and abbreviations the way they are spoken. Add natural pauses with commas and '…'. "
-    "If the voice understands delivery tags (for example [laughs], [whispers], [excited] or "
-    "(sighs)), use a few where they fit; otherwise use none.")
+
+# Personality voice (owner, 2026-11-12): replies rewritten as natural, characterful speech before
+# Hermes speaks them. Generic on purpose: no user's own scripts or voices are assumed.
+BASE_SPEECH_RULES = (
+    "Write it the way a real person talks, not the way they write: contractions, varied sentence "
+    "lengths, now and then a small restart or self-correction (\"we could — actually, let's…\"), "
+    "natural emphasis. Keep every fact, name and number; spell out numbers, symbols and "
+    "abbreviations as they're spoken. Don't add greetings, sign-offs or new content. If the voice "
+    "understands delivery tags (e.g. [laughs], [whispers], [sighs], (excited)), use a few where "
+    "they fit; otherwise use none.")
+FILLERS = {0: "Use no filler words.",
+           1: "Use an occasional filler word (\"uh\", \"um\", \"like\", \"you know\", \"so\") where a person would naturally pause to think, roughly once every few sentences.",
+           2: "Use filler words freely (\"uh\", \"um\", \"like\", \"you know\", \"I mean\", \"so, yeah\"), the way a relaxed, chatty person talks, but keep it understandable."}
+PAUSES = {0: "Keep pauses few: flowing speech.",
+          1: "Pause naturally: commas, and an ellipsis (…) before a thought or a punchline.",
+          2: "Pause often: ellipses (…), dashes and short beats between thoughts, as if thinking out loud."}
+PACE = {0: "Calm, unhurried delivery: longer, gentle sentences.",
+        1: "A natural conversational pace.",
+        2: "Lively, energetic delivery: short punchy sentences, quick back-and-forth rhythm."}
+# Kept for older settings screens that show a default text.
+DEFAULT_STYLE_INSTRUCTIONS = BASE_SPEECH_RULES
+
+
+def personality_instructions(settings: dict, hermes_persona: str = "") -> str:
+    """What the rewrite is told: the speech rules, who's speaking, and the chosen cadence."""
+    if settings.get("style_source") == "custom" and settings.get("style_instructions"):
+        who = "THE SPEAKER'S PERSONALITY (from the user):\n" + settings["style_instructions"]
+    elif settings.get("style_source") == "preset" and hermes_persona.strip():
+        who = (f"THE SPEAKER'S PERSONALITY (Hermes' \"{settings.get('style_preset')}\" personality):\n"
+               + hermes_persona.strip()[:4000])
+    elif hermes_persona.strip():
+        who = "THE SPEAKER'S PERSONALITY (the agent's own, from Hermes):\n" + hermes_persona.strip()[:4000]
+    else:
+        who = "THE SPEAKER'S PERSONALITY: warm, friendly and natural."
+    cadence = " ".join([FILLERS.get(settings.get("fillers", 1), FILLERS[1]),
+                        PAUSES.get(settings.get("pauses", 1), PAUSES[1]),
+                        PACE.get(settings.get("pace", 1), PACE[1])])
+    return f"{BASE_SPEECH_RULES}\n\n{who}\n\nCADENCE: {cadence}"
+
+
 KEY = "voice"
 
 
@@ -60,6 +98,22 @@ def clean(value: Any) -> dict:
         if value["style"] not in STYLES:
             raise VoiceError("INVALID_SETTING", "Unknown voice style")
         out["style"] = value["style"]
+    if value.get("style_source") is not None:
+        if value["style_source"] not in SOURCES:
+            raise VoiceError("INVALID_SETTING", "Unknown personality choice")
+        out["style_source"] = value["style_source"]
+    preset = value.get("style_preset")
+    if preset is not None:
+        if not isinstance(preset, str) or not re.fullmatch(r"[\w.-]{1,100}", preset):
+            raise VoiceError("INVALID_SETTING", "Unknown personality")
+        out["style_preset"] = preset
+    if out["style_source"] == "preset" and not out["style_preset"]:
+        raise VoiceError("INVALID_SETTING", "Which Hermes personality?")
+    for key in ("fillers", "pauses", "pace"):
+        if value.get(key) is not None:
+            if value[key] not in LEVELS:
+                raise VoiceError("INVALID_SETTING", f"Unknown {key} level")
+            out[key] = value[key]
     instructions = value.get("style_instructions")
     if instructions is not None:
         if not isinstance(instructions, str) or len(instructions) > MAX_INSTRUCTIONS:

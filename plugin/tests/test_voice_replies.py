@@ -30,13 +30,17 @@ def make(fgw, store, file_store, tmp_path, mode="always", available=True, style=
         return [out]
 
     def rewrite(profile, text, instructions):
+        rewrites.append(instructions)
         return f"[warmly] {text}"
+
+    rewrites = []
+    fgw.rewrites = rewrites
 
     settings = VoiceSettings(store, file_store, hermes_voice=lambda p: {"available": available, "provider": "fish"},
                              speak=synthesize)
     settings.set("coder", {"speak": mode, "style": style})
     fgw.voice = settings
-    fgw.voice_replies = VoiceReplies(fgw, settings, synthesize, rewrite)
+    fgw.voice_replies = VoiceReplies(fgw, settings, synthesize, rewrite, persona=lambda p, preset=None: f"Preset {preset}." if preset else "Coder: terse and dry.")
     return spoken
 
 
@@ -101,6 +105,7 @@ async def test_personality_rewrites_then_speaks(fgw, store, file_store, tmp_path
     event = await saved_spoken(store, seq)
     assert all(s.startswith("[warmly] ") for s in spoken), "the voice script, not the plain text"
     assert event.payload["voicing"] == "personality" and event.payload["text"] == LONG, "visible text unchanged"
+    assert "Coder: terse and dry." in fgw.rewrites[0], "sounds like the agent's own Hermes personality"
     await ws.close()
 
 
@@ -164,3 +169,13 @@ async def test_speech_trouble_never_stops_the_reply(fgw, store, file_store, tmp_
     await asyncio.sleep(0.2)
     assert store.get_event(seq).payload.get("spoken") == [], "no audio: the phone shows the text"
     await ws.close()
+
+
+async def test_personality_can_be_one_of_hermes_personalities(fgw, store, file_store, tmp_path):
+    make(fgw, store, file_store, tmp_path, style="personality")
+    fgw.voice.set("coder", {"speak": "always", "style": "personality", "style_source": "preset", "style_preset": "hype",
+                            "fillers": 2})
+    seq = await fgw.publish_message("coder", LONG)
+    await saved_spoken(store, seq)
+    assert "Preset hype." in fgw.rewrites[0] and "Hermes' \"hype\" personality" in fgw.rewrites[0]
+    assert "filler words freely" in fgw.rewrites[0]

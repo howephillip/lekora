@@ -387,7 +387,7 @@ Requests with `profile_id` set, answered with `<type>.result`:
 - `voice.settings.get` `{}` → `{settings: {speak: off|voice_notes|always, engine: iphone|hermes, voice: <iPhone voice id>|null, rate: 0…1}, hermes_voice: {available, provider}}`.
 - `voice.settings.set` `{settings}` → `{settings}`; other phones get `voice.settings.changed` `{settings}`.
 - `voice.speak` `{seq}` (an agent reply) → `{seq, file, files}`: the reply in the agent's Hermes voice (all parts, in order), read with `file.read`.
-- Settings also carry `style: tts|personality` and `style_instructions` (text or null); `voice.settings.get` also returns `default_style_instructions`.
+- Settings also carry `style: tts|personality`, `style_source: hermes|preset|custom`, `style_preset` (a Hermes personality name), `style_instructions` (the user's own, text or null) and `fillers`, `pauses`, `pace` (0–2 each); `voice.settings.get` also returns `default_style_instructions` (the built-in speech rules).
 - Voice mode (`speak` not off, with a Hermes voice): `voice.reply` (Host -> Client) `{message_id, style, problem?}` as soon as a reply is going to be a voice note (and again with `problem` if its audio can't be played on iPhone); `voice.segment` `{message_id, index, file}` for each spoken part as it's made. `message_id` is the live draft id, or the saved message's `voice_key`. The saved `chat.message` carries `voicing` (style) from the start, then `spoken: [file…]` (and `voice_problem`) when done.
 - Errors: `INVALID_SETTING`, `VOICE_UNAVAILABLE`, `UNKNOWN_MESSAGE`.
 

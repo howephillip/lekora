@@ -285,14 +285,16 @@ struct ChatSettingsView: View {
                 }
                 if voice.style == "personality" {
                     NavigationLink {
-                        PersonalityInstructionsView(agentName: agentName, text: voice.style_instructions,
-                                                    defaultText: gateway.defaultStyleInstructions ?? "") { value in
-                            changeVoice { $0.style_instructions = value }
+                        PersonalityVoiceView(agentName: agentName, settings: voice,
+                                             presets: settings?.personality?.options.map(\.name) ?? []) { updated in
+                            changeVoice { $0 = updated }
                         }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Personality Instructions")
-                            Text(voice.style_instructions == nil ? "Default" : "Your own")
+                            Text("Voice Personality")
+                            Text(voice.style_source == "custom" ? "My own"
+                                 : voice.style_source == "preset" ? (voice.style_preset ?? "").capitalized
+                                 : "\(agentName)'s own")
                                 .font(LK.Typography.footnote).foregroundStyle(.secondary)
                         }
                     }

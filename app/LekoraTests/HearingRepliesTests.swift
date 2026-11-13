@@ -47,6 +47,12 @@ final class HearingRepliesTests: XCTestCase {
     func testOlderSettingsAndVoiceRepliesDecode() throws {
         let old = try JSONDecoder().decode(AgentVoiceSettings.self, from: Data(#"{"speak":"always","engine":"iphone","rate":0.5}"#.utf8))
         XCTAssertEqual(old.style, "tts", "hosts from before voice styles")
+        XCTAssertEqual(old.style_source, "hermes")
+        XCTAssertEqual(old.fillers, 1)
+        let preset = try JSONDecoder().decode(AgentVoiceSettings.self, from: Data(
+            #"{"speak":"always","style":"personality","style_source":"preset","style_preset":"hype","fillers":2,"pauses":0,"pace":2}"#.utf8))
+        XCTAssertEqual(preset.style_preset, "hype")
+        XCTAssertEqual(preset.pace, 2)
         let json = #"{"seq":3,"role":"assistant","text":"Hi.","voicing":"personality","voice_key":"reply-1","voice_problem":"no ffmpeg"}"#
         let message = try JSONDecoder().decode(ChatMessageData.self, from: Data(json.utf8))
         var timeline = ChatTimeline()

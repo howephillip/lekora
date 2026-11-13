@@ -83,46 +83,124 @@ struct AgentToolsView: View {
     }
 }
 
-/// How a personality voice turns a reply into a voice script (docs/voice.md §2).
-struct PersonalityInstructionsView: View {
+/// Personality voice (docs/voice.md §2): who's speaking (the agent's own Hermes personality, or
+/// the user's own words) and how they talk: filler words, pauses, pace.
+struct PersonalityVoiceView: View {
     let agentName: String
-    let defaultText: String
-    let save: (String?) -> Void
-    @State private var draft: String
-    @Environment(\.dismiss) private var dismiss
+    /// Hermes' personalities for this agent (catgirl, helpful, hype…), from its Hermes settings.
+    let presets: [String]
+    let save: (AgentVoiceSettings) -> Void
+    @State private var settings: AgentVoiceSettings
+    @State private var custom: String
 
-    init(agentName: String, text: String?, defaultText: String, save: @escaping (String?) -> Void) {
+    init(agentName: String, settings: AgentVoiceSettings, presets: [String], save: @escaping (AgentVoiceSettings) -> Void) {
         self.agentName = agentName
-        self.defaultText = defaultText
+        self.presets = presets
         self.save = save
-        _draft = State(initialValue: text ?? defaultText)
+        _settings = State(initialValue: settings)
+        _custom = State(initialValue: settings.style_instructions ?? "")
     }
 
     var body: some View {
         Form {
             Section {
-                TextEditor(text: $draft)
-                    .frame(minHeight: 220)
-                    .font(LK.Typography.body)
-            } footer: {
-                Text("Before \(agentName)'s Hermes voice speaks a reply, it's rewritten as a voice script with these instructions: how \(agentName) sounds, and which delivery tags your voice understands (for example [laughs] or (whispers)). The reply you read stays as written. Uses \(agentName)'s model through Hermes, like Hermes' own audio-tag option.")
+                choice("\(agentName)'s Own", detail: "As set up in Hermes: its persona and personality", source: "hermes", preset: nil)
+                choice("My Own", detail: "Write the personality yourself", source: "custom", preset: nil)
+            } header: {
+                Text("Who's Speaking")
+            }
+            if !presets.isEmpty {
+                Section {
+                    ForEach(presets, id: \.self) { name in
+                        choice(name.capitalized, detail: nil, source: "preset", preset: name)
+                    }
+                } header: {
+                    Text("Hermes Personalities")
+                } footer: {
+                    Text("Only changes how \(agentName) sounds, not how it writes.")
+                }
+            }
+            if settings.style_source == "custom" {
+                Section {
+                    TextEditor(text: $custom)
+                        .frame(minHeight: 160)
+                        .overlay(alignment: .topLeading) {
+                            if custom.isEmpty {
+                                Text("e.g. A laid-back surfer who laughs easily and says \"dude\" a lot.")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                } header: {
+                    Text("Your Personality")
+                } footer: {
+                    Text("Describe how \(agentName) should sound: character, attitude, accent, catchphrases, and any delivery tags your voice understands (like [laughs] or (whispers)). Saved when you leave this screen.")
+                }
             }
             Section {
-                Button("Use the Default") { draft = defaultText }
+                level("Filler Words", \.fillers, ["None", "Some", "Lots"])
+                level("Pauses", \.pauses, ["Few", "Natural", "Lots"])
+                level("Pace", \.pace, ["Calm", "Natural", "Lively"])
+            } header: {
+                Text("Cadence")
+            } footer: {
+                Text("Filler words are the \"uh\", \"um\", \"like\" and \"you know\" of real speech; pauses are the beats between thoughts.\n\nBefore \(agentName)'s Hermes voice speaks, each part of a reply is rewritten as natural speech this way, by \(agentName)'s model through Hermes (like Hermes' own audio-tag option, so it uses that model's tokens). The reply you read stays as written.")
             }
         }
-        .navigationTitle("Personality Voice")
+        .navigationTitle("Voice Personality")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    save(trimmed.isEmpty || trimmed == defaultText ? nil : trimmed)
-                    dismiss()
+        .onDisappear(perform: commit)
+    }
+
+    private func choice(_ title: String, detail: String?, source: String, preset: String?) -> some View {
+        Button {
+            settings.style_source = source
+            settings.style_preset = preset
+            commit()
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).foregroundStyle(.primary)
+                    if let detail { Text(detail).font(LK.Typography.caption).foregroundStyle(.secondary) }
+                }
+                Spacer()
+                if settings.style_source == source && settings.style_preset == preset {
+                    Image(systemName: "checkmark").foregroundStyle(LK.Palette.accent).fontWeight(.semibold)
                 }
             }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func binding<T>(_ key: WritableKeyPath<AgentVoiceSettings, T>) -> Binding<T> {
+        Binding(get: { settings[keyPath: key] }, set: { settings[keyPath: key] = $0; commit() })
+    }
+
+    private func level(_ title: String, _ key: WritableKeyPath<AgentVoiceSettings, Int>, _ names: [String]) -> some View {
+        VStack(alignment: .leading, spacing: LK.Spacing.xs) {
+            Text(title)
+            Picker(title, selection: binding(key)) {
+                ForEach(names.indices, id: \.self) { Text(names[$0]).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
         }
     }
+
+    /// Saved when a choice changes, and the text when leaving.
+    private func commit() {
+        var updated = settings
+        let trimmed = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.style_instructions = trimmed.isEmpty ? nil : trimmed
+        guard updated != lastSaved else { return }
+        lastSaved = updated
+        save(updated)
+    }
+
+    @State private var lastSaved: AgentVoiceSettings?
 }

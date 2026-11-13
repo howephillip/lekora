@@ -235,11 +235,25 @@ public struct AgentVoiceSettings: Codable, Equatable, Sendable {
     public var rate: Double
     /// Voice replies: tts (the reply as written) | personality (rewritten as a voice script).
     public var style: String
-    /// Personality voice: how to turn a reply into a voice script; nil = the default.
+    /// Personality voice: hermes (the agent's own Hermes persona) | preset (one of Hermes'
+    /// personalities, `style_preset`) | custom (the user's words).
+    public var style_source: String
+    public var style_preset: String?
+    /// Personality voice: the user's own personality, when `style_source` is custom.
     public var style_instructions: String?
+    /// Personality voice cadence, each 0…2: filler words, pauses, pace.
+    public var fillers: Int
+    public var pauses: Int
+    public var pace: Int
 
     public init(speak: String = "off", engine: String = "iphone", voice: String? = nil, rate: Double = 0.5,
-                style: String = "tts", style_instructions: String? = nil) {
+                style: String = "tts", style_source: String = "hermes", style_preset: String? = nil,
+                style_instructions: String? = nil, fillers: Int = 1, pauses: Int = 1, pace: Int = 1) {
+        self.style_source = style_source
+        self.style_preset = style_preset
+        self.fillers = fillers
+        self.pauses = pauses
+        self.pace = pace
         self.speak = speak
         self.engine = engine
         self.voice = voice
@@ -257,6 +271,11 @@ public struct AgentVoiceSettings: Codable, Equatable, Sendable {
         rate = try c.decodeIfPresent(Double.self, forKey: .rate) ?? 0.5
         style = try c.decodeIfPresent(String.self, forKey: .style) ?? "tts"
         style_instructions = try c.decodeIfPresent(String.self, forKey: .style_instructions)
+        style_source = try c.decodeIfPresent(String.self, forKey: .style_source) ?? "hermes"
+        style_preset = try c.decodeIfPresent(String.self, forKey: .style_preset)
+        fillers = try c.decodeIfPresent(Int.self, forKey: .fillers) ?? 1
+        pauses = try c.decodeIfPresent(Int.self, forKey: .pauses) ?? 1
+        pace = try c.decodeIfPresent(Int.self, forKey: .pace) ?? 1
     }
 
     public static let standard = AgentVoiceSettings()
