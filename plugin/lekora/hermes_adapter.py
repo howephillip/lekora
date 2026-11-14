@@ -333,7 +333,8 @@ class LekoraAdapter(BasePlatformAdapter):
 
     # -- AgentBridge: phone -> agent -----------------------------------------
     async def deliver_to_agent(self, profile_id: str, text: str, message_id: str,
-                               files: Optional[list[dict]] = None, instructions: Optional[str] = None) -> None:
+                               files: Optional[list[dict]] = None, instructions: Optional[str] = None,
+                               spoken: bool = False) -> None:
         if not self._message_handler:
             return
         # Routes were refreshed when the gateway checked this profile (offered_profiles),
@@ -343,7 +344,9 @@ class LekoraAdapter(BasePlatformAdapter):
             user_id="lekora-owner", user_name=self._user_name())
         check_routed(source, profile_id)
         event = MessageEvent(
-            text=text, message_type=MessageType.TEXT, source=source,
+            # Said aloud in a hands-free call: a voice turn, as Hermes treats a voice message
+            # (it may run on the agent's voice-chat model, `auxiliary.voice_chat`; docs/voice.md §3).
+            text=text, message_type=MessageType.VOICE if spoken else MessageType.TEXT, source=source,
             message_id=message_id, timestamp=datetime.datetime.now())
         if instructions:
             # Personality voice: Hermes' own per-chat instruction for this turn (its system prompt,

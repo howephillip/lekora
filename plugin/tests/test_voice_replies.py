@@ -249,3 +249,16 @@ async def test_phones_learn_a_reply_is_voice_before_its_first_words(fgw, store, 
             order.append(msg["type"])
     assert order == ["voice.reply", "chat.draft"], "never words first (the phone would read them aloud)"
     await ws.close()
+
+
+async def test_words_said_in_a_call_reach_hermes_as_a_voice_turn(fgw, store, file_store, tmp_path):
+    make(fgw, store, file_store, tmp_path)
+    ws = await phone(fgw, store)
+    await ws.send(env(store, "chat.send", {"text": "what's on today", "hands_free": True}, profile_id="coder"))
+    await ws.send(env(store, "chat.send", {"text": "typed"}, profile_id="coder"))
+    for _ in range(100):
+        if len(fgw.spoken) == 2:
+            break
+        await asyncio.sleep(0.02)
+    assert fgw.spoken == [True, False], "spoken in a call: Hermes' own voice turn; typed: as before"
+    await ws.close()

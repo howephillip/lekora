@@ -21,6 +21,7 @@ public struct WalkingSkeletonPingView: View {
     /// Whether the user is scrolling (dragging or coasting), as opposed to layout or code
     /// moving the list: only the user's scrolling loads older messages.
     @State private var userIsScrolling = false
+    @State private var jumpTask: Task<Void, Never>?
     /// Set while a page of older messages loads and the list settles: no further loads,
     /// or the next page would start before this one is back in place.
     @State private var pageInFlight = false
@@ -131,8 +132,7 @@ public struct WalkingSkeletonPingView: View {
             .overlay(alignment: .bottomTrailing) {
                 if !isAtBottom {
                     Button {
-                        isAtBottom = true
-                        scrollToBottom(animated: true)
+                        jumpToNewest()
                     } label: {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 15, weight: .semibold))
@@ -913,6 +913,29 @@ public struct WalkingSkeletonPingView: View {
                     }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { pageInFlight = false }
+            }
+        }
+    }
+
+    /// The "newest message" button. It often didn't move (owner, 2026-11-13): iOS ignores
+    /// scrolling while the list is still coasting from a flick, and in a long chat the list only
+    /// knows rough heights for bubbles it hasn't drawn, so one jump can stop short. So: stop the
+    /// coasting, then jump to the end again until it really is at the bottom.
+    private func jumpToNewest() {
+        jumpTask?.cancel()
+        jumpTask = Task { @MainActor in
+            for attempt in 0..<6 {
+                if attempt > 0 || userIsScrolling {
+                    // A fresh position takes over from the coasting (and from a stale one).
+                    scrollPosition = ScrollPosition(edge: .bottom)
+                }
+                if attempt == 0 {
+                    withAnimation(.easeOut(duration: 0.25)) { scrollPosition.scrollTo(edge: .bottom) }
+                } else {
+                    scrollPosition.scrollTo(edge: .bottom)
+                }
+                try? await Task.sleep(nanoseconds: attempt == 0 ? 300_000_000 : 120_000_000)
+                if Task.isCancelled || (isAtBottom && !userIsScrolling) { return }
             }
         }
     }

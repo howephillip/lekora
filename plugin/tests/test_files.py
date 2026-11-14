@@ -25,12 +25,14 @@ async def fgw(store, file_store):
     """A gateway with files, whose stand-in Hermes records what it was given."""
     got = []
 
-    async def dispatch(profile_id, text, message_id, files=None, instructions=None):
+    async def dispatch(profile_id, text, message_id, files=None, instructions=None, spoken=False):
         got.append((profile_id, text, files, instructions))
+        g.spoken.append(spoken)
 
     g = Gateway(store, dispatch, lambda: PROFILES, host="127.0.0.1", auth_timeout=0.4)
     g.files = file_store
     g.received = got
+    g.spoken = []
     await g.start()
     yield g
     await g.stop()

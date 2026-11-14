@@ -636,7 +636,8 @@ class Gateway:
             self._awaiting_transcript[profile_id] = seq
         if self.voice_replies is not None:
             self.voice_replies.user_message(profile_id, bool(voice), bool(data.get("hands_free")))
-        task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments))
+        task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments,
+                                                      spoken=bool(data.get("hands_free")) and not voice))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -1020,11 +1021,15 @@ class Gateway:
                 await self._send(conn, payload)
 
     async def _run_dispatch(self, conn: _Conn, msg_id: Optional[str],
-                            profile_id: str, text: str, files: Optional[list] = None) -> None:
+                            profile_id: str, text: str, files: Optional[list] = None,
+                            spoken: bool = False) -> None:
         try:
             extra: dict[str, Any] = {}
             if files:  # only when needed: bridges from before take (profile, text, id)
                 extra["files"] = files
+            if spoken:
+                # Said aloud in a call (recognised on the phone): Hermes' own voice turn.
+                extra["spoken"] = True
             if self.voice_replies is not None:
                 try:
                     instructions = await self.voice_replies.turn_instructions(profile_id)
