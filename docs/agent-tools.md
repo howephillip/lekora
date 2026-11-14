@@ -22,3 +22,6 @@ That brief attributes `platform_toolsets.api_server` / `known_builtin_toolsets.a
 
 ## Tests
 `plugin/tests/test_agent_tools.py`: changes go through Hermes after a backup and only for the `lekora` platform; nothing to change writes nothing; a change that didn't stick is reported; unknown toolsets and failed backups change nothing; the requests over the connection. App: `HearingRepliesTests` (tools get and set).
+
+## Fix (owner, 2026-11-13): tools for every agent
+Tools couldn't be turned on for any agent but the default one. Hermes' `hermes -p <agent> tools …` command only knows the "lekora" platform in profiles where the Lekora plugin is switched on, which is only the default profile (it answered "Unknown platform 'lekora'"). The plugin now saves with Hermes' own tools code instead (the same save that command makes: `platform_toolsets.lekora` in that agent's `config.yaml`, after the same backup), which works for every agent (rule 5). Checked on the owner's Pi against a copy of Carl's settings.

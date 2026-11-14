@@ -3,9 +3,11 @@
 Lekora chats are their own Hermes platform ("lekora"). Until a list is saved for it, Hermes gives
 them its default bundle, which leaves out default-off toolsets such as the task board (kanban);
 an agent's choices for Telegram or the CLI don't carry over. This shows the agent's Lekora tools
-and changes them with Hermes' own command (``hermes -p <agent> tools enable|disable … --platform
-lekora``), which only writes ``platform_toolsets.lekora`` (Lekora's own platform entry) — after a
-backup of the agent's config (rule 8). Nothing else in Hermes' config is touched.
+and changes them with Hermes' own tools code (the same save as ``hermes tools enable|disable
+--platform``), which writes ``platform_toolsets.lekora`` (Lekora's own platform entry) — after a
+backup of the agent's config (rule 8). Not the ``hermes -p <agent> tools`` command itself: it only
+knows the "lekora" platform in profiles where the Lekora plugin is switched on, which is just the
+default one (owner, 2026-11-13: tools couldn't be enabled for any other agent).
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional, Sequence
+from typing import Any, Callable, Optional
 
 log = logging.getLogger(__name__)
 
@@ -27,10 +29,10 @@ class ToolsError(Exception):
 
 
 class AgentTools:
-    def __init__(self, read: Callable[[str], dict], run_cli: Callable[[Sequence[str]], Awaitable[tuple[int, str]]],
+    def __init__(self, read: Callable[[str], dict], write: Callable[[str, list, list], None],
                  backup: Callable[[str], Optional[Path]]) -> None:
         self._read = read          # profile -> {toolsets: [{key, label, description, enabled}], elsewhere: {platform: [keys]}}
-        self._run = run_cli
+        self._write = write        # (profile, enable, disable) -> None, Hermes' own save (blocking)
         self._backup = backup      # profile -> backup of its config.yaml
         self._lock = asyncio.Lock()
 
@@ -55,13 +57,10 @@ class AgentTools:
                 await asyncio.to_thread(self._backup, profile_id)
             except Exception as exc:
                 raise ToolsError("BACKUP_FAILED", f"Couldn't back up {profile_id}'s settings, so nothing changed: {exc}")
-            for action, keys in (("enable", enable), ("disable", disable)):
-                if not keys:
-                    continue
-                code, output = await self._run(["-p", profile_id, "tools", action, *keys, "--platform", PLATFORM])
-                if code != 0:
-                    raise ToolsError("TOOLS_FAILED", f"Hermes couldn't {action} {', '.join(keys)}: "
-                                     + (output.strip().splitlines() or ["no details"])[-1])
+            try:
+                await asyncio.to_thread(self._write, profile_id, enable, disable)
+            except Exception as exc:
+                raise ToolsError("TOOLS_FAILED", f"Hermes couldn't change {profile_id}'s tools: {exc}")
             after = await self.get(profile_id)
             # Read back what Hermes now resolves, not the file: say so if a change didn't stick.
             state = {t["key"]: t["enabled"] for t in after.get("toolsets", [])}

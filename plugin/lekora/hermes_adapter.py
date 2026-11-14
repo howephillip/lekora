@@ -295,6 +295,17 @@ class LekoraAdapter(BasePlatformAdapter):
                              for key, label, description in entries],
                 "elsewhere": elsewhere}
 
+    def _set_tools_for(self, profile_id: str, enable: list, disable: list) -> None:
+        """Changes the agent's tools in Lekora chats with Hermes' own save (as `hermes tools
+        enable|disable --platform lekora` does), in that agent's settings. The caller backs up first."""
+        from gateway.run import _profile_runtime_scope
+        from hermes_cli.config import load_config
+        from hermes_cli.tools_config import _get_platform_tools, _save_platform_tools
+        with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=False):
+            config = load_config()
+            current = _get_platform_tools(config, PLATFORM_NAME, include_default_mcp_servers=False)
+            _save_platform_tools(config, PLATFORM_NAME, (set(current) | set(enable)) - set(disable))
+
     def _persona_for(self, profile_id: str, preset: Optional[str] = None) -> str:
         """Who's speaking, for personality voice. A Hermes personality by name (catgirl, hype…,
         as listed in the agent's Hermes settings); else the agent's own: its SOUL.md and active
@@ -363,7 +374,7 @@ class LekoraAdapter(BasePlatformAdapter):
             profiles_provider=self.offered_profiles, resolvers=_hermes_resolvers(),
             commands_provider=self._commands_for, settings_reader=self._settings_for,
             hermes_voice=self._hermes_voice_for, speaker=self._speak_as,
-            tools_reader=self._tools_for, persona=self._persona_for,
+            tools_reader=self._tools_for, tools_writer=self._set_tools_for, persona=self._persona_for,
             hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:

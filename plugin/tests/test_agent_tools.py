@@ -20,16 +20,15 @@ class FakeHermesTools:
                              for k in ("web", "terminal", "file", "kanban", "tts")],
                 "elsewhere": {"telegram": ["kanban", "terminal", "web"]}}
 
-    async def run(self, args):
-        self.runs.append(list(args))
-        _, profile, _, action, *rest = args
-        keys = rest[:rest.index("--platform")]
-        assert rest[rest.index("--platform") + 1] == "lekora", "only Lekora's own platform entry"
-        for key in keys:
-            if key in self.ignore:
-                continue
-            (self.enabled.add if action == "enable" else self.enabled.discard)(key)
-        return 0, "ok"
+    def run(self, profile, enable, disable):
+        """Hermes' own save for Lekora's platform entry, in the agent's settings."""
+        self.runs.append((profile, list(enable), list(disable)))
+        for key in enable:
+            if key not in self.ignore:
+                self.enabled.add(key)
+        for key in disable:
+            if key not in self.ignore:
+                self.enabled.discard(key)
 
     def backup(self, profile):
         self.backups.append(profile)
@@ -40,8 +39,7 @@ async def test_changes_go_through_hermes_after_a_backup():
     tools = AgentTools(hermes.read, hermes.run, hermes.backup)
     after = await tools.set("brenda", {"kanban": True, "tts": True, "file": False, "web": True})
     assert hermes.backups == ["brenda"]
-    assert hermes.runs == [["-p", "brenda", "tools", "enable", "kanban", "tts", "--platform", "lekora"],
-                           ["-p", "brenda", "tools", "disable", "file", "--platform", "lekora"]]
+    assert hermes.runs == [("brenda", ["kanban", "tts"], ["file"])], "any agent, not only the default one"
     state = {t["key"]: t["enabled"] for t in after["toolsets"]}
     assert state["kanban"] and state["tts"] and not state["file"] and "problem" not in after
 

@@ -125,6 +125,7 @@ class LekoraService:
         hermes_voice: Optional[Callable[[str], dict]] = None,
         speaker: Optional[Callable[[str, str], list[Path]]] = None,
         tools_reader: Optional[Callable[[str], dict]] = None,
+        tools_writer: Optional[Callable[[str, list, list], None]] = None,
         persona: Optional[Callable[[str, Optional[str]], str]] = None,
         hermes_streamer: Optional[Callable[[str], Any]] = None,
         env_value: Optional[Callable[[str, tuple], Any]] = None,
@@ -134,6 +135,7 @@ class LekoraService:
         self._env_value = env_value
         self._persona = persona  # the agent's own Hermes personality, for personality voice
         self._tools_reader = tools_reader  # an agent's tools in Lekora chats (docs/agent-tools.md)
+        self._tools_writer = tools_writer
         # Hermes' own voice per agent (docs/voice.md §2); from the adapter.
         self._hermes_voice = hermes_voice
         self._speaker = speaker
@@ -221,13 +223,13 @@ class LekoraService:
         self.gateway.voice = VoiceSettings(self._store, self.gateway.files,
                                            **({"hermes_voice": self._hermes_voice} if self._hermes_voice else {}),
                                            speak=self._speaker)
-        if self._tools_reader is not None:
+        if self._tools_reader is not None and self._tools_writer is not None:
             from .agent_tools import AgentTools
             from .routing_config import RoutingConfig
             root = Path(self.config.hermes_root) if self.config.hermes_root else _profiles.hermes_root()
             backups = RoutingConfig(root / "lekora-backups" / "config")
             self.gateway.tools = AgentTools(
-                self._tools_reader, self._run_cli,
+                self._tools_reader, self._tools_writer,
                 backup=lambda profile_id: backups.backup(profile_id, _profiles.profile_home(profile_id, root) / "config.yaml"))
         from .voice_replies import VoiceReplies
         from .direct_voice import DirectVoice
