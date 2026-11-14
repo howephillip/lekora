@@ -429,6 +429,8 @@ public final class HandsFreeSession: ObservableObject {
 
     public init(gateway: GatewayClient) {
         self.gateway = gateway
+        player.belongsToCall = true
+        speaker.belongsToCall = true
     }
 
     /// A diagnostics line (never your words): on the iPhone's log and the Hermes instance's, so
@@ -442,6 +444,8 @@ public final class HandsFreeSession: ObservableObject {
     private var lastLevelNote: TimeInterval = 0
 
     public func start() async {
+        // From the first moment: everything else goes quiet (a voice note still loading too).
+        AudioSessionOwner.handsFree = true
         guard await AVAudioApplication.requestRecordPermission() else {
             phase = .failed("Lekora needs the microphone for hands-free. You can allow it in Settings › Lekora.")
             return

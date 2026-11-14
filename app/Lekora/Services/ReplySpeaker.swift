@@ -67,9 +67,20 @@ public final class ReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizer
     private var voice: AVSpeechSynthesisVoice?
     private var rate: Float = AVSpeechUtteranceDefaultSpeechRate
 
+    /// The call's own speaker (it speaks during a call; every other one stays quiet).
+    public var belongsToCall = false
+    private var callObserver: NSObjectProtocol?
+
     public override init() {
         super.init()
         synthesizer.delegate = self
+        callObserver = NotificationCenter.default.addObserver(forName: AudioSessionOwner.callStarted, object: nil,
+                                                              queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.belongsToCall else { return }
+                self.stop()
+            }
+        }
     }
 
     /// The whole reply, from the start (the Listen button).
@@ -82,6 +93,7 @@ public final class ReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizer
 
     /// A reply as it's written: says each sentence once it's complete, the rest when `final`.
     public func follow(id: String, text: String, final: Bool, settings: AgentVoiceSettings) {
+        guard belongsToCall || !AudioSessionOwner.handsFree else { return }
         if speakingId != id {
             guard speakingId == nil || !synthesizer.isSpeaking else {
                 // Another reply is still being spoken: this one starts after it.

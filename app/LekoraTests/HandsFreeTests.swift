@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import Lekora
 
 /// Hands-free conversation (docs/voice.md §3).
@@ -109,5 +110,28 @@ final class HandsFreeLongTurnTests: XCTestCase {
         XCTAssertEqual(EchoFilter.fresh(heard: "ramen for two", agent: agent), 0, "its own words")
         XCTAssertEqual(EchoFilter.fresh(heard: "uh", agent: agent), 1, "a stray sound read as a word")
         XCTAssertGreaterThanOrEqual(EchoFilter.fresh(heard: "wait, stop, make it eight", agent: agent), 2, "you talking over it")
+    }
+
+    /// During a call only the call's own players sound (owner, 2026-11-13).
+    @MainActor
+    func testOtherPlayersStayQuietDuringACall() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lk-beep-\(UUID().uuidString).wav")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000))
+        buffer.frameLength = 16_000
+        try file.write(from: buffer)
+        defer { try? FileManager.default.removeItem(at: url); AudioSessionOwner.handsFree = false }
+
+        let chat = VoicePlayer()
+        let call = VoicePlayer()
+        call.belongsToCall = true
+        chat.play(id: "note", url: url, from: 0)  // (whether it sounds here depends on the test machine)
+        AudioSessionOwner.handsFree = true
+        XCTAssertFalse(chat.isPlaying, "the call starting stops it")
+        chat.play(id: "note", url: url, from: 0)
+        XCTAssertFalse(chat.isPlaying, "and it can't start again during the call (e.g. a note that just loaded)")
+        XCTAssertNil(chat.currentId, "nothing of the note is left to resume")
+        XCTAssertTrue(call.belongsToCall)
     }
 }

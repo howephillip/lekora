@@ -6,7 +6,14 @@ import Combine
 /// (microphone and speaker together, with echo cancellation), so playing doesn't switch it.
 @MainActor
 public enum AudioSessionOwner {
-    public static var handsFree = false
+    /// A call is on: only the call's own players make sound (owner, 2026-11-13: a voice note
+    /// that was playing went on under the call). Turning it on stops every other player.
+    public static var handsFree = false {
+        didSet {
+            if handsFree, !oldValue { NotificationCenter.default.post(name: callStarted, object: nil) }
+        }
+    }
+    public static let callStarted = Notification.Name("LekoraCallStarted")
 }
 
 /// Recording voice notes and playing them back (docs/voice.md).
@@ -208,7 +215,20 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
     /// Waiting for the next part of a reply still being spoken.
     private var waiting = false
 
-    public override init() {}
+    /// The call's own player (it plays during a call; every other one stays quiet).
+    public var belongsToCall = false
+    private var callObserver: NSObjectProtocol?
+
+    public override init() {
+        super.init()
+        callObserver = NotificationCenter.default.addObserver(forName: AudioSessionOwner.callStarted, object: nil,
+                                                              queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.belongsToCall else { return }
+                self.stop()
+            }
+        }
+    }
 
     private var total: TimeInterval { lengths.reduce(0, +) }
 
@@ -230,6 +250,7 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     public func play(id: String, urls: [URL], from fraction: Double) {
         stop()
+        guard belongsToCall || !AudioSessionOwner.handsFree else { return }  // a call is on
         parts = urls
         lengths = urls.map { Self.length(of: $0) }
         currentId = id
@@ -310,6 +331,11 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     private func resume() {
+        // During a call nothing else plays, even a note that finished loading just now.
+        if AudioSessionOwner.handsFree, !belongsToCall {
+            isPlaying = false
+            return
+        }
         guard let player, player.play() else {
             isPlaying = false
             if player != nil { failedId = currentId }
