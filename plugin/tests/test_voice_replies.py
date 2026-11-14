@@ -261,4 +261,8 @@ async def test_words_said_in_a_call_reach_hermes_as_a_voice_turn(fgw, store, fil
             break
         await asyncio.sleep(0.02)
     assert fgw.spoken == [True, False], "spoken in a call: Hermes' own voice turn; typed: as before"
+    from lekora.voice_replies import CALL_NOTE
+    in_call, typed = fgw.received[-2][3], fgw.received[-1][3]
+    assert in_call.startswith(CALL_NOTE) and "background" in in_call, "a call says it's a call"
+    assert typed is None, "nothing added outside a call (rule 7)"
     await ws.close()

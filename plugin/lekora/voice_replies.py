@@ -97,6 +97,23 @@ class _Reply:
 # (profile, text) -> audio files, in order (blocking; Hermes' own text_to_speech)
 Synthesize = Callable[[str, str], list[Path]]
 
+# Hands-free call (owner, 2026-11-13: "the agent doesn't know it's in a call", long tasks stalled
+# the conversation). Passed only for words said in a call, as Hermes' per-turn chat instruction
+# (MessageEvent.channel_prompt, never the message), like Hermes' own note for its live voice
+# conversations (tools/voice_live.py), adapted: here the agent's own words are spoken. AGENTS.md
+# rule 7 exception (owner, 2026-11-13).
+CALL_NOTE = (
+    "[This message was spoken in a live voice call: it is a transcript recognised on the phone, "
+    "so it may contain mis-hearings, hesitations and later corrections; use the latest intent. "
+    "Your reply is spoken aloud as you write it: answer in plain conversational sentences, keep it "
+    "short (a few sentences unless the user asked for detail), no markdown, no lists, no code "
+    "blocks, no URLs read out. Keep the conversation flowing: if a request needs longer work "
+    "(research, several tool calls, anything that takes more than a few seconds), say briefly "
+    "that you're on it and hand it to a background task (delegate_task with background=true, if "
+    "you have that tool), then keep talking; share the result when it comes back. Do not guess a "
+    "result while waiting, and do not claim an action succeeded before it actually did.]"
+)
+
 MIN_TTS_PIECE = 40            # very short sentences are spoken with the next (less choppy)
 MIN_PERSONALITY_PIECE = MIN_TTS_PIECE
 # Small voice parts go to the phones with the segment itself (no extra round trip to fetch).

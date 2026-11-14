@@ -637,7 +637,8 @@ class Gateway:
         if self.voice_replies is not None:
             self.voice_replies.user_message(profile_id, bool(voice), bool(data.get("hands_free")))
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments,
-                                                      spoken=bool(data.get("hands_free")) and not voice))
+                                                      spoken=bool(data.get("hands_free")) and not voice,
+                                                      in_call=bool(data.get("hands_free"))))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -1022,7 +1023,7 @@ class Gateway:
 
     async def _run_dispatch(self, conn: _Conn, msg_id: Optional[str],
                             profile_id: str, text: str, files: Optional[list] = None,
-                            spoken: bool = False) -> None:
+                            spoken: bool = False, in_call: bool = False) -> None:
         try:
             extra: dict[str, Any] = {}
             if files:  # only when needed: bridges from before take (profile, text, id)
@@ -1036,6 +1037,10 @@ class Gateway:
                 except Exception:
                     log.exception("Lekora: couldn't prepare personality voice")
                     instructions = None
+                if in_call:
+                    # A hands-free call (docs/voice.md §3): it's a spoken conversation.
+                    from .voice_replies import CALL_NOTE
+                    instructions = "\n\n".join(part for part in (CALL_NOTE, instructions) if part)
                 if instructions:
                     extra["instructions"] = instructions  # personality voice (docs/voice.md §2)
             await self._dispatch(profile_id, text, msg_id or str(uuid.uuid4()), **extra)
