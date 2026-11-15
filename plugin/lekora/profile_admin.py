@@ -146,7 +146,8 @@ class ProfileAdmin:
                                         f"Backup failed, so nothing was deleted: {_last_line(output)}")
             try:
                 events = [asdict(e) for e in self._store.events_for_profile(profile_id)]
-                chat.write_text(json.dumps({"profile_id": profile_id, "events": events}, indent=1))
+                artifacts = self._store.artifacts_export(profile_id)
+                chat.write_text(json.dumps({"profile_id": profile_id, "events": events, "artifacts": artifacts}, indent=1))
                 os.chmod(chat, 0o600)
             except OSError as exc:
                 raise ProfileAdminError("BACKUP_FAILED", f"Backup failed, so nothing was deleted: {exc}")

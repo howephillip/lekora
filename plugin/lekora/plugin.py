@@ -236,6 +236,9 @@ class LekoraService:
         direct = DirectVoice(self._store, hermes_streamer=self._hermes_streamer, env_value=self._env_value)
         self.gateway.voice_replies = VoiceReplies(self.gateway, self.gateway.voice, self._speaker,
                                                   persona=self._persona, direct=direct)
+        from .artifacts import Artifacts
+        self.gateway.artifacts = Artifacts(self._store, self.gateway.publish_artifact_message,
+                                           self.gateway.publish_artifact_changed)
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(

@@ -129,6 +129,21 @@ def _send_file_handler(args: dict, **_kwargs) -> str:
         validate=BasePlatformAdapter.validate_media_delivery_path)
 
 
+def _artifact_handler(name: str):
+    """Artifacts tools (docs/artifacts.md), run in Hermes' tool thread."""
+    def handler(args: dict, **_kwargs) -> str:
+        from gateway.session_context import get_session_env
+        from .artifacts import run_tool
+        active = _ACTIVE
+        service = None
+        if active and active[0]._service is not None and active[0]._service.gateway is not None:
+            service = active[0]._service.gateway.artifacts
+        return run_tool(name, args or {}, platform=get_session_env("HERMES_SESSION_PLATFORM"),
+                        chat_id=get_session_env("HERMES_SESSION_CHAT_ID"), service=service,
+                        loop=active[1] if active else None)
+    return handler
+
+
 class LekoraAdapter(BasePlatformAdapter):
     # Streaming (docs/streaming.md): Hermes sends the first words, then edits the message.
     SUPPORTS_MESSAGE_EDITING = True
@@ -629,3 +644,9 @@ def register(ctx) -> None:
         check = _lekora_session
     ctx.register_tool(name=TOOL_NAME, toolset=TOOLSET, schema=TOOL_SCHEMA, handler=_send_file_handler,
                       check_fn=check, description=TOOL_SCHEMA["description"], emoji="📎")
+    # Artifacts: pages, documents and code the user opens, edits and shares (docs/artifacts.md).
+    from .artifacts import SCHEMAS as ARTIFACT_SCHEMAS
+    for schema in ARTIFACT_SCHEMAS:
+        ctx.register_tool(name=schema["name"], toolset=TOOLSET, schema=schema,
+                          handler=_artifact_handler(schema["name"]), check_fn=check,
+                          description=schema["description"], emoji="🧩")

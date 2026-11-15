@@ -73,6 +73,33 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS files_profile ON files (instance_id, profile_id);
 """
 
+# Artifacts (docs/artifacts.md): pages, documents and code an agent made, with every version.
+ARTIFACTS = """
+CREATE TABLE IF NOT EXISTS artifacts (
+    artifact_id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    profile_id  TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    language    TEXT,
+    version     INTEGER NOT NULL,
+    created_at  TEXT,
+    updated_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS artifacts_profile ON artifacts (instance_id, profile_id);
+CREATE TABLE IF NOT EXISTS artifact_versions (
+    artifact_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    profile_id  TEXT NOT NULL,
+    version     INTEGER NOT NULL,
+    content     TEXT NOT NULL,
+    author      TEXT NOT NULL,
+    note        TEXT,
+    created_at  TEXT,
+    PRIMARY KEY (artifact_id, version)
+);
+"""
+
 # The app's own settings per agent (docs/voice.md: voice, speed, speak replies), kept on the
 # Hermes instance so a new phone gets them too (AGENTS.md rule 3).
 APP_SETTINGS = """
@@ -181,6 +208,7 @@ class Store:
             self._create_read_markers()
             self._db.executescript(FILES)
             self._db.executescript(APP_SETTINGS)
+            self._db.executescript(ARTIFACTS)
             self._db.commit()
 
     def _migrate_events(self) -> None:
@@ -648,8 +676,96 @@ class Store:
             self._db.execute(
                 "DELETE FROM app_settings WHERE instance_id = ? AND profile_id = ?",
                 (self.instance_id, profile_id))
+            for table in ("artifacts", "artifact_versions"):
+                self._db.execute(f"DELETE FROM {table} WHERE instance_id = ? AND profile_id = ?",
+                                 (self.instance_id, profile_id))
             self._db.commit()
             return cur.rowcount
+
+    # ---- artifacts (docs/artifacts.md) ----------------------------------------
+
+    def add_artifact(self, artifact_id: str, profile_id: str, title: str, kind: str,
+                     language: Optional[str], content: str, author: str, note: Optional[str] = None) -> None:
+        now = _iso(self._clock())
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO artifacts (artifact_id, instance_id, profile_id, title, kind, language, version,"
+                " created_at, updated_at) VALUES (?,?,?,?,?,?,1,?,?)",
+                (artifact_id, self.instance_id, profile_id, title, kind, language, now, now))
+            self._db.execute(
+                "INSERT INTO artifact_versions (artifact_id, instance_id, profile_id, version, content, author,"
+                " note, created_at) VALUES (?,?,?,1,?,?,?,?)",
+                (artifact_id, self.instance_id, profile_id, content, author, note, now))
+            self._db.commit()
+
+    def add_artifact_version(self, artifact_id: str, content: str, author: str, note: Optional[str] = None,
+                             title: Optional[str] = None, base: Optional[int] = None) -> int:
+        """A new version (returns its number). ``base``: the version the change was made from;
+        a later one saved meanwhile raises ValueError (nothing is overwritten)."""
+        now = _iso(self._clock())
+        with self._lock:
+            row = self._db.execute("SELECT * FROM artifacts WHERE artifact_id = ? AND instance_id = ?",
+                                   (artifact_id, self.instance_id)).fetchone()
+            if row is None:
+                raise KeyError(artifact_id)
+            if base is not None and base != row["version"]:
+                raise ValueError(row["version"])
+            version = row["version"] + 1
+            self._db.execute(
+                "INSERT INTO artifact_versions (artifact_id, instance_id, profile_id, version, content, author,"
+                " note, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                (artifact_id, self.instance_id, row["profile_id"], version, content, author, note, now))
+            self._db.execute("UPDATE artifacts SET version = ?, updated_at = ?, title = ? WHERE artifact_id = ?",
+                             (version, now, title or row["title"], artifact_id))
+            self._db.commit()
+        return version
+
+    def get_artifact(self, artifact_id: str) -> Optional[dict]:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM artifacts WHERE artifact_id = ? AND instance_id = ?",
+                                   (artifact_id, self.instance_id)).fetchone()
+        return dict(row) if row else None
+
+    def artifact_version(self, artifact_id: str, version: Optional[int] = None) -> Optional[dict]:
+        with self._lock:
+            if version is None:
+                row = self._db.execute(
+                    "SELECT * FROM artifact_versions WHERE artifact_id = ? AND instance_id = ?"
+                    " ORDER BY version DESC LIMIT 1", (artifact_id, self.instance_id)).fetchone()
+            else:
+                row = self._db.execute(
+                    "SELECT * FROM artifact_versions WHERE artifact_id = ? AND instance_id = ? AND version = ?",
+                    (artifact_id, self.instance_id, version)).fetchone()
+        return dict(row) if row else None
+
+    def artifact_history(self, artifact_id: str) -> list[dict]:
+        """Every version, newest first (without the content)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT version, author, note, created_at, length(content) AS size FROM artifact_versions"
+                " WHERE artifact_id = ? AND instance_id = ? ORDER BY version DESC",
+                (artifact_id, self.instance_id)).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_artifacts(self, profile_id: str) -> list[dict]:
+        """An agent's artifacts, most recently changed first."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM artifacts WHERE instance_id = ? AND profile_id = ? ORDER BY updated_at DESC, rowid DESC",
+                (self.instance_id, profile_id)).fetchall()
+        return [dict(r) for r in rows]
+
+    def artifacts_export(self, profile_id: str) -> list[dict]:
+        """Everything about an agent's artifacts, every version (for the backup when it's deleted)."""
+        out = []
+        for artifact in self.list_artifacts(profile_id):
+            with self._lock:
+                versions = self._db.execute(
+                    "SELECT version, content, author, note, created_at FROM artifact_versions"
+                    " WHERE artifact_id = ? AND instance_id = ? ORDER BY version",
+                    (artifact["artifact_id"], self.instance_id)).fetchall()
+            out.append({**artifact, "versions": [dict(v) for v in versions]})
+        return out
 
     # ---- read markers --------------------------------------------------------
 

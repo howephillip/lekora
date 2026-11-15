@@ -101,6 +101,7 @@ class Gateway:
         self.voice_replies: Optional[Any] = None
         # An agent's tools in Lekora chats (docs/agent-tools.md); set by LekoraService.
         self.tools: Optional[Any] = None
+        self.artifacts: Optional[Any] = None   # Artifacts (docs/artifacts.md)
         # The voice note waiting for Hermes' transcript, per chat (docs/voice.md).
         self._awaiting_transcript: dict[str, int] = {}
         self._dispatch = dispatch
@@ -182,8 +183,13 @@ class Gateway:
                       files: Optional[list] = None, voice: Optional[dict] = None,
                       transcript: Optional[str] = None, spoken: Optional[list] = None,
                       voicing: Optional[str] = None, voice_problem: Optional[str] = None,
-                      voice_key: Optional[str] = None, spoken_text: Optional[str] = None) -> dict:
+                      voice_key: Optional[str] = None, spoken_text: Optional[str] = None,
+                      artifact: Optional[dict] = None, about: Optional[dict] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
+        if artifact:
+            data["artifact"] = artifact  # an artifact made or changed: a card (docs/artifacts.md)
+        if about:
+            data["about"] = about  # the user's request is about this artifact
         if files:
             data["files"] = files  # photos and files with the message (docs/files.md)
         if voice:
@@ -217,7 +223,8 @@ class Gateway:
             files=ev.payload.get("files"), voice=ev.payload.get("voice"),
             transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken"),
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
-            voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text")),
+            voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
+            artifact=ev.payload.get("artifact"), about=ev.payload.get("about")),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
@@ -369,7 +376,8 @@ class Gateway:
             files=ev.payload.get("files"), voice=ev.payload.get("voice"),
             transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken"),
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
-            voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text")),
+            voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
+            artifact=ev.payload.get("artifact"), about=ev.payload.get("about")),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -465,6 +473,8 @@ class Gateway:
             await self._commands_list(conn, msg_id, env.get("profile_id"))
         elif type_ in ("file.upload.begin", "file.upload.chunk", "file.upload.end", "file.read", "files.usage"):
             await self._file_request(conn, msg_id, type_, env.get("profile_id"), data)
+        elif type_ in ("artifacts.list", "artifact.get", "artifact.save"):
+            await self._artifact_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("agent.tools.get", "agent.tools.set"):
             await self._tools_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("voice.settings.get", "voice.settings.set", "voice.speak",
@@ -622,6 +632,12 @@ class Gateway:
             payload["files"] = [self.files.describe(row) for row in files]  # type: ignore[union-attr]
         if voice:
             payload["voice"] = voice
+        about = None
+        if isinstance(data.get("about"), dict) and self.artifacts is not None:
+            # "Ask to change" an artifact (docs/artifacts.md): which one it's about.
+            about = self.artifacts.describe_for_agent(profile_id, data["about"].get("artifact_id"))
+            if about is not None:
+                payload["about"] = about
         if msg_id:
             payload["client_id"] = msg_id
         seq = self.store.append_event(profile_id, "chat.message", payload)
@@ -636,6 +652,9 @@ class Gateway:
             self._awaiting_transcript[profile_id] = seq
         if self.voice_replies is not None:
             self.voice_replies.user_message(profile_id, bool(voice), bool(data.get("hands_free")))
+        if about is not None:
+            # The agent learns which artifact (its id), as the user's card in the chat shows it.
+            text = f'{text}\n\n(About the artifact "{about["title"]}", id {about["artifact_id"]}, version {about["version"]}.)'
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments,
                                                       spoken=bool(data.get("hands_free")) and not voice,
                                                       in_call=bool(data.get("hands_free"))))
@@ -665,7 +684,8 @@ class Gateway:
                                        voice=e.payload.get("voice"), transcript=e.payload.get("transcript"),
                                        spoken=e.payload.get("spoken"), voicing=e.payload.get("voicing"),
                                        voice_problem=e.payload.get("voice_problem"), voice_key=e.payload.get("voice_key"),
-                                       spoken_text=e.payload.get("spoken_text"))
+                                       spoken_text=e.payload.get("spoken_text"), artifact=e.payload.get("artifact"),
+                                       about=e.payload.get("about"))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
@@ -885,6 +905,39 @@ class Gateway:
                                       {"role": "assistant", "text": text, "files": files})
         await self._broadcast(self.store.get_event(seq))
         return seq
+
+    # ---- artifacts (docs/artifacts.md) ----------------------------------------
+
+    async def publish_artifact_message(self, profile_id: str, payload: dict) -> int:
+        """An artifact made or changed, as a card in the chat."""
+        seq = self.store.append_event(profile_id, "chat.message", payload)
+        await self._broadcast(self.store.get_event(seq))
+        return seq
+
+    async def publish_artifact_changed(self, profile_id: str, artifact: dict) -> None:
+        """Phones showing this artifact load its new version."""
+        await self._broadcast_ephemeral(self._envelope("artifact.changed", {"artifact": artifact}, profile_id=profile_id))
+
+    async def _artifact_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                                profile_id: Any, data: dict) -> None:
+        from .artifacts import ArtifactError
+        profile_id = self._known_profile(profile_id, msg_id)
+        if self.artifacts is None:
+            raise _Reject("UNAVAILABLE", "Artifacts aren't available on this Hermes instance", True, False, msg_id)
+        try:
+            if type_ == "artifacts.list":
+                result: dict[str, Any] = {"artifacts": await asyncio.to_thread(self.artifacts.list, profile_id)}
+            elif type_ == "artifact.get":
+                result = await asyncio.to_thread(self.artifacts.read, profile_id, data.get("artifact_id"),
+                                                 data.get("version"))
+            else:
+                base = data.get("base_version")
+                result = {"artifact": await self.artifacts.update(
+                    profile_id, data.get("artifact_id"), data.get("content"), note=data.get("note"),
+                    author="user", base=int(base) if isinstance(base, int) else None)}
+        except ArtifactError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
     async def _tools_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
                              profile_id: Any, data: dict) -> None:

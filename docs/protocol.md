@@ -412,3 +412,11 @@ Requests with `profile_id` set, answered with `<type>.result`:
 - `voice.direct.get` → `voice.direct.get.result` `{settings, keys, hermes_streaming}`: `settings` `{source: auto|fish|elevenlabs|openai|off, fish {voice_id, model, speed}, elevenlabs {voice_id, model_id}, openai {base_url, model, voice}}`; `keys` per service: "app", the Hermes `.env` name in use, or ""; `hermes_streaming`: e.g. "Hermes (elevenlabs)" or null.
 - `voice.direct.set` `{settings, key?: {provider, value}}` (value "" forgets a saved key) → `voice.direct.set.result` (same as get). Keys are never sent to phones.
 - `voice.direct.test` `{text?}` → `voice.direct.test.result` `{file}`: a short sample in the chosen voice.
+
+## 18. Artifacts (spec: `artifacts.md`)
+- `chat.message` may carry `artifact` `{artifact_id, title, kind (html|markdown|code|svg|text), language?, version, action (created|updated|edited)}`: a card. A user message may carry `about` (same fields, no action): "ask to change" this artifact.
+- `chat.send` may carry `about` `{artifact_id}`; the plugin adds the artifact's title, id and version to what the agent receives (the saved message stays as typed).
+- `artifacts.list` → `artifacts.list.result` `{artifacts: [{artifact_id, title, kind, language?, version, updated_at}]}` (newest change first).
+- `artifact.get` `{artifact_id, version?}` → `artifact.get.result` `{artifact_id, title, kind, language?, version, shown_version, content, versions: [{version, author (agent|user), note?, created_at, size}]}`.
+- `artifact.save` `{artifact_id, content, base_version, note?}` → `artifact.save.result` `{artifact}`; error `ARTIFACT_CHANGED` when a newer version exists than `base_version`.
+- `artifact.changed` (plugin → phones, not stored): `{artifact}` after any new version.
