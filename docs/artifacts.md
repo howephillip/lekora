@@ -24,4 +24,5 @@ Agents make web pages, documents, code and images that open in the app as their 
 `protocol.md` §18.
 
 ## Tests
+Simulator (iOS 27.0, 2026-11-15), real plugin, scripted agent: card, web page with an online chart library and its script, edit → v2, versions, ask to change → v3, document layout, share as PDF, the list.
 Plugin `test_artifacts.py`: a card per artifact made or changed, versions kept, your edit as yours, an edit from an older version never overwrites a newer one, each agent sees only its own, bad input refused, the agent's four tools (only in Lekora chats), list/open/save from the phone, "ask to change" tells the agent which artifact, deleting an agent backs up every version and clears them.

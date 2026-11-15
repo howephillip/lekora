@@ -10,6 +10,8 @@ import WebKit
 @MainActor
 final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDelegate {
     let webView: WKWebView
+    /// Until the page has drawn (the web view can take a few seconds to start): a spinner, not a blank page.
+    @Published private(set) var loading = true
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -25,11 +27,20 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
 
     /// Each artifact gets its own made-up origin, so it can't read another one's storage.
     func show(_ html: String, artifactId: String) {
+        loading = true
         webView.loadHTMLString(html, baseURL: URL(string: "https://\(artifactId).artifact.lekora.invalid/"))
     }
 
     func pdf() async throws -> Data {
         try await webView.pdf()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        loading = false
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        loading = false
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
@@ -153,6 +164,8 @@ struct ArtifactViewer: View {
     let profileId: String
     let artifactId: String
     let agentName: String
+    /// Shown until it has loaded (the card's title).
+    var title: String = "Artifact"
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var web = ArtifactWebController()
@@ -171,13 +184,12 @@ struct ArtifactViewer: View {
             ZStack {
                 ArtifactWebView(controller: web)
                     .ignoresSafeArea(edges: .bottom)
-                    .opacity(detail == nil ? 0 : 1)
-                if detail == nil {
-                    if let failure {
-                        LKNotice(.warning, failure).padding()
-                    } else {
-                        ProgressView()
-                    }
+                    .opacity(detail == nil || web.loading ? 0 : 1)
+                    .animation(.easeOut(duration: 0.2), value: web.loading)
+                if let failure, detail == nil {
+                    LKNotice(.warning, failure).padding()
+                } else if detail == nil || web.loading {
+                    ProgressView()
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -187,13 +199,14 @@ struct ArtifactViewer: View {
                             .font(LK.Typography.footnote)
                         Spacer()
                         Button("Restore This Version") { restore() }
-                            .font(LK.Typography.footnote.weight(.semibold))
+                            .buttonStyle(.borderedProminent)
                             .disabled(working)
                         Button("Latest") { Task { await load(nil) } }
-                            .font(LK.Typography.footnote)
+                            .buttonStyle(.bordered)
                     }
                     .padding(.horizontal, LK.Spacing.lg)
                     .padding(.vertical, LK.Spacing.sm)
+                    .controlSize(.small)
                     .background(.bar)
                 }
             }
@@ -208,7 +221,7 @@ struct ArtifactViewer: View {
                         .transition(.opacity)
                 }
             }
-            .navigationTitle(detail?.title ?? "Artifact")
+            .navigationTitle(detail?.title ?? title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -260,7 +273,7 @@ struct ArtifactViewer: View {
                     Label("Versions", systemImage: "clock.arrow.circlepath")
                 }
                 Menu {
-                    Button("Ask \(agentName) to Change…", systemImage: "sparkles") { asking = true }
+                    Button("Ask \(agentName)…", systemImage: "sparkles") { asking = true }
                     Button("Edit Myself…", systemImage: "pencil") { editing = true }
                         .disabled(!isLatest)
                 } label: {
@@ -503,8 +516,14 @@ struct ArtifactsListView: View {
                                     .font(LK.Typography.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
                         }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             } else if let failure {
                 LKNotice(.warning, failure)
@@ -517,7 +536,8 @@ struct ArtifactsListView: View {
         .refreshable { await load() }
         #if os(iOS)
         .fullScreenCover(item: $opened) { artifact in
-            ArtifactViewer(gateway: gateway, profileId: profileId, artifactId: artifact.artifact_id, agentName: agentName)
+            ArtifactViewer(gateway: gateway, profileId: profileId, artifactId: artifact.artifact_id, agentName: agentName,
+                           title: artifact.title)
         }
         #endif
     }

@@ -122,6 +122,7 @@ public enum ArtifactRendering {
     table { border-collapse: collapse; display: block; overflow-x: auto; }
     th, td { border: 1px solid rgba(127,127,127,0.3); padding: 6px 10px; text-align: left; }
     th { background: rgba(127,127,127,0.1); }
+    li > ul, li > ol { margin: 0.15em 0 0.25em; }
     hr { border: none; border-top: 1px solid rgba(127,127,127,0.3); margin: 1.5em 0; }
     img { max-width: 100%; }
     """

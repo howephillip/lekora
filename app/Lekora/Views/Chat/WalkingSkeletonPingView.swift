@@ -299,7 +299,7 @@ public struct WalkingSkeletonPingView: View {
             #if os(iOS)
             .fullScreenCover(item: $openedArtifact) { artifact in
                 ArtifactViewer(gateway: gateway, profileId: gateway.activeProfileId, artifactId: artifact.artifact_id,
-                               agentName: profileName)
+                               agentName: profileName, title: artifact.title)
             }
             .fullScreenCover(isPresented: $handsFree) {
                 HandsFreeView(gateway: gateway, agentName: profileName)
