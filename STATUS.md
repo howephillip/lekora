@@ -1,20 +1,21 @@
 # STATUS
 
-_Last updated: 2026-11-10_
+_Last updated: 2026-11-15_
 
 README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode steps, PolyForm Noncommercial LICENSE, screenshots in docs/screenshots (made with tools/demo_host.py, a fake Hermes with made-up agents). Not committed yet.
 
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) has started:** voice notes and hearing replies are done; hands-free conversation is built and waiting for your phone check.
+**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) is complete** (confirmed on your iPhone 2026-11-15): voice notes, hearing replies (with direct streaming voice), hands-free calls, your name for agents, and the fixes from your list. **Phase 5 (artifacts) is next:** planning, waiting for your choices.
 
-## Fixing first (your list, 2026-11-13)
+## Done: fixes from your list (2026-11-13; confirmed 2026-11-15)
 - **Tools for agents other than default:** fixed. Hermes' tools command only knows Lekora in the default profile (it said "Unknown platform 'lekora'" for Carl and the others), so the plugin now saves the choice with Hermes' own tools code, for any agent. Checked on your Pi against a copy of Carl's settings. Your "Hermes didn't apply" came from the old plugin: the update was installed at 18:24 but Hermes was last restarted at 17:31, so the old way was still running. Needs a Hermes restart.
 - **"Newest message" button often not moving:** it now stops the list coasting first and keeps jumping to the end until it really is at the bottom (a long chat could stop short). Needs your eyes on the phone.
 - **The agent not knowing it's in a call:** words said in a call now reach Hermes as a voice message (Hermes' own idea of a spoken turn); Hermes can then use a faster "voice chat" model for calls if one is set in the agent's Hermes settings. Your decision (2026-11-13): yes. In a call, agents now also get a short instruction that it's a live voice call: answer briefly in spoken sentences, and hand longer work to a background helper (Hermes' delegation tool) while the conversation goes on. Only in calls (rule 7 exception added to AGENTS.md).
 
-## Ready for your phone check: hands-free conversation (Phase 4, feature 3; spec: `docs/voice.md` §3)
+## Done: hands-free conversation (Phase 4, feature 3; spec: `docs/voice.md` §3)
+✅ Confirmed on your iPhone with real Hermes 2026-11-15.
 - **What it does:** the **headphones** button at the top of a chat opens a full-screen conversation, like a call: the agent's animated face, Listening / Thinking / Speaking, what was last said, a **Voice | Personality** switch, Mute and End. Just talk; when you stop, your words go to the agent and its reply plays in its Hermes voice (or the iPhone voice). Talk over it to interrupt. It keeps going with the screen locked. Everything lands in the chat.
 - **Your choices (2026-11-12):** full screen, interrupting, background audio; plus the Voice/Personality switch and, for speed, the iPhone's own speech recognition: your words are sent the moment you stop talking, instead of uploading a recording for Hermes to transcribe.
 - **Safety from noise:** only recognised words make a turn, so background noise, coughs or the agent's own voice never get sent or cut it off. (Found in the simulator: at first, noise alone kept sending empty voice notes; fixed and rechecked with 110 s of silence.)
