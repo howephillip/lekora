@@ -112,6 +112,8 @@ struct ArtifactWebView: NSViewRepresentable {
 struct LKArtifactCard: View {
     let artifact: ArtifactCard
     let fromUser: Bool
+    /// An older card of an artifact that has a newer one below: one quiet line (it lives at the newest).
+    var compact = false
     let open: () -> Void
 
     private var subtitle: String {
@@ -124,6 +126,25 @@ struct LKArtifactCard: View {
     }
 
     var body: some View {
+        if compact {
+            HStack {
+                if fromUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
+                Button(action: open) {
+                    Label("\(artifact.title) · v\(artifact.version) · newer version below", systemImage: ArtifactRendering.symbol(artifact.kind))
+                        .font(LK.Typography.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the newest version")
+                if !fromUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
+            }
+        } else {
+            full
+        }
+    }
+
+    private var full: some View {
         HStack {
             if fromUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
             Button(action: open) {

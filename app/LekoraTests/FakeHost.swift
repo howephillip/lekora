@@ -57,6 +57,11 @@ final class FakeHost: @unchecked Sendable {
         for connection in open { send(type: "voice.reply", data: data, profileId: profile, on: connection) }
     }
 
+    /// Past chats (docs/chats.md).
+    var currentChat = "s_now"
+    var chats: [[String: Any]] = []
+    var chatHistory: [String: [[String: Any]]] = [:]
+
     /// Artifacts (docs/artifacts.md): id, title, kind, versions (contents, oldest first).
     var artifacts: [[String: Any]] = []
 
@@ -221,6 +226,12 @@ final class FakeHost: @unchecked Sendable {
         history.append((seq, "assistant", text, profile))
         messageFiles[seq] = files
         broadcast(seq: seq)
+    }
+
+    /// Any message as the plugin sends it (fields as given), to every phone.
+    func pushMessage(_ data: [String: Any], profile: String) {
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open { send(type: "chat.message", data: data, profileId: profile, on: connection) }
     }
 
     /// An agent corrects a saved message (e.g. while the phone is away).
@@ -655,6 +666,20 @@ final class FakeHost: @unchecked Sendable {
         case "voice.settings.set":
             voiceSettings = data["settings"] as? [String: Any] ?? voiceSettings
             send(type: "voice.settings.set.result", id: id, data: ["settings": voiceSettings],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "chats.list":
+            send(type: "chats.list.result", id: id, data: ["current": currentChat, "chats": chats],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "chat.history":
+            let sid = data["session_id"] as? String ?? ""
+            send(type: "chat.history.result", id: id, data: ["session_id": sid, "messages": chatHistory[sid] ?? []],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "chat.resume":
+            currentChat = data["session_id"] as? String ?? currentChat
+            send(type: "chat.resume.result", id: id, data: ["session_id": currentChat],
                  profileId: message["profile_id"] as? String, on: connection)
 
         case "artifacts.list":

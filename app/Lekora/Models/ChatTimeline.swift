@@ -51,13 +51,16 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
     public var about: ArtifactCard?
     /// Your comments on the artifact's lines (a review).
     public var review: [ReviewComment]?
+    /// The Hermes conversation it belongs to (nil: not known, or still live).
+    public var session: String?
 
     public init(id: String, profileId: String, role: Role, text: String, seq: Int? = nil,
                 status: Status = .sent, date: Date? = nil, card: PromptCard? = nil, files: [ChatFile]? = nil,
                 voice: VoiceDetails? = nil, transcript: String? = nil, spoken: [ChatFile]? = nil,
                 voicing: String? = nil, voiceProblem: String? = nil, voiceKey: String? = nil,
                 spokenText: String? = nil, artifact: ArtifactCard? = nil, about: ArtifactCard? = nil,
-                review: [ReviewComment]? = nil) {
+                review: [ReviewComment]? = nil, session: String? = nil) {
+        self.session = session
         self.review = review
         self.artifact = artifact
         self.about = about
@@ -123,7 +126,8 @@ public struct ChatTimeline: Equatable {
                           voice: message.voice, transcript: message.transcript, spoken: message.spoken,
                           voicing: message.voicing, voiceProblem: message.voice_problem,
                           voiceKey: message.voice_key, spokenText: message.spoken_text,
-                          artifact: message.artifact, about: message.about, review: message.review, isPage: true)
+                          artifact: message.artifact, about: message.about, review: message.review,
+                          session: message.session, isPage: true)
         }
         if !hasMore { completeProfiles.insert(profileId) }
     }
@@ -205,7 +209,7 @@ public struct ChatTimeline: Equatable {
                                        spoken: [ChatFile]? = nil, voicing: String? = nil, voiceProblem: String? = nil,
                                        voiceKey: String? = nil, spokenText: String? = nil,
                                        artifact: ArtifactCard? = nil, about: ArtifactCard? = nil,
-                                       review: [ReviewComment]? = nil, isPage: Bool = false) {
+                                       review: [ReviewComment]? = nil, session: String? = nil, isPage: Bool = false) {
         if let index = entries.firstIndex(where: { $0.seq == seq }) {
             // Seen before (replay) — or a correction the agent made after saving it.
             if entries[index].text != text { entries[index].text = text }
@@ -221,6 +225,7 @@ public struct ChatTimeline: Equatable {
             if let artifact, entries[index].artifact != artifact { entries[index].artifact = artifact }
             if let about, entries[index].about != about { entries[index].about = about }
             if let review, entries[index].review == nil { entries[index].review = review }
+            if let session, entries[index].session != session { entries[index].session = session }
             return
         }
 
@@ -228,6 +233,7 @@ public struct ChatTimeline: Equatable {
         if let draftId, let index = entries.firstIndex(where: { $0.id == draftId }) {
             entries[index].seq = seq
             entries[index].text = text
+            if let session { entries[index].session = session }
             if let files { entries[index].files = files }
             if let spoken { entries[index].spoken = spoken }
             if let voicing { entries[index].voicing = voicing }
@@ -247,6 +253,7 @@ public struct ChatTimeline: Equatable {
             if let files { entries[index].files = files }
             if let about { entries[index].about = about }
             if let review, entries[index].review == nil { entries[index].review = review }
+            if let session { entries[index].session = session }
             if let voice { entries[index].voice = voice }
             if let transcript { entries[index].transcript = transcript }
             if entries[index].status != .sent { entries[index].status = .sent }
@@ -280,7 +287,8 @@ public struct ChatTimeline: Equatable {
             spokenText: spokenText,
             artifact: artifact,
             about: about,
-            review: review
+            review: review,
+            session: session
         )
         entries.insert(entry, at: insertionIndex(for: seq))
     }

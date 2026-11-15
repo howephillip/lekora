@@ -102,6 +102,7 @@ class Gateway:
         # An agent's tools in Lekora chats (docs/agent-tools.md); set by LekoraService.
         self.tools: Optional[Any] = None
         self.artifacts: Optional[Any] = None   # Artifacts (docs/artifacts.md)
+        self.chats: Optional[Any] = None       # ChatSessions: past chats (docs/chats.md)
         # The voice note waiting for Hermes' transcript, per chat (docs/voice.md).
         self._awaiting_transcript: dict[str, int] = {}
         self._dispatch = dispatch
@@ -185,8 +186,10 @@ class Gateway:
                       voicing: Optional[str] = None, voice_problem: Optional[str] = None,
                       voice_key: Optional[str] = None, spoken_text: Optional[str] = None,
                       artifact: Optional[dict] = None, about: Optional[dict] = None,
-                      review: Optional[list] = None) -> dict:
+                      review: Optional[list] = None, session: Optional[str] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
+        if session:
+            data["session"] = session  # the Hermes conversation it belongs to (docs/chats.md)
         if review:
             data["review"] = review  # comments on an artifact's lines
         if artifact:
@@ -228,7 +231,7 @@ class Gateway:
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
             voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
             artifact=ev.payload.get("artifact"), about=ev.payload.get("about"),
-            review=ev.payload.get("review")),
+            review=ev.payload.get("review"), session=self._session_of(ev)),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
@@ -382,7 +385,7 @@ class Gateway:
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
             voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
             artifact=ev.payload.get("artifact"), about=ev.payload.get("about"),
-            review=ev.payload.get("review")),
+            review=ev.payload.get("review"), session=self._session_of(ev)),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -478,6 +481,8 @@ class Gateway:
             await self._commands_list(conn, msg_id, env.get("profile_id"))
         elif type_ in ("file.upload.begin", "file.upload.chunk", "file.upload.end", "file.read", "files.usage"):
             await self._file_request(conn, msg_id, type_, env.get("profile_id"), data)
+        elif type_ in ("chats.list", "chat.history", "chat.resume"):
+            await self._chats_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("artifacts.list", "artifact.get", "artifact.save"):
             await self._artifact_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("agent.tools.get", "agent.tools.set"):
@@ -698,7 +703,8 @@ class Gateway:
                                        spoken=e.payload.get("spoken"), voicing=e.payload.get("voicing"),
                                        voice_problem=e.payload.get("voice_problem"), voice_key=e.payload.get("voice_key"),
                                        spoken_text=e.payload.get("spoken_text"), artifact=e.payload.get("artifact"),
-                                       about=e.payload.get("about"), review=e.payload.get("review"))
+                                       about=e.payload.get("about"), review=e.payload.get("review"),
+                                       session=self._session_of(e))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
@@ -918,6 +924,36 @@ class Gateway:
                                       {"role": "assistant", "text": text, "files": files})
         await self._broadcast(self.store.get_event(seq))
         return seq
+
+    # ---- past chats (docs/chats.md) ------------------------------------------
+
+    def _session_of(self, ev) -> Optional[str]:
+        if self.chats is None or ev is None:
+            return None
+        try:
+            return self.chats.session_of(ev.profile_id, ev.payload, ev.created_at)
+        except Exception:
+            return None
+
+    async def _chats_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                             profile_id: Any, data: dict) -> None:
+        profile_id = self._known_profile(profile_id, msg_id)
+        if self.chats is None:
+            raise _Reject("UNAVAILABLE", "Past chats aren't available on this Hermes instance", True, False, msg_id)
+        if type_ == "chats.list":
+            result: dict[str, Any] = await asyncio.to_thread(self.chats.list, profile_id)
+        else:
+            session_id = str(data.get("session_id") or "")
+            known = {c["session_id"] for c in (await asyncio.to_thread(self.chats.list, profile_id))["chats"]}
+            if session_id not in known:
+                raise _Reject("UNKNOWN_CHAT", "That chat isn't one of this agent's", True, False, msg_id)
+            if type_ == "chat.history":
+                events = await asyncio.to_thread(self.chats.messages, profile_id, session_id)
+                result = {"session_id": session_id, "messages": [json.loads(self._event_json(e))["data"] for e in events]}
+            else:
+                await self.chats.resume(profile_id, session_id)
+                result = {"session_id": session_id}
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
     # ---- artifacts (docs/artifacts.md) ----------------------------------------
 

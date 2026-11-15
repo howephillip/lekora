@@ -1098,6 +1098,39 @@ public final class GatewayClient: ObservableObject {
         if let text = got.default_style_instructions { defaultStyleInstructions = text }
     }
 
+    // MARK: - Past chats (docs/chats.md)
+
+    /// Each agent's current Hermes conversation (the chat shows only it; earlier ones fold away).
+    @Published public private(set) var currentChat: [String: String] = [:]
+    @Published public private(set) var pastChats: [String: [ChatSessionInfo]] = [:]
+
+    public func loadChats(for profileId: String) async {
+        guard let got = try? await request(type: "chats.list", profileId: profileId, data: EmptyData(),
+                                           reply: ChatSessionsData.self, timeout: 20) else { return }
+        pastChats[profileId] = got.chats
+        if let current = got.current { currentChat[profileId] = current }
+    }
+
+    public func chatHistory(_ sessionId: String, in profileId: String) async throws -> [ChatMessageData] {
+        try await request(type: "chat.history", profileId: profileId, data: ChatSessionRef(session_id: sessionId),
+                          reply: ChatHistoryResult.self, timeout: 30).messages
+    }
+
+    /// Continue an earlier conversation (Hermes' own /resume).
+    public func resumeChat(_ sessionId: String, in profileId: String) async throws {
+        _ = try await request(type: "chat.resume", profileId: profileId, data: ChatSessionRef(session_id: sessionId),
+                              reply: ChatSessionRef.self, timeout: 30)
+        currentChat[profileId] = sessionId
+        // Its messages may not be on the phone yet: fetch them into the chat.
+        if let messages = try? await chatHistory(sessionId, in: profileId) {
+            timeline.applyPage(profileId: profileId, messages: messages, hasMore: true)
+            cacheChanged()
+        }
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        await loadChats(for: profileId)
+        await loadSettings(for: profileId)  // the chat's title is the resumed one's
+    }
+
     // MARK: - Artifacts (docs/artifacts.md)
 
     /// The newest version of each artifact the instance told this phone about (open viewers reload).
@@ -1295,8 +1328,13 @@ public final class GatewayClient: ObservableObject {
                 spokenText: envelope.data.spoken_text,
                 artifact: envelope.data.artifact,
                 about: envelope.data.about,
-                review: envelope.data.review
+                review: envelope.data.review,
+                session: envelope.data.session
             )
+            if let session = envelope.data.session, envelope.data.seq >= (timeline.newestSeq(for: profileId) ?? 0) {
+                // The newest message is in the current conversation (after New Chat, a resume, or Hermes' own reset).
+                if currentChat[profileId] != session { currentChat[profileId] = session }
+            }
             if profileId == activeProfileId { markActiveChatRead() }
             if envelope.data.role == "system", chatSettings[profileId] != nil {
                 refreshSettingsSoon(profileId)  // e.g. a typed /yolo or /reasoning, answered by Hermes

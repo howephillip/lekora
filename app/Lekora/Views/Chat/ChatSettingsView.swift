@@ -39,6 +39,12 @@ struct ChatSettingsView: View {
                     } label: {
                         Label("Artifacts", systemImage: "square.on.square")
                     }
+                    // Earlier conversations: read one, or continue it (docs/chats.md).
+                    NavigationLink {
+                        PastChatsView(gateway: gateway, profileId: profileId, agentName: agentName)
+                    } label: {
+                        Label("Past Chats", systemImage: "clock.arrow.circlepath")
+                    }
                 }
                 if let failure {
                     Text(failure).font(LK.Typography.footnote).foregroundStyle(LK.Palette.danger)

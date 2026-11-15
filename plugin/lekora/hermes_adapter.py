@@ -273,6 +273,45 @@ class LekoraAdapter(BasePlatformAdapter):
             return holder["rate"], rest()
         return f"Hermes ({provider})", speak
 
+    def _session_key_for(self, profile_id: str) -> Optional[str]:
+        """Hermes' routing key for this agent's Lekora chat (its conversations hang off it)."""
+        runner = self.gateway_runner
+        if runner is None:
+            return None
+        source = self.build_source(chat_id=profile_id, chat_name=profile_id, chat_type="dm",
+                                   user_id="lekora-owner", user_name=self._user_name())
+        source = runner._normalize_source_for_session_key(source)
+        return runner._session_key_for_source(source)
+
+    def _current_session_for(self, profile_id: str) -> Optional[str]:
+        """The Hermes conversation this chat is on now (in memory; docs/chats.md). Read only."""
+        runner = self.gateway_runner
+        key = self._session_key_for(profile_id)
+        store = getattr(runner, "session_store", None) if runner is not None else None
+        if not key or store is None:
+            return None
+        entry = store.lookup_by_session_key(key)
+        return entry.session_id if entry else None
+
+    def _chat_sessions_for(self, profile_id: str, limit: int) -> dict:
+        """This chat's Hermes conversations, newest first (title, start, end). Read only."""
+        from gateway.run import _profile_runtime_scope
+        from hermes_state import SessionDB
+        key = self._session_key_for(profile_id)
+        if not key:
+            return {}
+        with _profile_runtime_scope(self._profile_home(profile_id), hydrate_secrets=False):
+            db = SessionDB()
+            try:
+                rows = db.list_sessions_rich(source=PLATFORM_NAME, session_key=key, limit=limit)
+            finally:
+                close = getattr(db, "close", None)
+                if callable(close):
+                    close()
+        return {"current": self._current_session_for(profile_id),
+                "sessions": [{k: row.get(k) for k in ("id", "title", "preview", "started_at", "ended_at",
+                                                     "last_active", "message_count")} for row in rows]}
+
     def _env_value_for(self, profile_id: str, names: tuple):
         """(name, value) of the first of ``names`` set for this agent (its Hermes .env). Read only."""
         from gateway.run import _profile_runtime_scope
@@ -393,7 +432,8 @@ class LekoraAdapter(BasePlatformAdapter):
             commands_provider=self._commands_for, settings_reader=self._settings_for,
             hermes_voice=self._hermes_voice_for, speaker=self._speak_as,
             tools_reader=self._tools_for, tools_writer=self._set_tools_for, persona=self._persona_for,
-            hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for)
+            hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for,
+            chat_sessions_reader=self._chat_sessions_for, current_session_reader=self._current_session_for)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()

@@ -420,3 +420,9 @@ Requests with `profile_id` set, answered with `<type>.result`:
 - `artifact.get` `{artifact_id, version?}` → `artifact.get.result` `{artifact_id, title, kind, language?, version, shown_version, content, versions: [{version, author (agent|user), note?, created_at, size}]}`.
 - `artifact.save` `{artifact_id, content, base_version, note?}` → `artifact.save.result` `{artifact}`; error `ARTIFACT_CHANGED` when a newer version exists than `base_version`.
 - `artifact.changed` (plugin → phones, not stored): `{artifact}` after any new version.
+
+## 19. Past chats (spec: `chats.md`)
+- `chat.message` may carry `session`: the Hermes conversation it belongs to.
+- `chats.list` → `chats.list.result` `{current, chats: [{session_id, title?, preview?, started_at, last_at, messages, current}]}`, newest first (empty ones left out).
+- `chat.history` `{session_id}` → `chat.history.result` `{session_id, messages}` (that conversation's messages, as `chat.message` data).
+- `chat.resume` `{session_id}` → `chat.resume.result` `{session_id}`: the plugin sends Hermes' own `/resume <id>`. Error `UNKNOWN_CHAT` for a conversation that isn't this agent's.

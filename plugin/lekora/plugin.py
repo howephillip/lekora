@@ -128,10 +128,15 @@ class LekoraService:
         tools_writer: Optional[Callable[[str, list, list], None]] = None,
         persona: Optional[Callable[[str, Optional[str]], str]] = None,
         hermes_streamer: Optional[Callable[[str], Any]] = None,
+        chat_sessions_reader: Optional[Callable[[str, int], dict]] = None,
+        current_session_reader: Optional[Callable[[str], Optional[str]]] = None,
         env_value: Optional[Callable[[str, tuple], Any]] = None,
     ) -> None:
         # Direct voice (docs/voice.md §4): Hermes' streaming voice per agent, and its .env keys.
         self._hermes_streamer = hermes_streamer
+        # Past chats (docs/chats.md): Hermes' conversations per agent, and the one now.
+        self._chat_sessions_reader = chat_sessions_reader
+        self._current_session_reader = current_session_reader
         self._env_value = env_value
         self._persona = persona  # the agent's own Hermes personality, for personality voice
         self._tools_reader = tools_reader  # an agent's tools in Lekora chats (docs/agent-tools.md)
@@ -236,6 +241,11 @@ class LekoraService:
         direct = DirectVoice(self._store, hermes_streamer=self._hermes_streamer, env_value=self._env_value)
         self.gateway.voice_replies = VoiceReplies(self.gateway, self.gateway.voice, self._speaker,
                                                   persona=self._persona, direct=direct)
+        if self._chat_sessions_reader is not None and self._current_session_reader is not None:
+            from .chat_sessions import ChatSessions
+            self.gateway.chats = ChatSessions(self._store, self._chat_sessions_reader, self._current_session_reader,
+                                              send_command=lambda profile_id, text: self.prompts.send_command(profile_id, text))
+            self._store.session_tagger = self.gateway.chats.current
         from .artifacts import Artifacts
         self.gateway.artifacts = Artifacts(self._store, self.gateway.publish_artifact_message,
                                            self.gateway.publish_artifact_changed)

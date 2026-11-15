@@ -35,6 +35,7 @@ public struct WalkingSkeletonPingView: View {
     @State private var composerID = 0
     /// Chat Settings sheet, opened by tapping the agent at the top.
     @State private var showingSettings = false
+    @State private var showingPastChats = false
     // Photos and files (docs/files.md).
     @State private var attachments: [LKPendingAttachment] = []
     @State private var photoItems: [PhotosPickerItem] = []
@@ -83,8 +84,43 @@ public struct WalkingSkeletonPingView: View {
     /// How many other agents have unread replies (the count by the back button).
     private var unreadOthers: Int { gateway.otherAgentsWithUnread + unreadElsewhere }
 
-    private var messages: [ChatEntry] {
+    private var allMessages: [ChatEntry] {
         gateway.timeline.entries(for: gateway.activeProfileId)
+    }
+
+    // MARK: Past chats (docs/chats.md): only the current conversation is shown; earlier ones fold away.
+
+    private var currentChat: String? { gateway.currentChat[gateway.activeProfileId] }
+
+    /// When the current conversation began (for messages saved before they carried their conversation).
+    private var currentChatStart: Double? {
+        gateway.pastChats[gateway.activeProfileId]?.first { $0.session_id == currentChat }?.started_at
+    }
+
+    /// From an earlier conversation than the one going on now.
+    private func isEarlier(_ entry: ChatEntry) -> Bool {
+        guard let current = currentChat else { return false }
+        if let session = entry.session { return session != current }
+        guard entry.seq != nil, let start = currentChatStart, let date = entry.date else { return false }
+        return date.timeIntervalSince1970 < start - 1
+    }
+
+    private var messages: [ChatEntry] {
+        guard currentChat != nil else { return allMessages }
+        return allMessages.filter { !isEarlier($0) }
+    }
+
+    private var hasEarlierChats: Bool {
+        allMessages.contains(where: isEarlier) || (gateway.pastChats[gateway.activeProfileId]?.count ?? 0) > 1
+    }
+
+    /// The newest card of each artifact (older cards shrink to a line: it lives at the newest).
+    private var newestArtifactCards: [String: String] {
+        var newest: [String: String] = [:]
+        for entry in messages {
+            if let artifact = entry.artifact { newest[artifact.artifact_id] = entry.id }
+        }
+        return newest
     }
 
     private var activity: AgentActivity? {
@@ -264,6 +300,7 @@ public struct WalkingSkeletonPingView: View {
                 if isConnected {
                     await gateway.loadVoiceSettings(for: gateway.activeProfileId)
                     await gateway.loadSettings(for: gateway.activeProfileId)
+                    await gateway.loadChats(for: gateway.activeProfileId)
                     await gateway.loadCommands(for: gateway.activeProfileId)
                 }
             }
@@ -297,6 +334,11 @@ public struct WalkingSkeletonPingView: View {
                 if live.done { player.expectsMore = false }
             }
             #if os(iOS)
+            .sheet(isPresented: $showingPastChats) {
+                NavigationStack {
+                    PastChatsView(gateway: gateway, profileId: gateway.activeProfileId, agentName: profileName, standalone: true)
+                }
+            }
             .fullScreenCover(item: $openedArtifact) { artifact in
                 ArtifactViewer(gateway: gateway, profileId: gateway.activeProfileId, artifactId: artifact.artifact_id,
                                agentName: profileName, title: artifact.title)
@@ -359,8 +401,10 @@ public struct WalkingSkeletonPingView: View {
                 LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
             } else if let artifact = entry.artifact {
                 // An artifact made or changed (docs/artifacts.md): a card that opens it.
-                LKArtifactCard(artifact: artifact, fromUser: entry.role == .user) { openedArtifact = artifact }
+                LKArtifactCard(artifact: artifact, fromUser: entry.role == .user,
+                               compact: newestArtifactCards[artifact.artifact_id] != entry.id) { openedArtifact = artifact }
                     .offset(x: -timeReveal)
+                    .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
                 if !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent, delivery: delivery(for: entry))
                         .offset(x: -timeReveal)
@@ -371,6 +415,7 @@ public struct WalkingSkeletonPingView: View {
                     if let about = entry.about { openedArtifact = about }
                 }
                 .offset(x: -timeReveal)
+                .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
                 if !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     LKMessageBubble(entry.text, from: .user, delivery: delivery(for: entry))
                         .offset(x: -timeReveal)
@@ -385,6 +430,7 @@ public struct WalkingSkeletonPingView: View {
                                       personality: voiceStyle(entry) == "personality",
                                       problem: voiceProblem(entry), gateway: gateway, player: player)
                         .offset(x: -timeReveal)
+                        .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
                 } else if let voice = entry.voice, let file = entry.files?.first {
                     LKVoiceBubble(voice, fromUser: entry.role == .user, transcript: entry.transcript,
                                   isPlaying: player.currentId == entry.id && player.isPlaying,
@@ -393,12 +439,14 @@ public struct WalkingSkeletonPingView: View {
                                   onToggle: { toggleVoice(entry, file: file) },
                                   onSeek: { seekVoice(entry, file: file, to: $0) })
                         .offset(x: -timeReveal)
+                        .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
                     fileOnlyStatus(for: entry)
                 } else if let files = entry.files, !files.isEmpty {
                     LKMessageFiles(files, fromUser: entry.role == .user, opening: openingFile,
                                    load: { file in try? await gateway.fileURL(for: file) },
                                    open: openFile)
                         .offset(x: -timeReveal)
+                        .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
                 }
                 if entry.voice != nil || (isVoiceReply(entry) && !(spokenParts(entry).isEmpty && voiceProblem(entry) != nil)) {
                     EmptyView()
@@ -812,7 +860,20 @@ public struct WalkingSkeletonPingView: View {
     private var messageList: some View {
         ScrollView {
             LazyVStack(spacing: LK.Spacing.sm) {
-                if gateway.canLoadOlder(gateway.activeProfileId) {
+                if hasEarlierChats {
+                    // Earlier conversations with this agent, folded away (docs/chats.md).
+                    Button { showingPastChats = true } label: {
+                        Label("Earlier chats", systemImage: "clock.arrow.circlepath")
+                            .font(LK.Typography.footnote.weight(.semibold))
+                            .padding(.horizontal, LK.Spacing.md)
+                            .padding(.vertical, 6)
+                            .background(LK.Surface.inset, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, LK.Spacing.xs)
+                } else if gateway.canLoadOlder(gateway.activeProfileId) {
                     // Older messages are on the host; they load when scrolling up near here.
                     ProgressView()
                         .opacity(gateway.loadingOlder.contains(gateway.activeProfileId) ? 1 : 0)
@@ -911,7 +972,9 @@ public struct WalkingSkeletonPingView: View {
     private func loadOlder() {
         let profileId = gateway.activeProfileId
         guard !pageInFlight, gateway.canLoadOlder(profileId),
-              !gateway.loadingOlder.contains(profileId) else { return }
+              !gateway.loadingOlder.contains(profileId),
+              // Reached an earlier conversation: the current one is all here (the rest stays folded away).
+              !allMessages.contains(where: isEarlier) else { return }
         pageInFlight = true
         Task {
             guard let page = await gateway.fetchOlderPage(profileId) else {
@@ -1148,6 +1211,29 @@ struct SpokenReplyBubble: View {
         Task {
             guard let urls = await localParts() else { return }
             player.seek(id: entry.id, urls: urls, to: fraction)
+        }
+    }
+}
+
+
+/// Each message's time, slid in from the right when the chat is dragged left (as in Messages):
+/// every kind of message, not only text (owner, 2026-11-15: voice notes had none).
+struct TimeReveal: ViewModifier {
+    let date: Date?
+    let reveal: CGFloat
+    let width: CGFloat
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .trailing) {
+            if let date {
+                Text(date.formatted(date: .omitted, time: .shortened))
+                    .font(LK.Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .offset(x: width - reveal)
+                    .opacity(reveal / width)
+                    .accessibilityHidden(true)
+            }
         }
     }
 }

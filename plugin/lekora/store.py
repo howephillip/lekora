@@ -456,9 +456,19 @@ class Store:
         return Event(r["seq"], r["instance_id"], r["profile_id"], r["event_type"],
                      json.loads(r["payload_json"]), r["created_at"], int(r["rev"] or r["seq"]))
 
+    # Past chats (docs/chats.md): profile -> the Hermes conversation a new message belongs to.
+    session_tagger: Optional[Callable[[str], Optional[str]]] = None
+
     def append_event(
         self, profile_id: str, event_type: str, payload: dict[str, Any]
     ) -> int:
+        if event_type == "chat.message" and "session" not in payload and self.session_tagger is not None:
+            try:
+                session = self.session_tagger(profile_id)
+            except Exception:
+                session = None
+            if session:
+                payload = {**payload, "session": session}
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO events (instance_id, profile_id, event_type, "

@@ -425,13 +425,17 @@ public struct ChatMessageData: Codable, Equatable {
     public let about: ArtifactCard?
     /// Comments on the artifact's lines, sent together (docs/artifacts.md, "Comments").
     public let review: [ReviewComment]?
+    /// The Hermes conversation it belongs to (docs/chats.md).
+    public let session: String?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
                 rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
                 files: [ChatFile]? = nil, voice: VoiceDetails? = nil, transcript: String? = nil,
                 spoken: [ChatFile]? = nil, voicing: String? = nil, voice_problem: String? = nil,
                 voice_key: String? = nil, spoken_text: String? = nil,
-                artifact: ArtifactCard? = nil, about: ArtifactCard? = nil, review: [ReviewComment]? = nil) {
+                artifact: ArtifactCard? = nil, about: ArtifactCard? = nil, review: [ReviewComment]? = nil,
+                session: String? = nil) {
+        self.session = session
         self.review = review
         self.artifact = artifact
         self.about = about
@@ -1097,3 +1101,29 @@ struct ReviewDraft: Codable {
         comments.map { ReviewComment(lineStart: $0.start, lineEnd: $0.end, quote: $0.quote, comment: $0.comment, id: $0.id) }
     }
 }
+
+
+// MARK: - Past chats (docs/chats.md)
+
+/// One of an agent's conversations, as Hermes keeps them.
+public struct ChatSessionInfo: Codable, Equatable, Identifiable, Sendable {
+    public let session_id: String
+    public let title: String?
+    public let preview: String?
+    public let started_at: Double?
+    public let last_at: Double?
+    public let messages: Int
+    public let current: Bool
+    public var id: String { session_id }
+
+    public var name: String { title ?? preview ?? "Untitled chat" }
+    public var lastDate: Date? { (last_at ?? started_at).map { Date(timeIntervalSince1970: $0) } }
+}
+
+public struct ChatSessionsData: Codable, Equatable, Sendable {
+    public let current: String?
+    public let chats: [ChatSessionInfo]
+}
+
+struct ChatSessionRef: Codable { let session_id: String }
+struct ChatHistoryResult: Codable { let session_id: String; let messages: [ChatMessageData] }
