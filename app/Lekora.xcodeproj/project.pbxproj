@@ -63,8 +63,10 @@
 		D9BE1AE3B4D610F942E48436 /* ChatSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C8FFF0B35F4E68F6686564 /* ChatSettingsTests.swift */; };
 		DA6AC93C150CEF3A3051FD74 /* SlashCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C0252903486B4E2D6FB60B /* SlashCommandTests.swift */; };
 		DAA534981372D21B8DC62114 /* YourNameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ABD387BEEB7005FD9DD1FC7 /* YourNameView.swift */; };
+		DB763713D369528A26DF1A7D /* ArtifactRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3957FFF041B6A0267E36632 /* ArtifactRendering.swift */; };
 		E62118D1C3DF78A322957E74 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78FD78F8BDDAF8AFE37D041D /* GatewayClient.swift */; };
 		F34C5DD0C82B7B9F85A86589 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */; };
+		F4236DAA4828884BC84CCA40 /* ArtifactViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E766EF3A557A0C82CB0CFA83 /* ArtifactViews.swift */; };
 		F80A982058F1278A350FB7A3 /* MultipleComputersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37AF70E09D70B03C04EB1301 /* MultipleComputersTests.swift */; };
 		F8F1AF8CED29B5EEA4DE0B4F /* FilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 203F8C1E0485F0F73E02F72F /* FilesTests.swift */; };
 /* End PBXBuildFile section */
@@ -137,6 +139,8 @@
 		DD6AA398351F711D345961F7 /* LKAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKAgents.swift; sourceTree = "<group>"; };
 		DF0E885CE9A25F39DDC4B3BB /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		DF6A4DDC5B67E0BB7B5000DC /* HandsFree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandsFree.swift; sourceTree = "<group>"; };
+		E3957FFF041B6A0267E36632 /* ArtifactRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactRendering.swift; sourceTree = "<group>"; };
+		E766EF3A557A0C82CB0CFA83 /* ArtifactViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactViews.swift; sourceTree = "<group>"; };
 		E950FA3284FD2DBC6C00F77F /* PromptCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptCardTests.swift; sourceTree = "<group>"; };
 		E9EA3C23333BF65550CF492F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F3C0252903486B4E2D6FB60B /* SlashCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandTests.swift; sourceTree = "<group>"; };
@@ -162,6 +166,7 @@
 		1A59BCF1B37E3C88C315DE26 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				E3957FFF041B6A0267E36632 /* ArtifactRendering.swift */,
 				FD0CDF9E6E70F592D7D26D0F /* ChatTimeline.swift */,
 				7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */,
 			);
@@ -268,6 +273,7 @@
 			children = (
 				A71FE4330319847F703BD319 /* AgentsHomeView.swift */,
 				CA3009191A55C0F53236F945 /* AgentToolsView.swift */,
+				E766EF3A557A0C82CB0CFA83 /* ArtifactViews.swift */,
 				38A76BD582961EF84C909245 /* AttachmentPicking.swift */,
 				9B4C842A13935CD6B9F443EA /* ChatSettingsView.swift */,
 				30340119CD6EC084AB905328 /* DirectVoiceView.swift */,
@@ -367,6 +373,8 @@
 			files = (
 				12606712B38BAC9B8534D097 /* AgentToolsView.swift in Sources */,
 				B3E1652F6BF2059C81EA8B5E /* AgentsHomeView.swift in Sources */,
+				DB763713D369528A26DF1A7D /* ArtifactRendering.swift in Sources */,
+				F4236DAA4828884BC84CCA40 /* ArtifactViews.swift in Sources */,
 				81CE4A4DF2691A77386D4538 /* AttachmentPicking.swift in Sources */,
 				2988CBAEB83B34780FC8D41F /* ChatCache.swift in Sources */,
 				B29C03F457A769802A61497D /* ChatSettingsView.swift in Sources */,

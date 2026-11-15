@@ -931,19 +931,21 @@ public final class GatewayClient: ObservableObject {
     public nonisolated static func makeChatSendEnvelope(text: String, instanceId: String, profileId: String,
                                                         files: [String]? = nil,
                                                         voice: VoiceDetails? = nil,
-                                                        handsFree: Bool = false) -> Envelope<ChatSendData> {
+                                                        handsFree: Bool = false,
+                                                        about: String? = nil) -> Envelope<ChatSendData> {
         Envelope(
             type: "chat.send",
             instance_id: instanceId,
             profile_id: profileId,
-            data: ChatSendData(text: text, files: files, voice: voice, hands_free: handsFree ? true : nil)
+            data: ChatSendData(text: text, files: files, voice: voice, hands_free: handsFree ? true : nil,
+                               about: about.map { ArtifactRef(artifact_id: $0) })
         )
     }
 
     /// Sends `text` to the active profile. The message appears in the timeline straight
     /// away; a failed send is marked on that bubble instead of dropping the connection.
     public func sendMessage(_ text: String, files: [ChatFile] = [], voice: VoiceDetails? = nil,
-                            handsFree: Bool = false) async {
+                            handsFree: Bool = false, about: ArtifactCard? = nil) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty,
               case .connected = state,
@@ -954,9 +956,9 @@ public final class GatewayClient: ObservableObject {
 
         let envelope = Self.makeChatSendEnvelope(text: trimmed, instanceId: instanceId, profileId: activeProfileId,
                                                  files: files.isEmpty ? nil : files.map(\.file_id), voice: voice,
-                                                 handsFree: handsFree)
+                                                 handsFree: handsFree, about: about?.artifact_id)
         timeline.addOutgoing(id: envelope.id, profileId: activeProfileId, text: trimmed,
-                             files: files.isEmpty ? nil : files, voice: voice)
+                             files: files.isEmpty ? nil : files, voice: voice, about: about)
 
         do {
             try await send(envelope, on: wsTask)
@@ -1094,6 +1096,31 @@ public final class GatewayClient: ObservableObject {
         if let text = got.default_style_instructions { defaultStyleInstructions = text }
     }
 
+    // MARK: - Artifacts (docs/artifacts.md)
+
+    /// The newest version of each artifact the instance told this phone about (open viewers reload).
+    @Published public private(set) var artifactVersions: [String: Int] = [:]
+
+    public func artifacts(for profileId: String) async throws -> [ArtifactCard] {
+        try await request(type: "artifacts.list", profileId: profileId, data: EmptyData(),
+                          reply: ArtifactsListResult.self, timeout: 20).artifacts
+    }
+
+    public func artifact(_ id: String, version: Int? = nil, in profileId: String) async throws -> ArtifactDetail {
+        try await request(type: "artifact.get", profileId: profileId, data: ArtifactGetData(artifact_id: id, version: version),
+                          reply: ArtifactDetail.self, timeout: 30)
+    }
+
+    /// Your edit, as a new version. Throws `ARTIFACT_CHANGED` when a newer version exists.
+    public func saveArtifact(_ id: String, content: String, baseVersion: Int, note: String? = nil,
+                             in profileId: String) async throws -> ArtifactCard {
+        let saved = try await request(type: "artifact.save", profileId: profileId,
+                                      data: ArtifactSaveData(artifact_id: id, content: content, base_version: baseVersion, note: note),
+                                      reply: ArtifactSaveResult.self, timeout: 30).artifact
+        artifactVersions[id] = saved.version
+        return saved
+    }
+
     /// Direct voice (docs/voice.md §4): replies whose sound is streamed while it's made.
     public private(set) var streamingReplies: Set<String> = []
     /// Streamed sound as it arrives (a hands-free call plays it at once).
@@ -1206,6 +1233,9 @@ public final class GatewayClient: ObservableObject {
             let known = voiceReplies[envelope.data.message_id]
             voiceReplies[envelope.data.message_id] = (envelope.data.style, envelope.data.problem ?? known?.problem)
             if envelope.data.streaming == true { streamingReplies.insert(envelope.data.message_id) }
+        case "artifact.changed":
+            guard let envelope = try? decoder.decode(Envelope<ArtifactChangedData>.self, from: data) else { return }
+            artifactVersions[envelope.data.artifact.artifact_id] = envelope.data.artifact.version
         case "voice.stream":
             guard let envelope = try? decoder.decode(Envelope<VoiceStreamData>.self, from: data) else { return }
             onVoiceStream?(envelope.data)
@@ -1260,7 +1290,9 @@ public final class GatewayClient: ObservableObject {
                 voicing: envelope.data.voicing,
                 voiceProblem: envelope.data.voice_problem,
                 voiceKey: envelope.data.voice_key,
-                spokenText: envelope.data.spoken_text
+                spokenText: envelope.data.spoken_text,
+                artifact: envelope.data.artifact,
+                about: envelope.data.about
             )
             if profileId == activeProfileId { markActiveChatRead() }
             if envelope.data.role == "system", chatSettings[profileId] != nil {

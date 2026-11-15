@@ -59,6 +59,8 @@ public struct WalkingSkeletonPingView: View {
     @State private var iphoneReading: Set<String> = []
     /// Hands-free conversation, full screen (docs/voice.md §3); it plays replies itself meanwhile.
     @State private var handsFree = false
+    /// The artifact open full screen (docs/artifacts.md).
+    @State private var openedArtifact: ArtifactCard?
     /// The file shown in Quick Look, and the one being fetched to show.
     @State private var previewURL: URL?
     @State private var openingFile: String?
@@ -295,6 +297,10 @@ public struct WalkingSkeletonPingView: View {
                 if live.done { player.expectsMore = false }
             }
             #if os(iOS)
+            .fullScreenCover(item: $openedArtifact) { artifact in
+                ArtifactViewer(gateway: gateway, profileId: gateway.activeProfileId, artifactId: artifact.artifact_id,
+                               agentName: profileName)
+            }
             .fullScreenCover(isPresented: $handsFree) {
                 HandsFreeView(gateway: gateway, agentName: profileName)
             }
@@ -351,7 +357,19 @@ public struct WalkingSkeletonPingView: View {
                 LKSystemNotice(entry.text)
             } else if let card = entry.card {
                 LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
+            } else if let artifact = entry.artifact {
+                // An artifact made or changed (docs/artifacts.md): a card that opens it.
+                LKArtifactCard(artifact: artifact, fromUser: entry.role == .user) { openedArtifact = artifact }
+                    .offset(x: -timeReveal)
+                if !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent, delivery: delivery(for: entry))
+                        .offset(x: -timeReveal)
+                }
             } else {
+                if let about = entry.about {
+                    LKArtifactChip(artifact: about) { openedArtifact = about }
+                        .offset(x: -timeReveal)
+                }
                 if isVoiceReply(entry), !(spokenParts(entry).isEmpty && voiceProblem(entry) != nil) {
                     SpokenReplyBubble(entry: entry, parts: spokenParts(entry), live: isLiveSpoken(entry),
                                       personality: voiceStyle(entry) == "personality",

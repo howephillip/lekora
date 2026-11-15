@@ -32,6 +32,14 @@ struct ChatSettingsView: View {
                 summary
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
+                // Everything this agent made for you (docs/artifacts.md).
+                Section {
+                    NavigationLink {
+                        ArtifactsListView(gateway: gateway, profileId: profileId, agentName: agentName)
+                    } label: {
+                        Label("Artifacts", systemImage: "square.on.square")
+                    }
+                }
                 if let failure {
                     Text(failure).font(LK.Typography.footnote).foregroundStyle(LK.Palette.danger)
                 }

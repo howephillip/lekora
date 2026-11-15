@@ -176,8 +176,12 @@ public struct ChatSendData: Codable, Equatable {
     public let voice: VoiceDetails?
     /// Sent from a hands-free conversation: the reply is spoken (docs/voice.md §3).
     public let hands_free: Bool?
+    /// "Ask to change" an artifact: which one (docs/artifacts.md).
+    public let about: ArtifactRef?
 
-    public init(text: String, files: [String]? = nil, voice: VoiceDetails? = nil, hands_free: Bool? = nil) {
+    public init(text: String, files: [String]? = nil, voice: VoiceDetails? = nil, hands_free: Bool? = nil,
+                about: ArtifactRef? = nil) {
+        self.about = about
         self.text = text
         self.files = files
         self.voice = voice
@@ -413,12 +417,18 @@ public struct ChatMessageData: Codable, Equatable {
     public let voice_key: String?
     /// Personality voice: what was said (the reply rewritten as speech); `text` is what was written.
     public let spoken_text: String?
+    /// An artifact made or changed (a card), or the one a request is about (docs/artifacts.md).
+    public let artifact: ArtifactCard?
+    public let about: ArtifactCard?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
                 rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
                 files: [ChatFile]? = nil, voice: VoiceDetails? = nil, transcript: String? = nil,
                 spoken: [ChatFile]? = nil, voicing: String? = nil, voice_problem: String? = nil,
-                voice_key: String? = nil, spoken_text: String? = nil) {
+                voice_key: String? = nil, spoken_text: String? = nil,
+                artifact: ArtifactCard? = nil, about: ArtifactCard? = nil) {
+        self.artifact = artifact
+        self.about = about
         self.voice_key = voice_key
         self.spoken_text = spoken_text
         self.spoken = spoken
@@ -971,3 +981,65 @@ public enum ProfileNaming {
         return trimmed
     }
 }
+
+
+// MARK: - Artifacts (docs/artifacts.md)
+
+/// An artifact as a chat card or a list row.
+public struct ArtifactCard: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public let artifact_id: String
+    public let title: String
+    /// html | markdown | code | svg | text
+    public let kind: String
+    public let language: String?
+    public let version: Int
+    /// On cards: created | updated | edited
+    public let action: String?
+    public let updated_at: String?
+    public var id: String { artifact_id }
+
+    public init(artifact_id: String, title: String, kind: String, language: String? = nil, version: Int,
+                action: String? = nil, updated_at: String? = nil) {
+        self.artifact_id = artifact_id
+        self.title = title
+        self.kind = kind
+        self.language = language
+        self.version = version
+        self.action = action
+        self.updated_at = updated_at
+    }
+}
+
+public struct ArtifactRef: Codable, Equatable, Sendable { public let artifact_id: String }
+
+public struct ArtifactVersionInfo: Codable, Equatable, Identifiable, Sendable {
+    public let version: Int
+    /// agent | user
+    public let author: String
+    public let note: String?
+    public let created_at: String?
+    public let size: Int?
+    public var id: Int { version }
+}
+
+/// An artifact opened: one version's content, and every version.
+public struct ArtifactDetail: Codable, Equatable, Sendable {
+    public let artifact_id: String
+    public let title: String
+    public let kind: String
+    public let language: String?
+    public let version: Int
+    public let shown_version: Int
+    public let content: String
+    public let versions: [ArtifactVersionInfo]
+
+    public var card: ArtifactCard {
+        ArtifactCard(artifact_id: artifact_id, title: title, kind: kind, language: language, version: version)
+    }
+}
+
+struct ArtifactsListResult: Codable { let artifacts: [ArtifactCard] }
+struct ArtifactGetData: Codable { let artifact_id: String; let version: Int? }
+struct ArtifactSaveData: Codable { let artifact_id: String; let content: String; let base_version: Int; let note: String? }
+struct ArtifactSaveResult: Codable { let artifact: ArtifactCard }
+struct ArtifactChangedData: Codable { let artifact: ArtifactCard }

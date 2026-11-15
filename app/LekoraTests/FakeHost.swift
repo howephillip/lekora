@@ -57,6 +57,22 @@ final class FakeHost: @unchecked Sendable {
         for connection in open { send(type: "voice.reply", data: data, profileId: profile, on: connection) }
     }
 
+    /// Artifacts (docs/artifacts.md): id, title, kind, versions (contents, oldest first).
+    var artifacts: [[String: Any]] = []
+
+    func artifactCard(_ artifact: [String: Any]) -> [String: Any] {
+        ["artifact_id": artifact["artifact_id"] ?? "", "title": artifact["title"] ?? "", "kind": artifact["kind"] ?? "text",
+         "version": (artifact["versions"] as? [String])?.count ?? 1]
+    }
+
+    func announceArtifactChange(_ artifactId: String, version: Int, profile: String) {
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open {
+            send(type: "artifact.changed", data: ["artifact": ["artifact_id": artifactId, "title": "t", "kind": "html", "version": version]],
+                 profileId: profile, on: connection)
+        }
+    }
+
     /// Direct voice (docs/voice.md §4).
     var directVoice: [String: Any] = [
         "source": "auto",
@@ -639,6 +655,34 @@ final class FakeHost: @unchecked Sendable {
         case "voice.settings.set":
             voiceSettings = data["settings"] as? [String: Any] ?? voiceSettings
             send(type: "voice.settings.set.result", id: id, data: ["settings": voiceSettings],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "artifacts.list":
+            send(type: "artifacts.list.result", id: id, data: ["artifacts": artifacts.map(artifactCard)],
+                 profileId: message["profile_id"] as? String, on: connection)
+
+        case "artifact.get":
+            guard let found = artifacts.first(where: { $0["artifact_id"] as? String == data["artifact_id"] as? String }) else {
+                send(error: "UNKNOWN_ARTIFACT", reason: "There's no artifact with that id in this chat.", id: id, on: connection, close: false)
+                return
+            }
+            let versions = found["versions"] as? [String] ?? []
+            let shown = data["version"] as? Int ?? versions.count
+            send(type: "artifact.get.result", id: id, data: artifactCard(found).merging([
+                "shown_version": shown, "content": versions[shown - 1],
+                "versions": versions.indices.reversed().map { ["version": $0 + 1, "author": $0 == 0 ? "agent" : "user"] },
+            ]) { $1 }, profileId: message["profile_id"] as? String, on: connection)
+
+        case "artifact.save":
+            guard let index = artifacts.firstIndex(where: { $0["artifact_id"] as? String == data["artifact_id"] as? String }) else { return }
+            var versions = artifacts[index]["versions"] as? [String] ?? []
+            guard data["base_version"] as? Int == versions.count else {
+                send(error: "ARTIFACT_CHANGED", reason: "It was changed meanwhile.", id: id, on: connection, close: false)
+                return
+            }
+            versions.append(data["content"] as? String ?? "")
+            artifacts[index]["versions"] = versions
+            send(type: "artifact.save.result", id: id, data: ["artifact": artifactCard(artifacts[index])],
                  profileId: message["profile_id"] as? String, on: connection)
 
         case "voice.direct.get", "voice.direct.set":
