@@ -1114,6 +1114,8 @@ public struct ChatSessionInfo: Codable, Equatable, Identifiable, Sendable {
     public let last_at: Double?
     public let messages: Int
     public let current: Bool
+    /// Searching: the words that matched.
+    public let match: String?
     public var id: String { session_id }
 
     public var name: String { title ?? preview ?? "Untitled chat" }
@@ -1126,4 +1128,5 @@ public struct ChatSessionsData: Codable, Equatable, Sendable {
 }
 
 struct ChatSessionRef: Codable { let session_id: String }
+struct ChatsQuery: Codable { let query: String? }
 struct ChatHistoryResult: Codable { let session_id: String; let messages: [ChatMessageData] }

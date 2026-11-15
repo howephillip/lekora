@@ -97,3 +97,14 @@ async def test_empty_chats_are_left_out(fgw, store):
     store.append_event("coder", "chat.message", {"role": "user", "text": "hi"})
     ids = [c["session_id"] for c in fgw.chats.list("coder")["chats"]]
     assert "s_empty" not in ids and "s_new" in ids, "a chat with only Hermes' notice isn't listed"
+
+
+async def test_searching_past_chats(fgw, store):
+    hermes = FakeHermes()
+    setup(fgw, store, hermes)
+    store.append_event("coder", "chat.message", {"role": "user", "text": "where do I park for the golf tournament"})
+    hermes.now = "s_new"
+    store.append_event("coder", "chat.message", {"role": "user", "text": "find cheaper tickets"})
+    found = fgw.chats.list("coder", "golf")["chats"]
+    assert [c["session_id"] for c in found] == ["s_old"] and "golf" in found[0]["match"]
+    assert [c["session_id"] for c in fgw.chats.list("coder", "tickets")["chats"]] == ["s_new"], "titles match too"

@@ -209,6 +209,11 @@ class Store:
             self._db.executescript(FILES)
             self._db.executescript(APP_SETTINGS)
             self._db.executescript(ARTIFACTS)
+            # The version last shown as a card (changes made outside the tools get one too).
+            columns = {r[1] for r in self._db.execute("PRAGMA table_info(artifacts)")}
+            if "announced" not in columns:
+                self._db.execute("ALTER TABLE artifacts ADD COLUMN announced INTEGER")
+                self._db.execute("UPDATE artifacts SET announced = version")
             self._db.commit()
 
     def _migrate_events(self) -> None:
@@ -700,7 +705,7 @@ class Store:
         with self._lock:
             self._db.execute(
                 "INSERT INTO artifacts (artifact_id, instance_id, profile_id, title, kind, language, version,"
-                " created_at, updated_at) VALUES (?,?,?,?,?,?,1,?,?)",
+                " created_at, updated_at, announced) VALUES (?,?,?,?,?,?,1,?,?,0)",
                 (artifact_id, self.instance_id, profile_id, title, kind, language, now, now))
             self._db.execute(
                 "INSERT INTO artifact_versions (artifact_id, instance_id, profile_id, version, content, author,"
@@ -763,6 +768,20 @@ class Store:
             rows = self._db.execute(
                 "SELECT * FROM artifacts WHERE instance_id = ? AND profile_id = ? ORDER BY updated_at DESC, rowid DESC",
                 (self.instance_id, profile_id)).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_announced(self, artifact_id: str, version: int) -> None:
+        with self._lock:
+            self._db.execute("UPDATE artifacts SET announced = ? WHERE artifact_id = ? AND instance_id = ?",
+                             (version, artifact_id, self.instance_id))
+            self._db.commit()
+
+    def unannounced_artifacts(self) -> list[dict]:
+        """Artifacts with a newer version than their last card (changed some other way)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM artifacts WHERE instance_id = ? AND (announced IS NULL OR version > announced)",
+                (self.instance_id,)).fetchall()
         return [dict(r) for r in rows]
 
     def artifacts_export(self, profile_id: str) -> list[dict]:

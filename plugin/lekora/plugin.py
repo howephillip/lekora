@@ -249,6 +249,7 @@ class LekoraService:
         from .artifacts import Artifacts
         self.gateway.artifacts = Artifacts(self._store, self.gateway.publish_artifact_message,
                                            self.gateway.publish_artifact_changed)
+        self._artifact_watch = asyncio.create_task(self.gateway.watch_artifacts())
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(
@@ -321,6 +322,9 @@ class LekoraService:
             **({"model_info": self._model_info} if self._model_info else {}))
 
     async def stop(self) -> None:
+        watch = getattr(self, "_artifact_watch", None)
+        if watch is not None:
+            watch.cancel()
         if self.gateway is not None:
             await self.gateway.stop()
             self.gateway = None

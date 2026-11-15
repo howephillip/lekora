@@ -92,17 +92,13 @@ public struct WalkingSkeletonPingView: View {
 
     private var currentChat: String? { gateway.currentChat[gateway.activeProfileId] }
 
-    /// When the current conversation began (for messages saved before they carried their conversation).
-    private var currentChatStart: Double? {
-        gateway.pastChats[gateway.activeProfileId]?.first { $0.session_id == currentChat }?.started_at
-    }
-
-    /// From an earlier conversation than the one going on now.
+    /// From another conversation than the one going on now. The instance says which conversation
+    /// each message is in; a saved message it hasn't told this phone about yet is kept out (dates
+    /// can't tell: a resumed conversation began long before messages sent since; owner, 2026-11-15).
     private func isEarlier(_ entry: ChatEntry) -> Bool {
         guard let current = currentChat else { return false }
         if let session = entry.session { return session != current }
-        guard entry.seq != nil, let start = currentChatStart, let date = entry.date else { return false }
-        return date.timeIntervalSince1970 < start - 1
+        return entry.seq != nil
     }
 
     private var messages: [ChatEntry] {

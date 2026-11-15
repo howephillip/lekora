@@ -978,7 +978,8 @@ public final class GatewayClient: ObservableObject {
 
     /// Where downloaded and sent files are kept on the phone (iOS may clear it; they're
     /// fetched again from the instance).
-    public var fileCacheRoot: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    /// Kept, not a cache iOS may clear (owner, 2026-11-15: voice notes shouldn't need fetching again).
+    public var fileCacheRoot: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Lekora/files", isDirectory: true)
     private var downloads: [String: Task<URL, Error>] = [:]
 
@@ -1010,7 +1011,17 @@ public final class GatewayClient: ObservableObject {
         return try await task.value
     }
 
+    /// Files kept on the phone stay out of iCloud backups (they're on the Hermes instance anyway).
+    private func keepOutOfBackups() {
+        try? FileManager.default.createDirectory(at: fileCacheRoot, withIntermediateDirectories: true)
+        var root = fileCacheRoot
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? root.setResourceValues(values)
+    }
+
     private func download(_ file: ChatFile) async throws -> URL {
+        keepOutOfBackups()
         let target = localFileURL(file)
         let folder = target.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -1105,10 +1116,27 @@ public final class GatewayClient: ObservableObject {
     @Published public private(set) var pastChats: [String: [ChatSessionInfo]] = [:]
 
     public func loadChats(for profileId: String) async {
-        guard let got = try? await request(type: "chats.list", profileId: profileId, data: EmptyData(),
+        guard let got = try? await request(type: "chats.list", profileId: profileId, data: ChatsQuery(query: nil),
                                            reply: ChatSessionsData.self, timeout: 20) else { return }
         pastChats[profileId] = got.chats
-        if let current = got.current { currentChat[profileId] = current }
+        if let current = got.current {
+            currentChat[profileId] = current
+            await loadConversation(current, in: profileId)
+        }
+    }
+
+    /// The current conversation's messages, each with its conversation: messages kept on the phone
+    /// from before learn which one they're in (so nothing from another conversation shows).
+    private func loadConversation(_ sessionId: String, in profileId: String) async {
+        guard let messages = try? await chatHistory(sessionId, in: profileId) else { return }
+        timeline.applyPage(profileId: profileId, messages: messages, hasMore: true)
+        cacheChanged()
+    }
+
+    /// Past chats whose title or messages contain `query` (with the matching words).
+    public func searchChats(_ query: String, in profileId: String) async throws -> [ChatSessionInfo] {
+        try await request(type: "chats.list", profileId: profileId, data: ChatsQuery(query: query),
+                          reply: ChatSessionsData.self, timeout: 30).chats
     }
 
     public func chatHistory(_ sessionId: String, in profileId: String) async throws -> [ChatMessageData] {
@@ -1122,10 +1150,7 @@ public final class GatewayClient: ObservableObject {
                               reply: ChatSessionRef.self, timeout: 30)
         currentChat[profileId] = sessionId
         // Its messages may not be on the phone yet: fetch them into the chat.
-        if let messages = try? await chatHistory(sessionId, in: profileId) {
-            timeline.applyPage(profileId: profileId, messages: messages, hasMore: true)
-            cacheChanged()
-        }
+        await loadConversation(sessionId, in: profileId)
         try? await Task.sleep(nanoseconds: 1_500_000_000)
         await loadChats(for: profileId)
         await loadSettings(for: profileId)  // the chat's title is the resumed one's

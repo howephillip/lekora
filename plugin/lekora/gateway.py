@@ -941,7 +941,7 @@ class Gateway:
         if self.chats is None:
             raise _Reject("UNAVAILABLE", "Past chats aren't available on this Hermes instance", True, False, msg_id)
         if type_ == "chats.list":
-            result: dict[str, Any] = await asyncio.to_thread(self.chats.list, profile_id)
+            result: dict[str, Any] = await asyncio.to_thread(self.chats.list, profile_id, str(data.get("query") or ""))
         else:
             session_id = str(data.get("session_id") or "")
             known = {c["session_id"] for c in (await asyncio.to_thread(self.chats.list, profile_id))["chats"]}
@@ -962,6 +962,17 @@ class Gateway:
         seq = self.store.append_event(profile_id, "chat.message", payload)
         await self._broadcast(self.store.get_event(seq))
         return seq
+
+    async def watch_artifacts(self, every: float = 5.0) -> None:
+        """Changes to artifacts made some other way than the tools still get their card (docs/artifacts.md)."""
+        while True:
+            await asyncio.sleep(every)
+            if self.artifacts is None:
+                continue
+            try:
+                await self.artifacts.announce_outside_changes()
+            except Exception:
+                log.debug("Lekora: artifact check failed", exc_info=True)
 
     async def publish_artifact_changed(self, profile_id: str, artifact: dict) -> None:
         """Phones showing this artifact load its new version."""

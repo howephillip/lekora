@@ -11,12 +11,19 @@ struct PastChatsView: View {
     var standalone = false
     @Environment(\.dismiss) private var dismiss
     @State private var loaded = false
+    @State private var query = ""
+    @State private var results: [ChatSessionInfo]?
+    @State private var searching = false
 
-    private var chats: [ChatSessionInfo] { gateway.pastChats[profileId] ?? [] }
+    private var chats: [ChatSessionInfo] { results ?? gateway.pastChats[profileId] ?? [] }
 
     var body: some View {
         List {
-            if chats.isEmpty {
+            if chats.isEmpty, results != nil {
+                Text(searching ? "Searching…" : "No chats with “\(query)”.")
+                    .font(LK.Typography.callout)
+                    .foregroundStyle(.secondary)
+            } else if chats.isEmpty {
                 if loaded {
                     Text("No earlier chats with \(agentName) yet. When you start a New Chat, the one before is kept here.")
                         .font(LK.Typography.callout)
@@ -43,9 +50,26 @@ struct PastChatsView: View {
                         Text(detail(chat))
                             .font(LK.Typography.caption)
                             .foregroundStyle(.secondary)
+                        if let match = chat.match {
+                            Text(match)
+                                .font(LK.Typography.caption)
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                        }
                     }
                 }
             }
+        }
+        .searchable(text: $query, prompt: "Search chats")
+        .task(id: query) {
+            // Titles and every message, on the instance; a moment after typing stops.
+            let text = query.trimmingCharacters(in: .whitespaces)
+            guard !text.isEmpty else { results = nil; return }
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            searching = true
+            results = (try? await gateway.searchChats(text, in: profileId)) ?? []
+            searching = false
         }
         .navigationTitle("Past Chats")
         #if os(iOS)
@@ -137,7 +161,7 @@ struct PastChatView: View {
         if message.role == "system" {
             LKSystemNotice(message.text)
         } else if let artifact = message.artifact {
-            LKArtifactCard(artifact: artifact, fromUser: fromUser, compact: true) {}
+            LKArtifactCard(artifact: artifact, fromUser: fromUser) {}
         } else if let review = message.review, !review.isEmpty {
             LKReviewCard(artifact: message.about, comments: review) {}
         } else {

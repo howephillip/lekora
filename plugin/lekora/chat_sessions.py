@@ -18,7 +18,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 log = logging.getLogger(__name__)
 
-LIST_LIMIT = 40
+LIST_LIMIT = 200
 CACHE_SECONDS = 30
 
 
@@ -85,16 +85,24 @@ class ChatSessions:
 
     # ---- for the phone -----------------------------------------------------------------
 
-    def list(self, profile_id: str) -> dict:
+    def list(self, profile_id: str, query: str = "") -> dict:
+        """Every conversation; with ``query``, only those whose title or messages contain it (with a snippet)."""
+        query = " ".join(str(query or "").split()).lower()[:100]
         got = self._sessions(profile_id, fresh=True)
         current = self.current(profile_id) or got.get("current")
         counts: dict[str, int] = {}
+        snippets: dict[str, str] = {}
         for event in self.store.events_for_profile(profile_id):
             if event.event_type != "chat.message" or event.payload.get("role") == "system":
                 continue  # Hermes' own notices ("New session started") aren't the conversation
             session = self.session_of(profile_id, event.payload, event.created_at)
             if session:
                 counts[session] = counts.get(session, 0) + 1
+                if query and session not in snippets:
+                    text = " ".join(str(event.payload.get("text") or event.payload.get("transcript") or "").split())
+                    at = text.lower().find(query)
+                    if at >= 0:
+                        snippets[session] = ("…" if at > 40 else "") + text[max(at - 40, 0):at + len(query) + 60]
         chats = []
         for row in got.get("sessions") or []:
             sid = row.get("id")
@@ -102,6 +110,9 @@ class ChatSessions:
                 continue
             if counts.get(sid, 0) == 0 and sid != current:
                 continue  # an empty chat (e.g. New Chat pressed twice): nothing to look back at
+            title_hit = query and query in " ".join(str(row.get(k) or "") for k in ("title", "preview")).lower()
+            if query and not title_hit and sid not in snippets:
+                continue
             chats.append({
                 "session_id": sid,
                 "title": (row.get("title") or "").strip() or None,
@@ -110,6 +121,7 @@ class ChatSessions:
                 "last_at": _ts(row.get("last_active")) or _ts(row.get("ended_at")) or _ts(row.get("started_at")),
                 "messages": counts.get(sid, 0),
                 "current": sid == current,
+                **({"match": snippets[sid]} if sid in snippets else {}),
             })
         return {"current": current, "chats": chats}
 

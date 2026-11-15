@@ -423,6 +423,6 @@ Requests with `profile_id` set, answered with `<type>.result`:
 
 ## 19. Past chats (spec: `chats.md`)
 - `chat.message` may carry `session`: the Hermes conversation it belongs to.
-- `chats.list` → `chats.list.result` `{current, chats: [{session_id, title?, preview?, started_at, last_at, messages, current}]}`, newest first (empty ones left out).
+- `chats.list` `{query?}` → `chats.list.result` `{current, chats: [{session_id, title?, preview?, started_at, last_at, messages, current}]}`, newest first (empty ones left out); with `query`, only chats whose title or messages contain it, each with `match` (the matching words).
 - `chat.history` `{session_id}` → `chat.history.result` `{session_id, messages}` (that conversation's messages, as `chat.message` data).
 - `chat.resume` `{session_id}` → `chat.resume.result` `{session_id}`: the plugin sends Hermes' own `/resume <id>`. Error `UNKNOWN_CHAT` for a conversation that isn't this agent's.

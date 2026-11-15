@@ -83,6 +83,7 @@ class Artifacts:
 
     async def _announce(self, profile_id: str, row: dict, role: str, action: str) -> int:
         shown = {**card(row), "action": action}
+        self.store.set_announced(row["artifact_id"], row["version"])
         seq = await self._publish(profile_id, {"role": role, "text": "", "artifact": shown})
         if self._changed is not None:
             await self._changed(profile_id, card(row))
@@ -115,6 +116,52 @@ class Artifacts:
         await self._announce(profile_id, row, "user" if author == "user" else "assistant",
                              "edited" if author == "user" else "updated")
         return card(row)
+
+    async def edit(self, profile_id: str, artifact_id: Any, edits: Any, note: Any = None) -> dict:
+        """Changes to some lines, or find-and-replace, applied to the latest version (a new one)."""
+        row = self._own(profile_id, artifact_id)
+        latest = self.store.artifact_version(row["artifact_id"])
+        content = latest["content"]
+        if not isinstance(edits, list) or not edits:
+            raise ArtifactError("INVALID_ARTIFACT", "Which edits? Give a list of line or find/replace edits.")
+        lines = content.split("\n")
+        line_edits, replaces = [], []
+        for edit in edits:
+            if not isinstance(edit, dict):
+                raise ArtifactError("INVALID_ARTIFACT", "Each edit is an object.")
+            if "find" in edit:
+                replaces.append(edit)
+            else:
+                try:
+                    start = int(edit["line_start"])
+                    end = int(edit.get("line_end", start))
+                except (KeyError, TypeError, ValueError):
+                    raise ArtifactError("INVALID_ARTIFACT", "A line edit needs line_start (and line_end).")
+                if start < 1 or end < start - 1 or start > len(lines) + 1:
+                    raise ArtifactError("INVALID_ARTIFACT", f"Lines {start}-{end} aren't in it (it has {len(lines)}).")
+                line_edits.append((start, min(end, len(lines)), str(edit.get("replacement", ""))))
+        # Bottom-up, so earlier line numbers stay right (they refer to the version read).
+        for start, end, replacement in sorted(line_edits, key=lambda e: e[0], reverse=True):
+            new = replacement.split("\n") if replacement != "" else []
+            lines[start - 1:end] = new
+        content = "\n".join(lines)
+        for edit in replaces:
+            find = str(edit.get("find") or "")
+            if not find or find not in content:
+                raise ArtifactError("INVALID_ARTIFACT", f"Couldn't find {find[:60]!r} in it.")
+            content = content.replace(find, str(edit.get("replace", "")), 1 if not edit.get("all") else -1)
+        return await self.update(profile_id, row["artifact_id"], content, note=note, base=row["version"])
+
+    async def announce_outside_changes(self) -> int:
+        """Changes made some other way (not these tools): a card all the same, at the newest message."""
+        count = 0
+        for row in await asyncio.to_thread(self.store.unannounced_artifacts):
+            if row.get("announced") is None:
+                self.store.set_announced(row["artifact_id"], row["version"])  # existed before this check
+                continue
+            await self._announce(row["profile_id"], row, "assistant", "updated")
+            count += 1
+        return count
 
     def read(self, profile_id: str, artifact_id: Any, version: Any = None) -> dict:
         row = self._own(profile_id, artifact_id)
@@ -162,12 +209,35 @@ CREATE_SCHEMA = {
         "required": ["title", "kind", "content"],
     },
 }
+EDIT_SCHEMA = {
+    "name": "lekora_edit_artifact",
+    "description": (
+        "Make specific changes to an artifact in this Lekora chat, saved as a new version the user sees as a "
+        "card: replace lines (by number, as in the latest version) or find and replace text. Best for review "
+        "comments and small fixes. Always change artifacts with these tools (this one, or lekora_update_artifact "
+        "for a rewrite); never by editing Lekora's files or database, which the user won't see."),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "artifact_id": {"type": "string", "description": "The artifact's id (art_…)."},
+            "edits": {
+                "type": "array",
+                "description": "Line edits {line_start, line_end, replacement} (replacement may be several lines, or "
+                               "empty to delete) and/or {find, replace, all?} text edits.",
+                "items": {"type": "object"},
+            },
+            "note": {"type": "string", "description": "What changed, in a few words."},
+        },
+        "required": ["artifact_id", "edits"],
+    },
+}
 UPDATE_SCHEMA = {
     "name": "lekora_update_artifact",
     "description": (
-        "Change an artifact in this Lekora chat: saves a new version (earlier ones are kept). Read it first "
-        "with lekora_read_artifact if you don't have its latest content: the user may have edited it. "
-        "Give the complete new content."),
+        "Rewrite an artifact in this Lekora chat: saves a new version (earlier ones are kept) that the user sees "
+        "as a card. For a few lines, lekora_edit_artifact is simpler. Read it first with lekora_read_artifact if "
+        "you don't have its latest content: the user may have edited it. Give the complete new content. Never "
+        "change artifacts by editing Lekora's files or database."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -196,7 +266,7 @@ LIST_SCHEMA = {
     "description": "List the artifacts in this Lekora chat (id, title, kind, latest version), most recently changed first.",
     "parameters": {"type": "object", "properties": {}},
 }
-SCHEMAS = (CREATE_SCHEMA, UPDATE_SCHEMA, READ_SCHEMA, LIST_SCHEMA)
+SCHEMAS = (CREATE_SCHEMA, EDIT_SCHEMA, UPDATE_SCHEMA, READ_SCHEMA, LIST_SCHEMA)
 
 
 def _result(ok: bool, **data: Any) -> str:
@@ -225,6 +295,10 @@ def run_tool(name: str, args: dict, *, platform: str, chat_id: str, service: Opt
             made = asyncio.run_coroutine_threadsafe(service.update(
                 chat_id, args.get("artifact_id"), args.get("content"), note=args.get("note"),
                 title=args.get("title")), loop).result(timeout=timeout)
+            return _result(True, message=f"Saved \"{made['title']}\" as version {made['version']}.", **made)
+        if name == "lekora_edit_artifact":
+            made = asyncio.run_coroutine_threadsafe(service.edit(
+                chat_id, args.get("artifact_id"), args.get("edits"), note=args.get("note")), loop).result(timeout=timeout)
             return _result(True, message=f"Saved \"{made['title']}\" as version {made['version']}.", **made)
         if name == "lekora_read_artifact":
             got = service.read(chat_id, args.get("artifact_id"), args.get("version"))

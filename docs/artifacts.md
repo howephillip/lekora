@@ -9,6 +9,7 @@ Agents make web pages, documents, code and images that open in the app as their 
   - `lekora_update_artifact(artifact_id, content, note?, title?)`: a new version; earlier ones are kept
   - `lekora_read_artifact(artifact_id, version?)`: the latest (with the user's own edits) or an earlier version
   - `lekora_list_artifacts()`
+- **`lekora_edit_artifact(artifact_id, edits, note?)`** (owner, 2026-11-15: an agent changed two artifacts by editing Lekora's database with its own code, so no card appeared): line edits `{line_start, line_end, replacement}` and find/replace `{find, replace, all?}` on the latest version, a new version; the tool descriptions say artifacts are only changed with these tools. **Backstop:** every 5 s the plugin looks for artifacts with a newer version than their last card (changed any other way) and posts the card then, at the newest message.
 - **Kept on the Hermes instance** (plugin store, `artifacts` and `artifact_versions`, every record with `instance_id` and `profile_id`), forever, like chats (rule 3). Deleting an agent puts its artifacts, every version, into that agent's backup (`<id>-<stamp>-lekora-chat.json`, `artifacts`).
 
 ## In the app

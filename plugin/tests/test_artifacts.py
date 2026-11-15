@@ -177,3 +177,34 @@ async def test_a_review_sends_every_line_comment_together(fgw, store):
             got = msg["data"]
     assert got["text"] == "" and len(got["review"]) == 1
     await ws.close()
+
+
+async def test_line_edits_and_find_replace(fgw, store):
+    artifacts = service(fgw, store)
+    made = await artifacts.create("coder", "Docker", "code", "FROM python:3.12\nRUN a\nRUN b\nCMD x", language="dockerfile")
+    edited = await artifacts.edit("coder", made["artifact_id"], [
+        {"line_start": 1, "replacement": "FROM python:3.11"},
+        {"line_start": 3, "line_end": 3, "replacement": ""},
+        {"find": "CMD x", "replace": "CMD y"},
+    ], note="review")
+    assert edited["version"] == 2
+    assert artifacts.read("coder", made["artifact_id"])["content"] == "FROM python:3.11\nRUN a\nCMD y"
+    with pytest.raises(ArtifactError):
+        await artifacts.edit("coder", made["artifact_id"], [{"find": "nope", "replace": "x"}])
+
+
+async def test_changes_made_outside_the_tools_still_get_a_card(fgw, store):
+    artifacts = service(fgw, store)
+    made = await artifacts.create("coder", "Plan", "text", "v1")
+    ws = await phone(fgw, store)
+    # As an agent did with its own code: a new version written straight into Lekora's store.
+    store.add_artifact_version(made["artifact_id"], "v2", "agent", "edited directly")
+    assert await artifacts.announce_outside_changes() == 1
+    card_msg = None
+    while card_msg is None:
+        msg = await recv(ws, timeout=3)
+        if msg["type"] == "chat.message" and msg["data"].get("artifact", {}).get("action") == "updated":
+            card_msg = msg["data"]
+    assert card_msg["artifact"]["version"] == 2, "the card comes to the newest message"
+    assert await artifacts.announce_outside_changes() == 0, "only once"
+    await ws.close()
