@@ -6,7 +6,13 @@ import Foundation
 public enum ArtifactRendering {
     /// - Parameters: wrap / codeSize: for code and text (the viewer's View menu).
     public static func html(kind: String, content: String, language: String? = nil,
-                            wrap: Bool = false, codeSize: Int = 13) -> String {
+                            wrap: Bool = false, codeSize: Int = 13, source: Bool = false) -> String {
+        if source || kind == "text" {
+            // Lines you can comment on: code, plain text, or another kind's source (View › Show Source).
+            return page(body: codeBlock(content, language: sourceLanguage(kind: kind, language: language)) + commentScript,
+                        extraStyle: codeStyle + tokenStyle + commentStyle,
+                        bodyClass: wrap || kind == "text" ? "wrap" : "", codeSize: codeSize)
+        }
         switch kind {
         case "html":
             return withViewport(content)
@@ -15,7 +21,8 @@ public enum ArtifactRendering {
         case "markdown":
             return page(body: Markdown.html(content), extraStyle: tokenStyle)
         case "code":
-            return page(body: codeBlock(content, language: language), extraStyle: codeStyle + tokenStyle,
+            return page(body: codeBlock(content, language: language) + commentScript,
+                        extraStyle: codeStyle + tokenStyle + commentStyle,
                         bodyClass: wrap ? "wrap" : "", codeSize: codeSize)
         default:
             return page(body: "<pre class=\"text\">\(escape(content))</pre>")
@@ -83,6 +90,86 @@ public enum ArtifactRendering {
         return meta + html
     }
 
+    /// Kinds shown as lines you can comment on (directly, or through Show Source).
+    public static func commentable(kind: String, source: Bool) -> Bool {
+        kind == "code" || kind == "text" || source
+    }
+
+    static func sourceLanguage(kind: String, language: String?) -> String {
+        switch kind {
+        case "html": return "html"
+        case "svg": return "xml"
+        case "markdown": return "markdown"
+        case "text": return "text"
+        default: return language ?? ""
+        }
+    }
+
+    /// The lines of `content` from `start` to `end` (1-based), for a comment's quote.
+    public static func lines(_ content: String, from start: Int, to end: Int) -> String {
+        let all = content.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        guard start >= 1, start <= all.count else { return "" }
+        return all[(start - 1)..<min(end, all.count)].joined(separator: "\n")
+    }
+
+    /// Our own script on code pages (never the artifact's: its text is escaped): a tap on a line
+    /// tells the app, and the app shows selected lines and comments. Only these pages get it.
+    static let commentScript = """
+    <script>
+    (function () {
+      function post(m) { try { window.webkit.messageHandlers.lekoraLines.postMessage(m); } catch (e) {} }
+      document.addEventListener('click', function (e) {
+        var bubble = e.target.closest('.cbubble');
+        if (bubble) { post({ edit: bubble.dataset.id }); return; }
+        var row = e.target.closest('tr[data-line]');
+        if (!row || String(window.getSelection() || '').length > 0) return;
+        post({ line: Number(row.dataset.line) });
+      });
+      window.lkSelect = function (a, b) {
+        document.querySelectorAll('tr.sel').forEach(function (r) { r.classList.remove('sel'); });
+        if (a == null) return;
+        for (var i = a; i <= b; i++) {
+          var r = document.querySelector('tr[data-line="' + i + '"]');
+          if (r) r.classList.add('sel');
+        }
+      };
+      window.lkComments = function (list) {
+        document.querySelectorAll('tr.cmt').forEach(function (r) { r.remove(); });
+        document.querySelectorAll('tr.has').forEach(function (r) { r.classList.remove('has'); });
+        list.slice().reverse().forEach(function (c) {
+          var last = document.querySelector('tr[data-line="' + c.end + '"]');
+          if (!last) return;
+          for (var i = c.start; i <= c.end; i++) {
+            var r = document.querySelector('tr[data-line="' + i + '"]');
+            if (r) r.classList.add('has');
+          }
+          var tr = document.createElement('tr'); tr.className = 'cmt';
+          var n = document.createElement('td'); n.className = 'n'; tr.appendChild(n);
+          var td = document.createElement('td'); td.className = 'l';
+          var d = document.createElement('div'); d.className = 'cbubble'; d.dataset.id = c.id;
+          var head = document.createElement('div'); head.className = 'chead'; head.textContent = c.label;
+          var body = document.createElement('div'); body.textContent = c.text;
+          d.appendChild(head); d.appendChild(body); td.appendChild(d); tr.appendChild(td);
+          last.after(tr);
+        });
+      };
+    })();
+    </script>
+    """
+
+    static let commentStyle = """
+    .code tr[data-line] { cursor: pointer; }
+    .code tr.sel td { background: rgba(10,132,255,0.16); }
+    .code tr.sel td.n { background: rgba(10,132,255,0.28); color: #0a84ff; font-weight: 700; }
+    .code tr.has td.n { color: #c98a00; font-weight: 700; }
+    .code tr.cmt td.l { white-space: normal; }
+    .cbubble { position: sticky; left: 60px; display: inline-block; max-width: calc(100vw - 84px);
+               white-space: pre-wrap; font-family: -apple-system, system-ui, sans-serif; font-size: 14px;
+               line-height: 1.35; background: rgba(255,196,0,0.16); border-left: 3px solid #ffb800;
+               border-radius: 8px; padding: 6px 10px; margin: 4px 0 8px; }
+    .cbubble .chead { font-size: 11px; font-weight: 600; opacity: 0.65; margin-bottom: 2px; }
+    """
+
     /// Code in coloured lines (CodeHighlighter), one table row per line with its number.
     static func codeBlock(_ code: String, language: String?) -> String {
         let source = code.replacingOccurrences(of: "\r\n", with: "\n")
@@ -96,8 +183,9 @@ public enum ArtifactRendering {
                 lines[lines.count - 1] += segment.kind == .plain ? text : "<span class=\"\(segment.kind.rawValue)\">\(text)</span>"
             }
         }
+        if lines.count > 1, lines.last?.isEmpty == true { lines.removeLast() }  // a file's final newline isn't a line
         let rows = lines.enumerated().map { index, line in
-            "<tr><td class=\"n\">\(index + 1)</td><td class=\"l\">\(line.isEmpty ? " " : line)</td></tr>"
+            "<tr data-line=\"\(index + 1)\"><td class=\"n\">\(index + 1)</td><td class=\"l\">\(line.isEmpty ? " " : line)</td></tr>"
         }.joined()
         return "<div class=\"code\"><table>\(rows)</table></div>"
     }
@@ -149,7 +237,8 @@ public enum ArtifactRendering {
     static let codeStyle = """
     body { padding: 0; }
     .code { overflow-x: auto; font-family: ui-monospace, Menlo, monospace; font-size: var(--code-size);
-            line-height: 1.5; min-height: 100vh; }
+            line-height: 1.5; min-height: 100vh; box-sizing: border-box;
+            padding: 12px 0 110px; /* space above, and clear of the bottom buttons (not part of any line) */ }
     .code table { border: none; display: table; margin: 0; border-collapse: collapse; width: max-content; min-width: 100%; }
     .code td { border: none; padding: 0 14px 0 0; vertical-align: top; }
     /* Line numbers stay put while the code scrolls sideways. */
@@ -157,8 +246,6 @@ public enum ArtifactRendering {
                  user-select: none; -webkit-user-select: none; padding: 0 10px 0 12px; min-width: 2ch;
                  border-right: 1px solid rgba(127,127,127,0.18); }
     .code td.l { white-space: pre; padding-left: 12px; width: 100%; }
-    .code tr:first-child td { padding-top: 12px; }
-    .code tr:last-child td { padding-bottom: 110px; }  /* clear of the bottom buttons */
     body.wrap .code table { width: 100%; }
     body.wrap .code td.l { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
     """

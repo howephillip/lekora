@@ -365,6 +365,16 @@ public struct WalkingSkeletonPingView: View {
                     LKMessageBubble(entry.text, from: entry.role == .user ? .user : .agent, delivery: delivery(for: entry))
                         .offset(x: -timeReveal)
                 }
+            } else if let review = entry.review, !review.isEmpty {
+                // Comments on an artifact's lines, sent together (docs/artifacts.md, "Comments").
+                LKReviewCard(artifact: entry.about, comments: review) {
+                    if let about = entry.about { openedArtifact = about }
+                }
+                .offset(x: -timeReveal)
+                if !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    LKMessageBubble(entry.text, from: .user, delivery: delivery(for: entry))
+                        .offset(x: -timeReveal)
+                }
             } else {
                 if let about = entry.about {
                     LKArtifactChip(artifact: about) { openedArtifact = about }

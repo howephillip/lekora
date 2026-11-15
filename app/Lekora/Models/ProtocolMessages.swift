@@ -178,10 +178,13 @@ public struct ChatSendData: Codable, Equatable {
     public let hands_free: Bool?
     /// "Ask to change" an artifact: which one (docs/artifacts.md).
     public let about: ArtifactRef?
+    /// With `about`: comments on its lines, sent together.
+    public let review: [ReviewComment]?
 
     public init(text: String, files: [String]? = nil, voice: VoiceDetails? = nil, hands_free: Bool? = nil,
-                about: ArtifactRef? = nil) {
+                about: ArtifactRef? = nil, review: [ReviewComment]? = nil) {
         self.about = about
+        self.review = review
         self.text = text
         self.files = files
         self.voice = voice
@@ -420,13 +423,16 @@ public struct ChatMessageData: Codable, Equatable {
     /// An artifact made or changed (a card), or the one a request is about (docs/artifacts.md).
     public let artifact: ArtifactCard?
     public let about: ArtifactCard?
+    /// Comments on the artifact's lines, sent together (docs/artifacts.md, "Comments").
+    public let review: [ReviewComment]?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
                 rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
                 files: [ChatFile]? = nil, voice: VoiceDetails? = nil, transcript: String? = nil,
                 spoken: [ChatFile]? = nil, voicing: String? = nil, voice_problem: String? = nil,
                 voice_key: String? = nil, spoken_text: String? = nil,
-                artifact: ArtifactCard? = nil, about: ArtifactCard? = nil) {
+                artifact: ArtifactCard? = nil, about: ArtifactCard? = nil, review: [ReviewComment]? = nil) {
+        self.review = review
         self.artifact = artifact
         self.about = about
         self.voice_key = voice_key
@@ -1043,3 +1049,51 @@ struct ArtifactGetData: Codable { let artifact_id: String; let version: Int? }
 struct ArtifactSaveData: Codable { let artifact_id: String; let content: String; let base_version: Int; let note: String? }
 struct ArtifactSaveResult: Codable { let artifact: ArtifactCard }
 struct ArtifactChangedData: Codable { let artifact: ArtifactCard }
+
+
+/// A comment on one or more lines of an artifact (docs/artifacts.md, "Comments").
+public struct ReviewComment: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public var line_start: Int
+    public var line_end: Int
+    /// The lines it's about, as they read when it was written.
+    public var quote: String
+    public var comment: String
+    /// Only on the phone, while it's a draft (not sent).
+    public var id: String
+
+    enum CodingKeys: String, CodingKey { case line_start, line_end, quote, comment }
+
+    public init(lineStart: Int, lineEnd: Int, quote: String, comment: String, id: String = UUID().uuidString) {
+        line_start = lineStart
+        line_end = lineEnd
+        self.quote = quote
+        self.comment = comment
+        self.id = id
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        line_start = try c.decode(Int.self, forKey: .line_start)
+        line_end = try c.decodeIfPresent(Int.self, forKey: .line_end) ?? line_start
+        quote = try c.decodeIfPresent(String.self, forKey: .quote) ?? ""
+        comment = try c.decode(String.self, forKey: .comment)
+        id = UUID().uuidString
+    }
+
+    /// "Line 12" or "Lines 12–14".
+    public var lines: String { line_start == line_end ? "Line \(line_start)" : "Lines \(line_start)–\(line_end)" }
+}
+
+/// Draft comments, kept on this phone until they're sent (with their own ids).
+struct ReviewDraft: Codable {
+    var comments: [StoredComment]
+    struct StoredComment: Codable { let id: String; let start: Int; let end: Int; let quote: String; let comment: String }
+
+    init(_ comments: [ReviewComment]) {
+        self.comments = comments.map { StoredComment(id: $0.id, start: $0.line_start, end: $0.line_end, quote: $0.quote, comment: $0.comment) }
+    }
+
+    var reviewComments: [ReviewComment] {
+        comments.map { ReviewComment(lineStart: $0.start, lineEnd: $0.end, quote: $0.quote, comment: $0.comment, id: $0.id) }
+    }
+}

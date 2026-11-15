@@ -140,3 +140,40 @@ async def test_deleting_an_agent_clears_its_artifacts_after_backing_them_up(fgw,
     assert [v["content"] for v in exported[0]["versions"]] == ["v1", "v2"], "every version goes into the backup"
     store.delete_profile_events("coder")
     assert store.list_artifacts("coder") == [] and store.get_artifact(made["artifact_id"]) is None
+
+
+async def test_a_review_sends_every_line_comment_together(fgw, store):
+    artifacts = service(fgw, store)
+    made = await artifacts.create("coder", "Script", "code", "import os\nprint(os.name)\nx = 1\n", language="python")
+    ws = await phone(fgw, store)
+    review = [{"line_start": 3, "line_end": 3, "quote": "x = 1", "comment": "Name this better"},
+              {"line_start": 1, "line_end": 2, "quote": "import os\nprint(os.name)", "comment": "Use pathlib"},
+              {"line_start": 2, "comment": "   "}]
+    await ws.send(env(store, "chat.send", {"text": "Two things", "about": {"artifact_id": made["artifact_id"]},
+                                           "review": review}, profile_id="coder"))
+    saved = None
+    while saved is None:
+        msg = await recv(ws, timeout=3)
+        if msg["type"] == "chat.message" and msg["data"]["role"] == "user":
+            saved = msg["data"]
+    assert len(saved["review"]) == 2, "an empty comment is dropped"
+    assert saved["text"] == "Two things" and saved["about"]["title"] == "Script"
+    for _ in range(100):
+        if fgw.received:
+            break
+        await asyncio.sleep(0.02)
+    sent = fgw.received[-1][1]
+    assert sent.startswith('Review of the artifact "Script"') and made["artifact_id"] in sent
+    assert sent.index("1. Lines 1-2:") < sent.index("2. Line 3:"), "in line order"
+    assert "   > import os" in sent and "Use pathlib" in sent and "Two things" in sent
+
+    # A review with no overall note is fine; a review without an artifact isn't a review.
+    await ws.send(env(store, "chat.send", {"about": {"artifact_id": made["artifact_id"]}, "review": review[:1]},
+                      profile_id="coder"))
+    got = None
+    while got is None:
+        msg = await recv(ws, timeout=3)
+        if msg["type"] == "chat.message" and msg["data"]["role"] == "user":
+            got = msg["data"]
+    assert got["text"] == "" and len(got["review"]) == 1
+    await ws.close()

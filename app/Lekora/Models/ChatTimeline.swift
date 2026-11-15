@@ -49,12 +49,16 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
     /// An artifact made or changed (a card); on your own message, the artifact it's about.
     public var artifact: ArtifactCard?
     public var about: ArtifactCard?
+    /// Your comments on the artifact's lines (a review).
+    public var review: [ReviewComment]?
 
     public init(id: String, profileId: String, role: Role, text: String, seq: Int? = nil,
                 status: Status = .sent, date: Date? = nil, card: PromptCard? = nil, files: [ChatFile]? = nil,
                 voice: VoiceDetails? = nil, transcript: String? = nil, spoken: [ChatFile]? = nil,
                 voicing: String? = nil, voiceProblem: String? = nil, voiceKey: String? = nil,
-                spokenText: String? = nil, artifact: ArtifactCard? = nil, about: ArtifactCard? = nil) {
+                spokenText: String? = nil, artifact: ArtifactCard? = nil, about: ArtifactCard? = nil,
+                review: [ReviewComment]? = nil) {
+        self.review = review
         self.artifact = artifact
         self.about = about
         self.voiceKey = voiceKey
@@ -119,7 +123,7 @@ public struct ChatTimeline: Equatable {
                           voice: message.voice, transcript: message.transcript, spoken: message.spoken,
                           voicing: message.voicing, voiceProblem: message.voice_problem,
                           voiceKey: message.voice_key, spokenText: message.spoken_text,
-                          artifact: message.artifact, about: message.about, isPage: true)
+                          artifact: message.artifact, about: message.about, review: message.review, isPage: true)
         }
         if !hasMore { completeProfiles.insert(profileId) }
     }
@@ -174,9 +178,9 @@ public struct ChatTimeline: Equatable {
     }
 
     public mutating func addOutgoing(id: String, profileId: String, text: String, files: [ChatFile]? = nil,
-                                     voice: VoiceDetails? = nil, about: ArtifactCard? = nil) {
+                                     voice: VoiceDetails? = nil, about: ArtifactCard? = nil, review: [ReviewComment]? = nil) {
         entries.append(ChatEntry(id: id, profileId: profileId, role: .user, text: text,
-                                 status: .sending, date: Date(), files: files, voice: voice, about: about))
+                                 status: .sending, date: Date(), files: files, voice: voice, about: about, review: review))
     }
 
     public mutating func markSent(id: String) {
@@ -200,7 +204,8 @@ public struct ChatTimeline: Equatable {
                                        voice: VoiceDetails? = nil, transcript: String? = nil,
                                        spoken: [ChatFile]? = nil, voicing: String? = nil, voiceProblem: String? = nil,
                                        voiceKey: String? = nil, spokenText: String? = nil,
-                                       artifact: ArtifactCard? = nil, about: ArtifactCard? = nil, isPage: Bool = false) {
+                                       artifact: ArtifactCard? = nil, about: ArtifactCard? = nil,
+                                       review: [ReviewComment]? = nil, isPage: Bool = false) {
         if let index = entries.firstIndex(where: { $0.seq == seq }) {
             // Seen before (replay) — or a correction the agent made after saving it.
             if entries[index].text != text { entries[index].text = text }
@@ -215,6 +220,7 @@ public struct ChatTimeline: Equatable {
             if let card, entries[index].card != card { entries[index].card = card }  // a card's new state
             if let artifact, entries[index].artifact != artifact { entries[index].artifact = artifact }
             if let about, entries[index].about != about { entries[index].about = about }
+            if let review, entries[index].review == nil { entries[index].review = review }
             return
         }
 
@@ -240,6 +246,7 @@ public struct ChatTimeline: Equatable {
             entries[index].seq = seq
             if let files { entries[index].files = files }
             if let about { entries[index].about = about }
+            if let review, entries[index].review == nil { entries[index].review = review }
             if let voice { entries[index].voice = voice }
             if let transcript { entries[index].transcript = transcript }
             if entries[index].status != .sent { entries[index].status = .sent }
@@ -272,7 +279,8 @@ public struct ChatTimeline: Equatable {
             voiceKey: voiceKey,
             spokenText: spokenText,
             artifact: artifact,
-            about: about
+            about: about,
+            review: review
         )
         entries.insert(entry, at: insertionIndex(for: seq))
     }

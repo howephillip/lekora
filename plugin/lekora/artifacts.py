@@ -238,3 +238,49 @@ def run_tool(name: str, args: dict, *, platform: str, chat_id: str, service: Opt
     except Exception as exc:
         return _result(False, error=f"Couldn't do that: {getattr(exc, 'reason', None) or exc}")
     return _result(False, error=f"Unknown tool {name}")
+
+
+# ---- reviews: comments on lines, sent together (docs/artifacts.md, "Comments") ---------
+
+MAX_COMMENTS = 100
+
+
+def clean_review(value: Any) -> Optional[list[dict]]:
+    """Comments from the phone: [{line_start, line_end, quote, comment}], or None if not a review."""
+    if not isinstance(value, list) or not value:
+        return None
+    out = []
+    for item in value[:MAX_COMMENTS]:
+        if not isinstance(item, dict):
+            continue
+        comment = str(item.get("comment") or "").strip()[:4000]
+        try:
+            start = max(int(item.get("line_start")), 1)
+            end = max(int(item.get("line_end", start)), start)
+        except (TypeError, ValueError):
+            continue
+        if not comment:
+            continue
+        quote = str(item.get("quote") or "")[:2000]
+        out.append({"line_start": start, "line_end": end, "quote": quote, "comment": comment})
+    return out or None
+
+
+def review_text(about: dict, review: list[dict], note: str) -> str:
+    """What the agent receives for a review: every comment with its lines, in order."""
+    count = len(review)
+    head = (f'Review of the artifact "{about["title"]}" (id {about["artifact_id"]}, version {about["version"]}): '
+            f'{count} comment{"s" if count != 1 else ""} on specific lines.')
+    parts = [head]
+    if note.strip():
+        parts.append(note.strip())
+    for n, item in enumerate(sorted(review, key=lambda c: (c["line_start"], c["line_end"])), start=1):
+        where = (f'Line {item["line_start"]}' if item["line_start"] == item["line_end"]
+                 else f'Lines {item["line_start"]}-{item["line_end"]}')
+        block = f"{n}. {where}:"
+        if item["quote"].strip():
+            quoted = "\n".join("   > " + line for line in item["quote"].splitlines())
+            block += "\n" + quoted
+        block += "\n   " + item["comment"].replace("\n", "\n   ")
+        parts.append(block)
+    return "\n\n".join(parts)

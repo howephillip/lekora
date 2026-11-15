@@ -105,3 +105,39 @@ final class ArtifactsTests: XCTestCase {
     }
 }
 
+
+/// Comments on lines, sent together (docs/artifacts.md, "Comments").
+final class ArtifactCommentsTests: XCTestCase {
+    func testLinesPagesCanBeCommentedOnAndWebPagesStaySealed() {
+        let code = ArtifactRendering.html(kind: "code", content: "a\nb", language: "swift")
+        XCTAssertTrue(code.contains("data-line=\"2\"") && code.contains("lekoraLines"))
+        let page = ArtifactRendering.html(kind: "html", content: "<p>hi</p>")
+        XCTAssertFalse(page.contains("lekoraLines"), "a web page never gets the bridge to the app")
+        let source = ArtifactRendering.html(kind: "html", content: "<p>hi</p>", source: true)
+        XCTAssertTrue(source.contains("data-line=\"1\"") && source.contains("&lt;p&gt;"), "its source, escaped, as lines")
+        XCTAssertTrue(ArtifactRendering.commentable(kind: "text", source: false))
+        XCTAssertFalse(ArtifactRendering.commentable(kind: "markdown", source: false))
+        XCTAssertTrue(ArtifactRendering.commentable(kind: "markdown", source: true))
+    }
+
+    func testQuotesAreTheLinesCommentedOn() {
+        let text = "one\ntwo\nthree\nfour"
+        XCTAssertEqual(ArtifactRendering.lines(text, from: 2, to: 3), "two\nthree")
+        XCTAssertEqual(ArtifactRendering.lines(text, from: 4, to: 9), "four")
+        XCTAssertEqual(ArtifactRendering.lines(text, from: 7, to: 8), "")
+    }
+
+    func testAReviewTravelsAndComesBack() throws {
+        let comments = [ReviewComment(lineStart: 3, lineEnd: 5, quote: "x\ny\nz", comment: "Tidy this")]
+        let envelope = GatewayClient.makeChatSendEnvelope(text: "", instanceId: "i", profileId: "a", about: "art_1", review: comments)
+        let sent = try JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope)) as? [String: Any]
+        let review = (sent?["data"] as? [String: Any])?["review"] as? [[String: Any]]
+        XCTAssertEqual(review?.first?["line_start"] as? Int, 3)
+        XCTAssertNil(review?.first?["id"], "the draft's id stays on the phone")
+        let json = #"{"seq":9,"role":"user","text":"","about":{"artifact_id":"art_1","title":"Plan","kind":"code","version":2},"review":[{"line_start":3,"line_end":5,"quote":"x","comment":"Tidy this"}]}"#
+        let message = try JSONDecoder().decode(ChatMessageData.self, from: Data(json.utf8))
+        XCTAssertEqual(message.review?.first?.lines, "Lines 3–5")
+        let drafts = ReviewDraft(comments).reviewComments
+        XCTAssertEqual(drafts.first?.id, comments.first?.id, "drafts keep their ids on the phone")
+    }
+}

@@ -8,16 +8,25 @@ import WebKit
 /// owner's choice), but there's no bridge to the app and nothing is kept between openings;
 /// tapped links open in Safari, not over the artifact.
 @MainActor
-final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDelegate {
+final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler {
     let webView: WKWebView
     /// Until the page has drawn (the web view can take a few seconds to start): a spinner, not a blank page.
     @Published private(set) var loading = true
+    /// Each finished load (lines pages: the app then shows selection and comments).
+    @Published private(set) var loads = 0
+    /// Lines pages only (code and text we lay out ourselves, the artifact's text escaped): a tapped
+    /// line, or a tapped comment. Pages that run the artifact's own HTML never get this bridge.
+    var onLine: ((Int) -> Void)?
+    var onComment: ((String) -> Void)?
 
-    override init() {
+    init(lines: Bool = false) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        let relay = WeakMessageRelay()
+        if lines { configuration.userContentController.add(relay, name: "lekoraLines") }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
+        relay.target = self
         webView.navigationDelegate = self
         #if os(iOS)
         webView.isOpaque = false
@@ -37,6 +46,18 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loading = false
+        loads += 1
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any] else { return }
+        if let line = body["line"] as? Int { onLine?(line) }
+        if let id = body["edit"] as? String { onComment?(id) }
+    }
+
+    /// Our own page functions (lines pages), never the artifact's.
+    func run(_ script: String) {
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -52,6 +73,14 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
             return .cancel
         }
         return .allow
+    }
+}
+
+/// Holds the page's messages without keeping the controller alive (WebKit retains handlers).
+private final class WeakMessageRelay: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        target?.userContentController(controller, didReceive: message)
     }
 }
 
@@ -169,6 +198,14 @@ struct ArtifactViewer: View {
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var web = ArtifactWebController()
+    /// Code, text and Show Source: lines you can tap to comment on (docs/artifacts.md, "Comments").
+    @StateObject private var linesPage = ArtifactWebController(lines: true)
+    @State private var source = false
+    @State private var selection: ClosedRange<Int>?
+    @State private var anchor: Int?
+    @State private var comments: [ReviewComment] = []
+    @State private var commenting: CommentTarget?
+    @State private var reviewing = false
     @State private var detail: ArtifactDetail?
     @State private var failure: String?
     @State private var notice: String?
@@ -181,17 +218,25 @@ struct ArtifactViewer: View {
     @AppStorage("artifactCodeSize") private var codeSize = 13
 
     private var isLatest: Bool { detail.map { $0.shown_version == $0.version } ?? true }
+    private var showsLines: Bool { detail.map { ArtifactRendering.commentable(kind: $0.kind, source: source) } ?? false }
+    private var page: ArtifactWebController { showsLines ? linesPage : web }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 ArtifactWebView(controller: web)
                     .ignoresSafeArea(edges: .bottom)
-                    .opacity(detail == nil || web.loading ? 0 : 1)
+                    .opacity(detail == nil || web.loading || showsLines ? 0 : 1)
                     .animation(.easeOut(duration: 0.2), value: web.loading)
+                    .allowsHitTesting(!showsLines)
+                ArtifactWebView(controller: linesPage)
+                    .ignoresSafeArea(edges: .bottom)
+                    .opacity(detail == nil || linesPage.loading || !showsLines ? 0 : 1)
+                    .animation(.easeOut(duration: 0.2), value: linesPage.loading)
+                    .allowsHitTesting(showsLines)
                 if let failure, detail == nil {
                     LKNotice(.warning, failure).padding()
-                } else if detail == nil || web.loading {
+                } else if detail == nil || page.loading {
                     ProgressView()
                 }
             }
@@ -212,6 +257,9 @@ struct ArtifactViewer: View {
                     .controlSize(.small)
                     .background(.bar)
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                commentBar
             }
             .safeAreaInset(edge: .bottom) {
                 if let notice {
@@ -250,7 +298,47 @@ struct ArtifactViewer: View {
                 ShareSheet(url: file.url).presentationDetents([.medium, .large])
             }
             #endif
-            .task { await load(nil) }
+            .sheet(item: $commenting) { target in
+                CommentSheet(target: target, agentName: agentName) { text in
+                    saveComment(target, text: text)
+                } delete: {
+                    comments.removeAll { $0.id == target.id }
+                }
+                .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $reviewing) {
+                if let detail {
+                    ReviewSheet(title: detail.title, agentName: agentName, comments: $comments) { id in
+                        reviewing = false
+                        if let comment = comments.first(where: { $0.id == id }) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { commenting = CommentTarget(comment) }
+                        }
+                    } send: { note in
+                        let review = comments
+                        await gateway.sendMessage(note, about: detail.card, review: review)
+                        comments = []
+                        dismiss()  // back to the chat, where the agent answers
+                    }
+                }
+            }
+            .task {
+                comments = loadDrafts()
+                linesPage.onLine = { tapLine($0) }
+                linesPage.onComment = { id in
+                    if let comment = comments.first(where: { $0.id == id }) { commenting = CommentTarget(comment) }
+                }
+                await load(nil)
+            }
+            .onChange(of: linesPage.loads) { _, _ in showMarks() }
+            .onChange(of: comments) { _, _ in
+                saveDrafts()
+                showMarks()
+            }
+            .onChange(of: selection) { _, _ in showMarks() }
+            .onChange(of: source) { _, _ in
+                selection = nil
+                if let detail { render(detail) }
+            }
             .onChange(of: wrapLines) { _, _ in if let detail { render(detail) } }
             .onChange(of: codeSize) { _, _ in if let detail { render(detail) } }
             .onChange(of: gateway.artifactVersions[artifactId]) { _, newest in
@@ -282,14 +370,20 @@ struct ArtifactViewer: View {
         // At the bottom, so the title keeps its place at the top.
         ToolbarItemGroup(placement: bottomPlacement) {
             if let detail {
-                if detail.kind == "code" {
-                    Menu {
-                        Toggle("Wrap Long Lines", systemImage: "text.word.spacing", isOn: $wrapLines)
+                Menu {
+                    if ["html", "svg", "markdown"].contains(detail.kind) {
+                        // The source, as lines you can comment on.
+                        Toggle("Show Source", systemImage: "chevron.left.forwardslash.chevron.right", isOn: $source)
+                    }
+                    if showsLines {
+                        if detail.kind != "text" {
+                            Toggle("Wrap Long Lines", systemImage: "text.word.spacing", isOn: $wrapLines)
+                        }
                         Button("Larger Text", systemImage: "textformat.size.larger") { codeSize = min(codeSize + 1, 24) }
                         Button("Smaller Text", systemImage: "textformat.size.smaller") { codeSize = max(codeSize - 1, 9) }
-                    } label: {
-                        Label("View", systemImage: "textformat.size")
                     }
+                } label: {
+                    Label("View", systemImage: "textformat.size")
                 }
                 Menu {
                     Button("Ask \(agentName)…", systemImage: "sparkles") { asking = true }
@@ -339,9 +433,119 @@ struct ArtifactViewer: View {
     }
 
     private func render(_ detail: ArtifactDetail) {
-        web.show(ArtifactRendering.html(kind: detail.kind, content: detail.content, language: detail.language,
-                                        wrap: wrapLines, codeSize: codeSize),
-                 artifactId: detail.artifact_id)
+        let html = ArtifactRendering.html(kind: detail.kind, content: detail.content, language: detail.language,
+                                          wrap: wrapLines, codeSize: codeSize, source: source)
+        page.show(html, artifactId: detail.artifact_id)
+    }
+
+    // MARK: - Comments on lines (docs/artifacts.md, "Comments")
+
+    @ViewBuilder
+    private var commentBar: some View {
+        if showsLines, let selection {
+            HStack {
+                Text(selection.count == 1 ? "Line \(selection.lowerBound)" : "Lines \(selection.lowerBound)–\(selection.upperBound)")
+                    .font(LK.Typography.subheadline.weight(.semibold))
+                if selection.count == 1 {
+                    Text("or tap another for a range").font(LK.Typography.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }
+                Spacer()
+                Button("Clear") { clearSelection() }
+                    .buttonStyle(.bordered)
+                Button("Comment") { commentOnSelection() }
+                    .buttonStyle(.borderedProminent)
+            }
+            .controlSize(.small)
+            .padding(.horizontal, LK.Spacing.lg)
+            .padding(.vertical, LK.Spacing.sm)
+            .background(.bar)
+        } else if !comments.isEmpty {
+            HStack {
+                Label("\(comments.count) comment\(comments.count == 1 ? "" : "s")", systemImage: "text.bubble")
+                    .font(LK.Typography.subheadline.weight(.semibold))
+                Spacer()
+                Button("Review & Send") { reviewing = true }
+                    .buttonStyle(.borderedProminent)
+            }
+            .controlSize(.small)
+            .padding(.horizontal, LK.Spacing.lg)
+            .padding(.vertical, LK.Spacing.sm)
+            .background(.bar)
+        } else if showsLines, linesPage.loading == false, detail != nil {
+            Text("Tap a line to comment on it")
+                .font(LK.Typography.caption)
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 6)
+        }
+    }
+
+    /// First tap selects a line; another extends it to a range; the same line again clears it.
+    private func tapLine(_ line: Int) {
+        if let anchor, let selection {
+            if selection.count == 1, line == anchor {
+                clearSelection()
+            } else {
+                self.selection = min(anchor, line)...max(anchor, line)
+            }
+        } else {
+            anchor = line
+            selection = line...line
+        }
+    }
+
+    private func clearSelection() {
+        selection = nil
+        anchor = nil
+    }
+
+    private func commentOnSelection() {
+        guard let selection, let detail else { return }
+        commenting = CommentTarget(id: UUID().uuidString, start: selection.lowerBound, end: selection.upperBound,
+                                   quote: ArtifactRendering.lines(detail.content, from: selection.lowerBound, to: selection.upperBound),
+                                   text: "", isNew: true)
+    }
+
+    private func saveComment(_ target: CommentTarget, text: String) {
+        let comment = ReviewComment(lineStart: target.start, lineEnd: target.end, quote: target.quote, comment: text, id: target.id)
+        if let index = comments.firstIndex(where: { $0.id == target.id }) {
+            comments[index] = comment
+        } else {
+            comments.append(comment)
+            comments.sort { ($0.line_start, $0.line_end) < ($1.line_start, $1.line_end) }
+        }
+        clearSelection()
+    }
+
+    /// The selection and comments, drawn on our own lines page.
+    private func showMarks() {
+        guard showsLines, !linesPage.loading else { return }
+        let list = comments.map { ["id": $0.id, "start": $0.line_start, "end": $0.line_end, "text": $0.comment, "label": $0.lines] as [String: Any] }
+        if let data = try? JSONSerialization.data(withJSONObject: list), let json = String(data: data, encoding: .utf8) {
+            linesPage.run("window.lkComments && lkComments(\(json))")
+        }
+        if let selection {
+            linesPage.run("window.lkSelect && lkSelect(\(selection.lowerBound), \(selection.upperBound))")
+        } else {
+            linesPage.run("window.lkSelect && lkSelect(null)")
+        }
+    }
+
+    /// Drafts stay on this phone until they're sent (per Hermes instance and artifact).
+    private var draftsKey: String { "artifactReview.\(gateway.savedHost?.instanceId ?? "").\(artifactId)" }
+
+    private func loadDrafts() -> [ReviewComment] {
+        guard let data = UserDefaults.standard.data(forKey: draftsKey),
+              let draft = try? JSONDecoder().decode(ReviewDraft.self, from: data) else { return [] }
+        return draft.reviewComments
+    }
+
+    private func saveDrafts() {
+        if comments.isEmpty {
+            UserDefaults.standard.removeObject(forKey: draftsKey)
+        } else if let data = try? JSONEncoder().encode(ReviewDraft(comments)) {
+            UserDefaults.standard.set(data, forKey: draftsKey)
+        }
     }
 
     private func save(_ content: String, note: String?) async throws {
@@ -390,7 +594,7 @@ struct ArtifactViewer: View {
         Task {
             defer { working = false }
             do {
-                let data = try await web.pdf()
+                let data = try await page.pdf()
                 let name = ArtifactRendering.fileName(title: detail.title, kind: "text", language: nil)
                     .replacingOccurrences(of: ".txt", with: ".pdf")
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
@@ -407,6 +611,157 @@ struct ArtifactViewer: View {
         Task {
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             withAnimation { if notice == text { notice = nil } }
+        }
+    }
+}
+
+/// A comment being written or changed: which lines, and what they read.
+struct CommentTarget: Identifiable {
+    let id: String
+    let start: Int
+    let end: Int
+    let quote: String
+    var text: String
+    var isNew: Bool
+
+    init(id: String, start: Int, end: Int, quote: String, text: String, isNew: Bool) {
+        self.id = id
+        self.start = start
+        self.end = end
+        self.quote = quote
+        self.text = text
+        self.isNew = isNew
+    }
+
+    init(_ comment: ReviewComment) {
+        self.init(id: comment.id, start: comment.line_start, end: comment.line_end, quote: comment.quote,
+                  text: comment.comment, isNew: false)
+    }
+
+    var lines: String { start == end ? "Line \(start)" : "Lines \(start)–\(end)" }
+}
+
+/// Write or change one comment, with the lines it's about above it.
+struct CommentSheet: View {
+    let target: CommentTarget
+    let agentName: String
+    let save: (String) -> Void
+    let delete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+    @FocusState private var focused: Bool
+
+    init(target: CommentTarget, agentName: String, save: @escaping (String) -> Void, delete: @escaping () -> Void) {
+        self.target = target
+        self.agentName = agentName
+        self.save = save
+        self.delete = delete
+        _text = State(initialValue: target.text)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if !target.quote.isEmpty {
+                    Section(target.lines) {
+                        Text(target.quote)
+                            .font(.system(.footnote, design: .monospaced))
+                            .lineLimit(8)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Section {
+                    TextField("What should change here?", text: $text, axis: .vertical)
+                        .lineLimit(3...10)
+                        .focused($focused)
+                } footer: {
+                    Text("Comments wait here until you send them all to \(agentName) together.")
+                }
+                if !target.isNew {
+                    Section {
+                        Button("Delete Comment", role: .destructive) {
+                            delete()
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .navigationTitle(target.isNew ? "Comment" : "Edit Comment")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(target.isNew ? "Add" : "Save") {
+                        save(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                        dismiss()
+                    }
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onAppear { focused = true }
+        }
+    }
+}
+
+/// Every comment, an optional note, and Send: one structured message to the agent.
+struct ReviewSheet: View {
+    let title: String
+    let agentName: String
+    @Binding var comments: [ReviewComment]
+    let edit: (String) -> Void
+    let send: (String) async -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var note = ""
+    @State private var sending = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ForEach(comments) { comment in
+                        Button { edit(comment.id) } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(comment.lines).font(LK.Typography.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                if let first = comment.quote.split(separator: "\n").first {
+                                    Text(String(first)).font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Text(comment.comment).foregroundStyle(.primary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .onDelete { comments.remove(atOffsets: $0) }
+                } header: {
+                    Text("\(comments.count) comment\(comments.count == 1 ? "" : "s") on “\(title)”")
+                } footer: {
+                    Text("Tap one to change it; swipe to delete.")
+                }
+                Section {
+                    TextField("Anything about it as a whole? (optional)", text: $note, axis: .vertical)
+                        .lineLimit(2...6)
+                }
+            }
+            .navigationTitle("Review for \(agentName)")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Back") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send") {
+                        sending = true
+                        Task {
+                            await send(note)
+                            sending = false
+                            dismiss()
+                        }
+                    }
+                    .disabled(comments.isEmpty || sending)
+                }
+            }
         }
     }
 }
@@ -608,6 +963,50 @@ struct ArtifactsListView: View {
             failure = nil
         } catch {
             failure = "Couldn't load them: \(error.localizedDescription). The Lekora plugin on the Hermes instance may need updating."
+        }
+    }
+}
+
+/// A review you sent (comments on an artifact's lines), on your side of the chat.
+struct LKReviewCard: View {
+    let artifact: ArtifactCard?
+    let comments: [ReviewComment]
+    let open: () -> Void
+    @State private var expanded = false
+
+    private var shown: [ReviewComment] { expanded ? comments : Array(comments.prefix(3)) }
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: LK.Size.bubbleSideMargin)
+            VStack(alignment: .leading, spacing: LK.Spacing.xs) {
+                Button(action: open) {
+                    Label("Review of \(artifact?.title ?? "an artifact") · \(comments.count) comment\(comments.count == 1 ? "" : "s")",
+                          systemImage: "text.bubble")
+                        .font(LK.Typography.subheadline.weight(.semibold))
+                        .multilineTextAlignment(.leading)
+                }
+                .buttonStyle(.plain)
+                ForEach(shown) { comment in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(comment.lines).font(LK.Typography.caption.weight(.semibold)).opacity(0.75)
+                        Text(comment.comment).font(LK.Typography.subheadline)
+                    }
+                }
+                if comments.count > 3 {
+                    Button(expanded ? "Show Less" : "Show All \(comments.count)") {
+                        withAnimation { expanded.toggle() }
+                    }
+                    .font(LK.Typography.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .opacity(0.85)
+                }
+            }
+            .foregroundStyle(LK.Palette.onAccent)
+            .padding(LK.Spacing.sm)
+            .frame(maxWidth: 300, alignment: .leading)
+            .background(LK.Surface.accent, in: RoundedRectangle(cornerRadius: LK.Radius.bubble, style: .continuous))
+            .accessibilityElement(children: .combine)
         }
     }
 }

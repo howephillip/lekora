@@ -32,6 +32,7 @@ public enum CodeHighlighter {
 
     public static func segments(_ code: String, language: String?) -> [Segment] {
         let language = canonical(language)
+        if language == "text" || language == "plaintext" { return code.isEmpty ? [] : [Segment(text: code, kind: .plain)] }
         var out: [Segment] = []
         switch language {
         case "diff": diff(code, into: &out)

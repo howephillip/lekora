@@ -932,22 +932,24 @@ public final class GatewayClient: ObservableObject {
                                                         files: [String]? = nil,
                                                         voice: VoiceDetails? = nil,
                                                         handsFree: Bool = false,
-                                                        about: String? = nil) -> Envelope<ChatSendData> {
+                                                        about: String? = nil,
+                                                        review: [ReviewComment]? = nil) -> Envelope<ChatSendData> {
         Envelope(
             type: "chat.send",
             instance_id: instanceId,
             profile_id: profileId,
             data: ChatSendData(text: text, files: files, voice: voice, hands_free: handsFree ? true : nil,
-                               about: about.map { ArtifactRef(artifact_id: $0) })
+                               about: about.map { ArtifactRef(artifact_id: $0) }, review: review)
         )
     }
 
     /// Sends `text` to the active profile. The message appears in the timeline straight
     /// away; a failed send is marked on that bubble instead of dropping the connection.
     public func sendMessage(_ text: String, files: [ChatFile] = [], voice: VoiceDetails? = nil,
-                            handsFree: Bool = false, about: ArtifactCard? = nil) async {
+                            handsFree: Bool = false, about: ArtifactCard? = nil,
+                            review: [ReviewComment]? = nil) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !files.isEmpty,
+        guard !trimmed.isEmpty || !files.isEmpty || review?.isEmpty == false,
               case .connected = state,
               let wsTask = webSocketTask,
               let instanceId = savedHost?.instanceId else {
@@ -956,9 +958,9 @@ public final class GatewayClient: ObservableObject {
 
         let envelope = Self.makeChatSendEnvelope(text: trimmed, instanceId: instanceId, profileId: activeProfileId,
                                                  files: files.isEmpty ? nil : files.map(\.file_id), voice: voice,
-                                                 handsFree: handsFree, about: about?.artifact_id)
+                                                 handsFree: handsFree, about: about?.artifact_id, review: review)
         timeline.addOutgoing(id: envelope.id, profileId: activeProfileId, text: trimmed,
-                             files: files.isEmpty ? nil : files, voice: voice, about: about)
+                             files: files.isEmpty ? nil : files, voice: voice, about: about, review: review)
 
         do {
             try await send(envelope, on: wsTask)
@@ -1292,7 +1294,8 @@ public final class GatewayClient: ObservableObject {
                 voiceKey: envelope.data.voice_key,
                 spokenText: envelope.data.spoken_text,
                 artifact: envelope.data.artifact,
-                about: envelope.data.about
+                about: envelope.data.about,
+                review: envelope.data.review
             )
             if profileId == activeProfileId { markActiveChatRead() }
             if envelope.data.role == "system", chatSettings[profileId] != nil {

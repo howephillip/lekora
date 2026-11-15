@@ -184,8 +184,11 @@ class Gateway:
                       transcript: Optional[str] = None, spoken: Optional[list] = None,
                       voicing: Optional[str] = None, voice_problem: Optional[str] = None,
                       voice_key: Optional[str] = None, spoken_text: Optional[str] = None,
-                      artifact: Optional[dict] = None, about: Optional[dict] = None) -> dict:
+                      artifact: Optional[dict] = None, about: Optional[dict] = None,
+                      review: Optional[list] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
+        if review:
+            data["review"] = review  # comments on an artifact's lines
         if artifact:
             data["artifact"] = artifact  # an artifact made or changed: a card (docs/artifacts.md)
         if about:
@@ -224,7 +227,8 @@ class Gateway:
             transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken"),
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
             voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
-            artifact=ev.payload.get("artifact"), about=ev.payload.get("about")),
+            artifact=ev.payload.get("artifact"), about=ev.payload.get("about"),
+            review=ev.payload.get("review")),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
@@ -377,7 +381,8 @@ class Gateway:
             transcript=ev.payload.get("transcript"), spoken=ev.payload.get("spoken"),
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
             voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
-            artifact=ev.payload.get("artifact"), about=ev.payload.get("about")),
+            artifact=ev.payload.get("artifact"), about=ev.payload.get("about"),
+            review=ev.payload.get("review")),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -613,10 +618,12 @@ class Gateway:
         if not isinstance(profile_id, str) or profile_id not in known:
             raise _Reject("UNKNOWN_PROFILE", "Unknown profile", True, False, msg_id)
         text = data.get("text")
-        if text is None and data.get("files"):
+        from .artifacts import clean_review
+        review = clean_review(data.get("review")) if isinstance(data.get("about"), dict) else None
+        if text is None and (data.get("files") or review):
             text = ""
         file_ids = data.get("files") or []
-        if not isinstance(text, str) or (not text.strip() and not file_ids):
+        if not isinstance(text, str) or (not text.strip() and not file_ids and not review):
             raise _Reject("INVALID_MESSAGE", "chat.send needs non-empty text",
                           True, False, msg_id)
         files = self._message_files(profile_id, file_ids, msg_id)
@@ -638,6 +645,8 @@ class Gateway:
             about = self.artifacts.describe_for_agent(profile_id, data["about"].get("artifact_id"))
             if about is not None:
                 payload["about"] = about
+                if review:
+                    payload["review"] = review  # comments on lines (docs/artifacts.md)
         if msg_id:
             payload["client_id"] = msg_id
         seq = self.store.append_event(profile_id, "chat.message", payload)
@@ -652,7 +661,11 @@ class Gateway:
             self._awaiting_transcript[profile_id] = seq
         if self.voice_replies is not None:
             self.voice_replies.user_message(profile_id, bool(voice), bool(data.get("hands_free")))
-        if about is not None:
+        if about is not None and payload.get("review"):
+            # A review: every comment with its lines, as the user's card in the chat shows them.
+            from .artifacts import review_text
+            text = review_text(about, payload["review"], text)
+        elif about is not None:
             # The agent learns which artifact (its id), as the user's card in the chat shows it.
             text = f'{text}\n\n(About the artifact "{about["title"]}", id {about["artifact_id"]}, version {about["version"]}.)'
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments,
@@ -685,7 +698,7 @@ class Gateway:
                                        spoken=e.payload.get("spoken"), voicing=e.payload.get("voicing"),
                                        voice_problem=e.payload.get("voice_problem"), voice_key=e.payload.get("voice_key"),
                                        spoken_text=e.payload.get("spoken_text"), artifact=e.payload.get("artifact"),
-                                       about=e.payload.get("about"))
+                                       about=e.payload.get("about"), review=e.payload.get("review"))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
