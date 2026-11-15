@@ -4,16 +4,19 @@ import Foundation
 /// sealed web view. Web pages and images as they are; documents (Markdown), code and text are
 /// laid out here, with styles that follow light and dark mode.
 public enum ArtifactRendering {
-    public static func html(kind: String, content: String, language: String? = nil) -> String {
+    /// - Parameters: wrap / codeSize: for code and text (the viewer's View menu).
+    public static func html(kind: String, content: String, language: String? = nil,
+                            wrap: Bool = false, codeSize: Int = 13) -> String {
         switch kind {
         case "html":
             return withViewport(content)
         case "svg":
             return page(body: "<div class=\"svg\">\(content)</div>", extraStyle: svgStyle)
         case "markdown":
-            return page(body: Markdown.html(content))
+            return page(body: Markdown.html(content), extraStyle: tokenStyle)
         case "code":
-            return page(body: codeBlock(content, language: language), extraStyle: codeStyle)
+            return page(body: codeBlock(content, language: language), extraStyle: codeStyle + tokenStyle,
+                        bodyClass: wrap ? "wrap" : "", codeSize: codeSize)
         default:
             return page(body: "<pre class=\"text\">\(escape(content))</pre>")
         }
@@ -29,7 +32,9 @@ public enum ArtifactRendering {
         case "html": ext = "html"
         case "markdown": ext = "md"
         case "svg": ext = "svg"
-        case "code": ext = codeExtension(language)
+        case "code":
+            if CodeHighlighter.canonical(language) == "dockerfile" { return "Dockerfile" }
+            ext = codeExtension(language)
         default: ext = "txt"
         }
         return name.hasSuffix("." + ext) ? name : "\(name).\(ext)"
@@ -41,7 +46,7 @@ public enum ArtifactRendering {
         case "html": return "Web page"
         case "markdown": return "Document"
         case "svg": return "Image"
-        case "code": return language.map { "\($0.capitalized) code" } ?? "Code"
+        case "code": return CodeHighlighter.displayName(language) ?? "Code"
         default: return "Text"
         }
     }
@@ -78,10 +83,21 @@ public enum ArtifactRendering {
         return meta + html
     }
 
+    /// Code in coloured lines (CodeHighlighter), one table row per line with its number.
     static func codeBlock(_ code: String, language: String?) -> String {
-        let lines = code.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        let source = code.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines: [String] = [""]
+        for segment in CodeHighlighter.segments(source, language: language) {
+            let pieces = segment.text.components(separatedBy: "\n")
+            for (n, piece) in pieces.enumerated() {
+                if n > 0 { lines.append("") }
+                guard !piece.isEmpty else { continue }
+                let text = escape(piece)
+                lines[lines.count - 1] += segment.kind == .plain ? text : "<span class=\"\(segment.kind.rawValue)\">\(text)</span>"
+            }
+        }
         let rows = lines.enumerated().map { index, line in
-            "<tr><td class=\"n\">\(index + 1)</td><td class=\"l\">\(escape(line).isEmpty ? " " : escape(line))</td></tr>"
+            "<tr><td class=\"n\">\(index + 1)</td><td class=\"l\">\(line.isEmpty ? " " : line)</td></tr>"
         }.joined()
         return "<div class=\"code\"><table>\(rows)</table></div>"
     }
@@ -92,23 +108,26 @@ public enum ArtifactRendering {
                      "c": "c", "cpp": "cpp", "c++": "cpp", "csharp": "cs", "c#": "cs", "shell": "sh",
                      "bash": "sh", "sh": "sh", "zsh": "sh", "html": "html", "css": "css", "json": "json",
                      "yaml": "yaml", "yml": "yaml", "sql": "sql", "php": "php", "markdown": "md", "xml": "xml",
-                     "toml": "toml", "lua": "lua", "r": "r", "dart": "dart", "scala": "scala"]
+                     "toml": "toml", "lua": "lua", "r": "r", "dart": "dart", "scala": "scala", "diff": "diff",
+                     "patch": "patch", "jsx": "jsx", "tsx": "tsx", "makefile": "mk", "powershell": "ps1", "ini": "ini"]
         guard let language = language?.lowercased().trimmingCharacters(in: .whitespaces), !language.isEmpty else { return "txt" }
-        return known[language] ?? "txt"
+        return known[language] ?? known[CodeHighlighter.canonical(language)] ?? "txt"
     }
 
-    static func page(body: String, extraStyle: String = "") -> String {
+    static func page(body: String, extraStyle: String = "", bodyClass: String = "", codeSize: Int = 13) -> String {
         """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>\(baseStyle)\(extraStyle)</style></head><body>\(body)</body></html>
+        <style>:root { --code-size: \(min(max(codeSize, 9), 24))px; }\(baseStyle)\(extraStyle)</style></head><body class="\(bodyClass)">\(body)</body></html>
         """
     }
 
     static let baseStyle = """
     :root { color-scheme: light dark; }
+    /* Never let iOS enlarge text in wide pages (it did, unevenly, for long code lines). */
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     body { font: -apple-system-body; font-family: -apple-system, system-ui, sans-serif; margin: 0;
-           padding: 16px 18px 48px; line-height: 1.5; word-wrap: break-word; }
+           padding: 16px 18px 110px; line-height: 1.5; word-wrap: break-word; }
     h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.2em 0 0.5em; }
     h1 { font-size: 1.6em; } h2 { font-size: 1.35em; } h3 { font-size: 1.15em; }
     p, ul, ol, blockquote, table, pre { margin: 0 0 0.9em; }
@@ -129,12 +148,44 @@ public enum ArtifactRendering {
 
     static let codeStyle = """
     body { padding: 0; }
-    .code { overflow-x: auto; font-family: ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.45; }
-    .code table { border: none; display: table; margin: 0; }
-    .code td { border: none; padding: 0 12px 0 0; vertical-align: top; }
-    .code td.n { color: gray; text-align: right; user-select: none; padding: 0 12px 0 14px; opacity: 0.7; }
-    .code td.l { white-space: pre; }
-    .code tr:first-child td { padding-top: 14px; }
+    .code { overflow-x: auto; font-family: ui-monospace, Menlo, monospace; font-size: var(--code-size);
+            line-height: 1.5; min-height: 100vh; }
+    .code table { border: none; display: table; margin: 0; border-collapse: collapse; width: max-content; min-width: 100%; }
+    .code td { border: none; padding: 0 14px 0 0; vertical-align: top; }
+    /* Line numbers stay put while the code scrolls sideways. */
+    .code td.n { position: sticky; left: 0; background: Canvas; color: GrayText; text-align: right;
+                 user-select: none; -webkit-user-select: none; padding: 0 10px 0 12px; min-width: 2ch;
+                 border-right: 1px solid rgba(127,127,127,0.18); }
+    .code td.l { white-space: pre; padding-left: 12px; width: 100%; }
+    .code tr:first-child td { padding-top: 12px; }
+    .code tr:last-child td { padding-bottom: 110px; }  /* clear of the bottom buttons */
+    body.wrap .code table { width: 100%; }
+    body.wrap .code td.l { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+    """
+
+    static let tokenStyle = """
+    /* Colours, light and dark (in the spirit of Xcode's defaults). */
+    .keyword { color: #9b2393; font-weight: 600; }
+    .type { color: #0b4f79; }
+    .function { color: #326d74; }
+    .string { color: #c41a16; }
+    .number { color: #1c00cf; }
+    .comment { color: #5d6c79; font-style: italic; }
+    .key { color: #0b4f79; font-weight: 600; }
+    .variable { color: #643820; }
+    .tag { color: #9b2393; }
+    .attribute { color: #815f03; }
+    .added { color: #1a7f37; background: rgba(46,160,67,0.15); display: inline-block; min-width: 100%; }
+    .removed { color: #cf222e; background: rgba(248,81,73,0.15); display: inline-block; min-width: 100%; }
+    .hunk { color: #6f42c1; font-weight: 600; }
+    .meta { color: #57606a; font-weight: 600; }
+    @media (prefers-color-scheme: dark) {
+      .keyword { color: #ff7ab2; } .type { color: #6bdfff; } .function { color: #67b7a4; }
+      .string { color: #ff8170; } .number { color: #d9c97c; } .comment { color: #7f8c98; }
+      .key { color: #6bdfff; } .variable { color: #b281eb; } .tag { color: #ff7ab2; } .attribute { color: #d9a15c; }
+      .added { color: #7ee787; background: rgba(46,160,67,0.25); } .removed { color: #ffa198; background: rgba(248,81,73,0.25); }
+      .hunk { color: #d2a8ff; } .meta { color: #8b949e; }
+    }
     """
 
     static let svgStyle = """
@@ -163,6 +214,7 @@ public enum Markdown {
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 flushParagraph()
                 let fence = String(trimmed.prefix(3))
+                let language = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces)
                 lines = lines.dropFirst()
                 var code: [String] = []
                 while let next = lines.first, !next.trimmingCharacters(in: .whitespaces).hasPrefix(fence) {
@@ -170,7 +222,7 @@ public enum Markdown {
                     lines = lines.dropFirst()
                 }
                 lines = lines.dropFirst()  // the closing fence
-                out.append("<pre><code>\(ArtifactRendering.escape(code.joined(separator: "\n")))</code></pre>")
+                out.append("<pre><code>\(highlighted(code.joined(separator: "\n"), language: language))</code></pre>")
                 continue
             }
             if trimmed.isEmpty {
@@ -232,6 +284,15 @@ public enum Markdown {
         }
         flushParagraph()
         return out.joined(separator: "\n")
+    }
+
+    /// A fenced code block, coloured when it names its language (```python).
+    static func highlighted(_ code: String, language: String) -> String {
+        guard !language.isEmpty else { return ArtifactRendering.escape(code) }
+        return CodeHighlighter.segments(code, language: language).map { segment in
+            let text = ArtifactRendering.escape(segment.text)
+            return segment.kind == .plain ? text : "<span class=\"\(segment.kind.rawValue)\">\(text)</span>"
+        }.joined()
     }
 
     static func heading(_ line: String) -> (level: Int, text: String)? {

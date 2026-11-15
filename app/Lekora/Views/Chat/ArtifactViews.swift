@@ -176,6 +176,9 @@ struct ArtifactViewer: View {
     @State private var asking = false
     @State private var sharing: URL?
     @State private var working = false
+    /// Code and text: wrap long lines, and the text size (kept for next time).
+    @AppStorage("artifactWrapLines") private var wrapLines = false
+    @AppStorage("artifactCodeSize") private var codeSize = 13
 
     private var isLatest: Bool { detail.map { $0.shown_version == $0.version } ?? true }
 
@@ -248,6 +251,8 @@ struct ArtifactViewer: View {
             }
             #endif
             .task { await load(nil) }
+            .onChange(of: wrapLines) { _, _ in if let detail { render(detail) } }
+            .onChange(of: codeSize) { _, _ in if let detail { render(detail) } }
             .onChange(of: gateway.artifactVersions[artifactId]) { _, newest in
                 // Changed elsewhere (the agent, another phone): show the newest, if that's what's open.
                 if let newest, let detail, isLatest, newest > detail.version { Task { await load(nil) } }
@@ -260,7 +265,7 @@ struct ArtifactViewer: View {
         ToolbarItem(placement: .cancellationAction) {
             Button("Done") { dismiss() }
         }
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItem(placement: .primaryAction) {
             if let detail {
                 Menu {
                     Picker("Version", selection: Binding(get: { detail.shown_version },
@@ -272,6 +277,20 @@ struct ArtifactViewer: View {
                 } label: {
                     Label("Versions", systemImage: "clock.arrow.circlepath")
                 }
+            }
+        }
+        // At the bottom, so the title keeps its place at the top.
+        ToolbarItemGroup(placement: bottomPlacement) {
+            if let detail {
+                if detail.kind == "code" {
+                    Menu {
+                        Toggle("Wrap Long Lines", systemImage: "text.word.spacing", isOn: $wrapLines)
+                        Button("Larger Text", systemImage: "textformat.size.larger") { codeSize = min(codeSize + 1, 24) }
+                        Button("Smaller Text", systemImage: "textformat.size.smaller") { codeSize = max(codeSize - 1, 9) }
+                    } label: {
+                        Label("View", systemImage: "textformat.size")
+                    }
+                }
                 Menu {
                     Button("Ask \(agentName)…", systemImage: "sparkles") { asking = true }
                     Button("Edit Myself…", systemImage: "pencil") { editing = true }
@@ -279,6 +298,7 @@ struct ArtifactViewer: View {
                 } label: {
                     Label("Change", systemImage: "pencil.and.outline")
                 }
+                Spacer()
                 Menu {
                     Button("Share File", systemImage: "doc") { shareFile(detail) }
                     Button("Share as PDF", systemImage: "doc.richtext") { sharePDF(detail) }
@@ -288,6 +308,14 @@ struct ArtifactViewer: View {
                 .disabled(working)
             }
         }
+    }
+
+    private var bottomPlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        .bottomBar
+        #else
+        .automatic
+        #endif
     }
 
     private func versionLabel(_ version: ArtifactVersionInfo) -> String {
@@ -304,11 +332,16 @@ struct ArtifactViewer: View {
             let got = try await gateway.artifact(artifactId, version: version, in: profileId)
             detail = got
             failure = nil
-            web.show(ArtifactRendering.html(kind: got.kind, content: got.content, language: got.language),
-                     artifactId: got.artifact_id)
+            render(got)
         } catch {
             failure = "Couldn't open it: \(error.localizedDescription)"
         }
+    }
+
+    private func render(_ detail: ArtifactDetail) {
+        web.show(ArtifactRendering.html(kind: detail.kind, content: detail.content, language: detail.language,
+                                        wrap: wrapLines, codeSize: codeSize),
+                 artifactId: detail.artifact_id)
     }
 
     private func save(_ content: String, note: String?) async throws {
@@ -391,6 +424,17 @@ struct ArtifactEditor: View {
     @State private var text: String
     @State private var saving = false
     @State private var failure: String?
+    @State private var confirmingDiscard = false
+
+    /// What the code editor colours it as (nil: a document or text, edited as prose).
+    private var codeLanguage: String? {
+        switch detail.kind {
+        case "code": return detail.language ?? ""
+        case "html": return "html"
+        case "svg": return "xml"
+        default: return nil
+        }
+    }
 
     init(detail: ArtifactDetail, save: @escaping (String) async throws -> Void) {
         self.detail = detail
@@ -404,14 +448,15 @@ struct ArtifactEditor: View {
                 if let failure {
                     LKNotice(.warning, failure).padding()
                 }
-                TextEditor(text: $text)
-                    .font(detail.kind == "markdown" || detail.kind == "text"
-                          ? LK.Typography.body : .system(.footnote, design: .monospaced))
-                    .autocorrectionDisabled(detail.kind != "markdown" && detail.kind != "text")
-                    #if os(iOS)
-                    .textInputAutocapitalization(detail.kind == "markdown" || detail.kind == "text" ? .sentences : .never)
-                    #endif
-                    .padding(.horizontal, LK.Spacing.sm)
+                if let language = codeLanguage {
+                    // Code, web pages and images: the code editor (colours, coding keys).
+                    CodeEditorView(text: $text, language: language)
+                        .ignoresSafeArea(.container, edges: .bottom)
+                } else {
+                    TextEditor(text: $text)
+                        .font(LK.Typography.body)
+                        .padding(.horizontal, LK.Spacing.sm)
+                }
             }
             .navigationTitle("Edit \(detail.title)")
             #if os(iOS)
@@ -419,7 +464,14 @@ struct ArtifactEditor: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(saving)
+                    Button("Cancel") {
+                        if text == detail.content { dismiss() } else { confirmingDiscard = true }
+                    }
+                    .disabled(saving)
+                    .confirmationDialog("Discard your changes?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+                        Button("Discard Changes", role: .destructive) { dismiss() }
+                        Button("Keep Editing", role: .cancel) {}
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
