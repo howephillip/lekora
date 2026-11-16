@@ -7,15 +7,15 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 ## Where this is
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
-**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) is complete** (confirmed on your iPhone 2026-11-15): voice notes, hearing replies (with direct streaming voice), hands-free calls, your name for agents, and the fixes from your list. **Phase 5 (artifacts) has started:** built, waiting for your phone check.
+**Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) is complete** (confirmed on your iPhone 2026-11-15): voice notes, hearing replies (with direct streaming voice), hands-free calls, your name for agents, and the fixes from your list. **Phase 5 (artifacts) is complete** (confirmed 2026-11-15), with past chats, offline mode and the fixes from your notes. **Phase 6 (kanban and scheduler) is next.**
 
-## Ready for your phone check: offline mode (your request, 2026-11-15; spec: `docs/auto-reconnect.md`, "Offline")
+## Done: offline mode (your request, 2026-11-15; spec: `docs/auto-reconnect.md`, "Offline")
 - **No more being thrown out:** when the gateway restarts (or there's no network), you stay in your chats and the agents list with everything kept on the phone; the header says "Offline". Only a truly lost pairing shows the reconnect screen.
 - **Write while offline:** messages show at once with "Offline · sends when connected", survive quitting the app, and go out by themselves once (voice notes and files wait for the connection).
 - **Back in seconds:** retries every 5 s for the first two minutes, so after a gateway restart the app is back ~3–4 s after Hermes is.
 - **Checked:** app 210 tests; in the simulator by stopping and starting the stand-in Hermes mid-chat: all of the above.
 
-## Ready for your phone check: artifacts as good as Claude's (your request, 2026-11-15; spec: `docs/artifacts.md`)
+## Done: artifacts as good as Claude's (your request, 2026-11-15; spec: `docs/artifacts.md`)
 - **Previews in cards:** a picture of web pages, images, diagrams and components; the first lines of code and documents, coloured. Clean layout: the picture on top, the title below it.
 - **Claude's other kinds:** diagrams (Mermaid: flowcharts, timelines…) and interactive components (React, e.g. a calculator or dashboard) open and run in the app.
 - **In the viewer:** ‹ v2 of 3 › arrows; View › Show Changes (removed red, added green); Share › Copy; if a page hits an error, the real error and **Ask Carl to Fix**.
@@ -23,7 +23,7 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 - **Checked:** plugin 365 tests, app 209; in the simulator, every check passed after fixing what the first rounds found (title over the picture, pictures cut from the middle, diagrams showing text, error text hidden).
 - **Needs from you:** `hermes plugins update lekora`, restart Hermes. Ask an agent for "a flowchart of …", "an interactive … calculator", or a page; look at the cards.
 
-## Ready for your phone check: past chats, artifact cards, times (your notes, 2026-11-15; spec: `docs/chats.md`)
+## Done: past chats, artifact cards, times (your notes, 2026-11-15; spec: `docs/chats.md`)
 - **Past chats:** the chat shows only the current conversation (as Hermes counts them: New Chat, `/new`, or Hermes' own daily reset). Earlier ones fold into an **Earlier chats** pill at the top, and aren't loaded as you scroll, so long-used agents stay quick. Tap it (or Chat Settings › Past Chats) to see every conversation with its Hermes title, date and size; open one to read it, or **Continue This Chat** to pick it up again (Hermes' own /resume).
 - **Artifacts at the newest message:** only an artifact's newest card is a full card; older ones become a quiet line that opens the newest.
 - **Times on voice notes:** dragging left now shows times beside voice notes, files and artifact cards too.
@@ -31,7 +31,7 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 - **Second round (2026-11-15, your screenshot):** (1) continuing an old chat left the current chat's messages on screen and the old one's didn't come back: the phone had guessed conversations by date. Now it only shows what the instance says belongs to the conversation, and loads it when you open or continue a chat. (2) **Search** in Past Chats (titles and every message, with the matching words). (3) Voice notes and files are now kept permanently on the phone, so they aren't fetched again. (4) The missing artifact cards weren't a voice bug: your agent changed the Dockerfile and YAML cards by editing Lekora's database with its own code, so no card was ever posted. New: an edit tool for line changes and find/replace (what reviews need), clearer tool wording, and a backstop that posts a card for any change made another way. Checked in the simulator: continuing an old chat shows only it, search, a directly-written change getting its card in ~8 s, switching back. Plugin 364 tests, app 206.
 - **Needs from you:** `hermes plugins update lekora`, restart Hermes. Your existing messages are placed into their conversations by time, so your default agent's chat should shrink to today's conversation straight away.
 
-## Ready for your phone check: artifacts (Phase 5; spec: `docs/artifacts.md`)
+## Done: artifacts (Phase 5; spec: `docs/artifacts.md`)
 - **What it does:** agents make web pages, documents, code and images with real tools (create, change, read, list). Each one shows as a **card** in the chat; tap it to open full screen. Web pages run their scripts and load online libraries (your choice), sealed off from the app and your data. Documents are laid out (headings, lists, tables, quotes, code). From the viewer: **Versions** (every one kept; open any, "Restore This Version"), **Change** › Ask the agent (your message goes to it, with a chip showing which artifact) or Edit Myself (a new version by you; never overwrites a newer one), **Share** › the file itself or a PDF. Chat Settings › **Artifacts** lists everything that agent made.
 - **Your choices (2026-11-15):** online content allowed; edit yourself and ask the agent; card in the chat plus a per-agent list; share as a file or a PDF.
 - **Kept on your Hermes instance** with every version; deleting an agent puts them in its backup.
