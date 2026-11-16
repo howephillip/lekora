@@ -6,7 +6,8 @@ import Foundation
 public enum ArtifactRendering {
     /// - Parameters: wrap / codeSize: for code and text (the viewer's View menu).
     public static func html(kind: String, content: String, language: String? = nil,
-                            wrap: Bool = false, codeSize: Int = 13, source: Bool = false) -> String {
+                            wrap: Bool = false, codeSize: Int = 13, source: Bool = false,
+                            thumbnail: Bool = false) -> String {
         if source || kind == "text" {
             // Lines you can comment on: code, plain text, or another kind's source (View › Show Source).
             return page(body: codeBlock(content, language: sourceLanguage(kind: kind, language: language)) + commentScript,
@@ -15,9 +16,13 @@ public enum ArtifactRendering {
         }
         switch kind {
         case "html":
-            return withViewport(content)
+            return withErrorReporting(withViewport(content))
         case "svg":
-            return page(body: "<div class=\"svg\">\(content)</div>", extraStyle: svgStyle)
+            return page(body: "<div class=\"svg\">\(content)</div>", extraStyle: svgStyle + (thumbnail ? fitStyle(".svg svg") : ""))
+        case "mermaid":
+            return mermaidPage(content, thumbnail: thumbnail)
+        case "react":
+            return reactPage(content)
         case "markdown":
             return page(body: Markdown.html(content), extraStyle: tokenStyle)
         case "code":
@@ -39,6 +44,8 @@ public enum ArtifactRendering {
         case "html": ext = "html"
         case "markdown": ext = "md"
         case "svg": ext = "svg"
+        case "mermaid": ext = "mmd"
+        case "react": ext = "jsx"
         case "code":
             if CodeHighlighter.canonical(language) == "dockerfile" { return "Dockerfile" }
             ext = codeExtension(language)
@@ -53,6 +60,8 @@ public enum ArtifactRendering {
         case "html": return "Web page"
         case "markdown": return "Document"
         case "svg": return "Image"
+        case "mermaid": return "Diagram"
+        case "react": return "Interactive"
         case "code": return CodeHighlighter.displayName(language) ?? "Code"
         default: return "Text"
         }
@@ -63,9 +72,110 @@ public enum ArtifactRendering {
         case "html": return "globe"
         case "markdown": return "doc.richtext"
         case "svg": return "photo"
+        case "mermaid": return "point.3.connected.trianglepath.dotted"
+        case "react": return "square.stack.3d.up"
         case "code": return "chevron.left.forwardslash.chevron.right"
         default: return "doc.plaintext"
         }
+    }
+
+    // MARK: - Diagrams and interactive components (as Claude's artifacts)
+
+    /// A Mermaid diagram, drawn by Mermaid (loaded online), in light or dark.
+    /// A card's preview: the whole drawing shrunk to fit the card (a slice of a tall diagram can't be read).
+    static func fitStyle(_ selector: String) -> String {
+        "body { padding: 8px !important; } \(selector) { max-height: 166px !important; width: auto !important; max-width: 100% !important; display: block; margin: 0 auto; }"
+    }
+
+    static func mermaidPage(_ source: String, thumbnail: Bool = false) -> String {
+        """
+        <!doctype html><html><head><meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>\(baseStyle) \(thumbnail ? fitStyle(".mermaid svg") : "") .mermaid { display: flex; justify-content: center; } .mermaid svg { max-width: 100%; height: auto; }
+        .mermaid:not([data-processed]) { visibility: hidden; height: 0; }
+        #drawing { text-align: center; color: gray; font-size: 14px; padding-top: 40px; }
+        .mermaid[data-processed] ~ #drawing { display: none; }</style>
+        </head><body><pre class="mermaid">\(escape(source))</pre><div id="drawing">Drawing the diagram…</div>
+        <script type="module">
+        import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+        const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+        mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict" });
+        try { await mermaid.run(); } catch (e) { console.error("Diagram error: " + (e && e.message || e)); throw e; }
+        </script></body></html>
+        """
+    }
+
+    /// One React component (JSX or TSX, default export), as Claude's interactive artifacts:
+    /// React 18, hooks, Tailwind classes, other libraries by name (from esm.sh) or by URL.
+    static func reactPage(_ source: String) -> String {
+        let code = String(decoding: (try? JSONEncoder().encode(source)) ?? Data("\"\"".utf8), as: UTF8.self)
+        return """
+        <!doctype html><html><head><meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+        <script type="importmap">{"imports": {
+          "react": "https://esm.sh/react@18.3.1", "react/": "https://esm.sh/react@18.3.1/",
+          "react-dom": "https://esm.sh/react-dom@18.3.1", "react-dom/": "https://esm.sh/react-dom@18.3.1/"
+        }}</script>
+        <style>:root { color-scheme: light dark; } html { -webkit-text-size-adjust: 100%; }
+        body { margin: 0; font-family: -apple-system, system-ui, sans-serif; }
+        #lekora-error { white-space: pre-wrap; color: #cf222e; font: 13px ui-monospace, Menlo, monospace; padding: 16px; }</style>
+        </head><body><div id="root"></div><div id="lekora-error"></div>
+        <script type="module">
+        const source = \(code);
+        function fail(e) { const m = (e && (e.stack || e.message)) || String(e); document.getElementById("lekora-error").textContent = m; console.error(m); }
+        try {
+          let js = Babel.transform(source, { filename: "App.tsx", sourceType: "module",
+            presets: [["react", { runtime: "classic" }], ["typescript", { isTSX: true, allExtensions: true }]] }).code;
+          // Libraries by name come from esm.sh (sharing this page's React).
+          js = js.replace(/from\\s+["']([^"'./][^"']*)["']/g, (all, name) =>
+            /^(react|react-dom)(\\/|$)/.test(name) || /^https?:/.test(name) ? all
+              : 'from "https://esm.sh/' + name + '?external=react,react-dom"');
+          if (!/^\\s*import\\s+React\\b/m.test(js)) js = 'import React from "react";\\n' + js;
+          const url = URL.createObjectURL(new Blob([js], { type: "text/javascript" }));
+          const [{ default: App }, React, { createRoot }] = await Promise.all([import(url), import("react"), import("react-dom/client")]);
+          if (!App) throw new Error("The component needs a default export (export default function App() { … }).");
+          createRoot(document.getElementById("root")).render(React.createElement(App));
+        } catch (e) { fail(e); }
+        </script></body></html>
+        """
+    }
+
+    // MARK: - What changed
+
+    /// The previous version against this one, as a unified diff (for the Changes view).
+    public static func changes(from old: String, to new: String) -> String {
+        let before = old.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        let after = new.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        let difference = after.difference(from: before)
+        var removed = Set<Int>()
+        var inserted = Set<Int>()
+        for change in difference {
+            switch change {
+            case .remove(let offset, _, _): removed.insert(offset)
+            case .insert(let offset, _, _): inserted.insert(offset)
+            }
+        }
+        var out: [String] = []
+        var i = 0, j = 0
+        while i < before.count || j < after.count {
+            if i < before.count, removed.contains(i) {
+                out.append("-" + before[i]); i += 1
+            } else if j < after.count, inserted.contains(j) {
+                out.append("+" + after[j]); j += 1
+            } else {
+                if j < after.count { out.append(" " + after[j]) }
+                i += 1; j += 1
+            }
+        }
+        return out.joined(separator: "\n")
+    }
+
+    /// The Changes view: removed lines red, added green, the rest as it was.
+    public static func changesPage(from old: String, to new: String, codeSize: Int = 13) -> String {
+        page(body: codeBlock(changes(from: old, to: new), language: "diff"), extraStyle: codeStyle + tokenStyle,
+             bodyClass: "wrap", codeSize: codeSize)
     }
 
     // MARK: - Pieces
@@ -75,6 +185,33 @@ public enum ArtifactRendering {
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    /// Reports the page's own errors with their real text (WebKit hides the text from scripts added
+    /// from outside the page, showing only "Script error."), for "Ask the agent to fix".
+    static let inlineErrorReporter = """
+    <script>(function () {
+      function send(m) { try { window.webkit.messageHandlers.lekoraErrors.postMessage(String(m).slice(0, 600)); } catch (e) {} }
+      window.addEventListener('error', function (e) {
+        var m = (e.error && e.error.message) || e.message || 'Error';
+        send(m + (e.lineno ? ' (line ' + e.lineno + ')' : ''));
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) { send('Unhandled: ' + ((e.reason && e.reason.message) || e.reason)); });
+    })();</script>
+    """
+
+    static func withErrorReporting(_ html: String) -> String {
+        if let head = html.range(of: "<head>", options: .caseInsensitive) {
+            var out = html
+            out.insert(contentsOf: inlineErrorReporter, at: head.upperBound)
+            return out
+        }
+        if let body = html.range(of: "<body", options: .caseInsensitive) {
+            var out = html
+            out.insert(contentsOf: inlineErrorReporter, at: body.lowerBound)
+            return out
+        }
+        return inlineErrorReporter + html
     }
 
     static func withViewport(_ html: String) -> String {
@@ -97,6 +234,8 @@ public enum ArtifactRendering {
 
     static func sourceLanguage(kind: String, language: String?) -> String {
         switch kind {
+        case "react": return "typescript"
+        case "mermaid": return "text"
         case "html": return "html"
         case "svg": return "xml"
         case "markdown": return "markdown"

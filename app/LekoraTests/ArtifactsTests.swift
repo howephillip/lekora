@@ -141,3 +141,30 @@ final class ArtifactCommentsTests: XCTestCase {
         XCTAssertEqual(drafts.first?.id, comments.first?.id, "drafts keep their ids on the phone")
     }
 }
+
+/// Previews, diagrams, components and what changed (docs/artifacts.md).
+final class ArtifactsPlusTests: XCTestCase {
+    func testWhatChangedBetweenVersions() {
+        let diff = ArtifactRendering.changes(from: "a\nb\nc", to: "a\nB\nc\nd")
+        XCTAssertEqual(diff, " a\n-b\n+B\n c\n+d")
+        XCTAssertTrue(ArtifactRendering.changesPage(from: "a", to: "b").contains("<span class=\"removed\">-a</span>"))
+    }
+
+    func testDiagramsAndComponentsAreDrawnByTheirLibraries() {
+        let diagram = ArtifactRendering.html(kind: "mermaid", content: "flowchart TD\n A-->B")
+        XCTAssertTrue(diagram.contains("mermaid.esm.min.mjs") && diagram.contains("A--&gt;B"), "escaped source, drawn by Mermaid")
+        let app = ArtifactRendering.html(kind: "react", content: "export default function App() { return <b>hi</b> } // </script>")
+        XCTAssertTrue(app.contains("@babel/standalone") && app.contains("react-dom"))
+        XCTAssertFalse(app.contains("// </script>"), "the component's text can't end the page's script early")
+        XCTAssertEqual(ArtifactRendering.kindName("react"), "Interactive")
+        XCTAssertEqual(ArtifactRendering.fileName(title: "Flow", kind: "mermaid", language: nil), "Flow.mmd")
+    }
+
+    func testCardsCarryTheirFirstLines() throws {
+        let json = #"{"artifact_id":"art_1","title":"Script","kind":"code","language":"python","version":1,"excerpt":"import os\nprint(1)"}"#
+        let card = try JSONDecoder().decode(ArtifactCard.self, from: Data(json.utf8))
+        XCTAssertEqual(card.excerpt, "import os\nprint(1)")
+        let coloured = ArtifactExcerpt.coloured("import os", language: "python")
+        XCTAssertEqual(String(coloured.characters), "import os")
+    }
+}

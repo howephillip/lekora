@@ -15,8 +15,12 @@ import json
 import uuid
 from typing import Any, Awaitable, Callable, Optional
 
-KINDS = ("html", "markdown", "code", "svg", "text")
-KIND_NAMES = {"html": "web page", "markdown": "document", "code": "code", "svg": "image", "text": "text"}
+KINDS = ("html", "markdown", "code", "svg", "text", "mermaid", "react")
+KIND_NAMES = {"html": "web page", "markdown": "document", "code": "code", "svg": "image", "text": "text",
+              "mermaid": "diagram", "react": "interactive component"}
+# For a card's preview: the first lines of text kinds (pages and images are drawn on the phone).
+EXCERPT_LINES = 14
+EXCERPT_CHARS = 900
 MAX_CONTENT = 2_000_000          # characters per version
 MAX_TITLE = 120
 
@@ -28,9 +32,19 @@ class ArtifactError(Exception):
         self.reason = reason
 
 
-def card(row: dict) -> dict:
+def excerpt(kind: str, content: str) -> Optional[str]:
+    """The start of a code, document or text artifact, for its card's preview."""
+    if kind not in ("code", "markdown", "text") or not content:  # diagrams are drawn on the phone
+        return None
+    lines = content.replace("\r\n", "\n").split("\n")[:EXCERPT_LINES]
+    return "\n".join(line[:160] for line in lines)[:EXCERPT_CHARS]
+
+
+def card(row: dict, content: Optional[str] = None) -> dict:
     """What a chat card and a list row show."""
     data = {"artifact_id": row["artifact_id"], "title": row["title"], "kind": row["kind"], "version": row["version"]}
+    if content is not None and (start := excerpt(row["kind"], content)):
+        data["excerpt"] = start
     if row.get("language"):
         data["language"] = row["language"]
     if row.get("updated_at"):
@@ -56,7 +70,8 @@ def _content(value: Any) -> str:
 def _kind(value: Any) -> str:
     kind = str(value or "").strip().lower()
     aliases = {"md": "markdown", "document": "markdown", "doc": "markdown", "page": "html", "web": "html",
-               "image": "svg", "txt": "text", "plain": "text"}
+               "image": "svg", "txt": "text", "plain": "text", "diagram": "mermaid", "jsx": "react", "component": "react",
+               "tsx": "react"}
     kind = aliases.get(kind, kind)
     if kind not in KINDS:
         raise ArtifactError("INVALID_ARTIFACT", f"Kind must be one of: {', '.join(KINDS)}.")
@@ -82,7 +97,8 @@ class Artifacts:
         return row
 
     async def _announce(self, profile_id: str, row: dict, role: str, action: str) -> int:
-        shown = {**card(row), "action": action}
+        latest = self.store.artifact_version(row["artifact_id"])
+        shown = {**card(row, latest["content"] if latest else None), "action": action}
         self.store.set_announced(row["artifact_id"], row["version"])
         seq = await self._publish(profile_id, {"role": role, "text": "", "artifact": shown})
         if self._changed is not None:
@@ -193,11 +209,15 @@ TOOLSET = "lekora"
 CREATE_SCHEMA = {
     "name": "lekora_create_artifact",
     "description": (
-        "Create an artifact in this Lekora chat: a web page (HTML; scripts and online libraries work), "
-        "a document (Markdown), code, an SVG image, or plain text. The user sees it as a card that opens "
-        "full screen, and can edit it, share it (file or PDF) and go back to earlier versions. Use it for "
-        "anything substantial the user will want to view, keep or reuse (a page, report, plan, chart, "
-        "script) instead of pasting it into your reply. Give the complete content."),
+        "Create an artifact in this Lekora chat: a web page (html: one self-contained HTML file; scripts and "
+        "online libraries from CDNs work), a document (markdown), code (with its language), an SVG image (svg), "
+        "plain text, a diagram (mermaid: Mermaid syntax, e.g. flowchart, sequence, gantt, timeline), or an "
+        "interactive component (react: one JSX file with a default-exported React component; React hooks are "
+        "available, plus Tailwind CSS classes; import other libraries by full https URL). The user sees it as a card "
+        "with a preview that opens full screen, and can edit it, comment on lines, share it (file or PDF) and go "
+        "back to earlier versions. Use it for anything substantial the user will want to view, keep or reuse (a "
+        "page, report, plan, chart, tool, script) instead of pasting it into your reply; then say in a sentence "
+        "what it is. Give the complete content."),
     "parameters": {
         "type": "object",
         "properties": {

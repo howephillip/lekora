@@ -110,6 +110,20 @@ public struct WalkingSkeletonPingView: View {
         allMessages.contains(where: isEarlier) || (gateway.pastChats[gateway.activeProfileId]?.count ?? 0) > 1
     }
 
+    /// An artifact's card: the newest with its preview, older ones as a quiet line.
+    @ViewBuilder
+    private func artifactCard(_ artifact: ArtifactCard, entry: ChatEntry) -> some View {
+        let compact = newestArtifactCards[artifact.artifact_id] != entry.id
+        #if canImport(UIKit)
+        LKArtifactCard(artifact: artifact, fromUser: entry.role == .user, compact: compact,
+                       preview: { [gateway] in
+                           await ArtifactPreviews.shared.image(for: artifact, gateway: gateway, profileId: gateway.activeProfileId)
+                       }) { openedArtifact = artifact }
+        #else
+        LKArtifactCard(artifact: artifact, fromUser: entry.role == .user, compact: compact) { openedArtifact = artifact }
+        #endif
+    }
+
     /// The newest card of each artifact (older cards shrink to a line: it lives at the newest).
     private var newestArtifactCards: [String: String] {
         var newest: [String: String] = [:]
@@ -397,8 +411,7 @@ public struct WalkingSkeletonPingView: View {
                 LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
             } else if let artifact = entry.artifact {
                 // An artifact made or changed (docs/artifacts.md): a card that opens it.
-                LKArtifactCard(artifact: artifact, fromUser: entry.role == .user,
-                               compact: newestArtifactCards[artifact.artifact_id] != entry.id) { openedArtifact = artifact }
+                artifactCard(artifact, entry: entry)
                     .offset(x: -timeReveal)
                     .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
                 if !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

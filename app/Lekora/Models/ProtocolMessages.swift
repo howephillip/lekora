@@ -1006,10 +1006,13 @@ public struct ArtifactCard: Codable, Equatable, Hashable, Identifiable, Sendable
     /// On cards: created | updated | edited
     public let action: String?
     public let updated_at: String?
+    /// On cards of code, documents, text and diagrams: their first lines (the card's preview).
+    public let excerpt: String?
     public var id: String { artifact_id }
 
     public init(artifact_id: String, title: String, kind: String, language: String? = nil, version: Int,
-                action: String? = nil, updated_at: String? = nil) {
+                action: String? = nil, updated_at: String? = nil, excerpt: String? = nil) {
+        self.excerpt = excerpt
         self.artifact_id = artifact_id
         self.title = title
         self.kind = kind

@@ -208,3 +208,19 @@ async def test_changes_made_outside_the_tools_still_get_a_card(fgw, store):
     assert card_msg["artifact"]["version"] == 2, "the card comes to the newest message"
     assert await artifacts.announce_outside_changes() == 0, "only once"
     await ws.close()
+
+
+async def test_cards_carry_a_preview_and_new_kinds(fgw, store):
+    artifacts = service(fgw, store)
+    ws = await phone(fgw, store)
+    code = "\n".join(f"line {n}" for n in range(1, 40))
+    await artifacts.create("coder", "Long", "code", code, language="python")
+    card_msg = (await until(ws, "chat.message"))[0]["data"]["artifact"]
+    assert card_msg["excerpt"].startswith("line 1\nline 2") and card_msg["excerpt"].count("\n") == 13, "the first lines"
+    diagram = await artifacts.create("coder", "Flow", "diagram", "flowchart TD\n  A-->B")
+    assert diagram["kind"] == "mermaid"
+    app = await artifacts.create("coder", "Counter", "jsx", "export default function App() { return <b>1</b> }")
+    assert app["kind"] == "react"
+    page = await artifacts.create("coder", "Page", "html", "<p>x</p>")
+    assert "excerpt" not in page, "pages are drawn on the phone"
+    await ws.close()

@@ -18,12 +18,31 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
     /// line, or a tapped comment. Pages that run the artifact's own HTML never get this bridge.
     var onLine: ((Int) -> Void)?
     var onComment: ((String) -> Void)?
+    /// An error the page hit (its scripts, a diagram that wouldn't draw): only text comes across,
+    /// to offer "Ask the agent to fix" (docs/artifacts.md). Nothing goes back into the page.
+    @Published private(set) var pageError: String?
 
-    init(lines: Bool = false) {
+    /// Reports the page's errors (script errors, rejected promises, console.error) to the app.
+    static let errorReporter = """
+    (function () {
+      function send(m) { try { window.webkit.messageHandlers.lekoraErrors.postMessage(String(m).slice(0, 600)); } catch (e) {} }
+      window.addEventListener('error', function (e) { send((e.message || 'Error') + (e.lineno ? ' (line ' + e.lineno + ')' : '')); });
+      window.addEventListener('unhandledrejection', function (e) { send('Unhandled: ' + ((e.reason && e.reason.message) || e.reason)); });
+      var original = console.error;
+      console.error = function () { send(Array.prototype.join.call(arguments, ' ')); return original.apply(console, arguments); };
+    })();
+    """
+
+    init(lines: Bool = false, reportsErrors: Bool = false) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let relay = WeakMessageRelay()
         if lines { configuration.userContentController.add(relay, name: "lekoraLines") }
+        if reportsErrors {
+            configuration.userContentController.add(relay, name: "lekoraErrors")
+            configuration.userContentController.addUserScript(
+                WKUserScript(source: Self.errorReporter, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         relay.target = self
@@ -35,8 +54,12 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
     }
 
     /// Each artifact gets its own made-up origin, so it can't read another one's storage.
+    private var lastHTML = ""
+
     func show(_ html: String, artifactId: String) {
         loading = true
+        pageError = nil
+        lastHTML = html
         webView.loadHTMLString(html, baseURL: URL(string: "https://\(artifactId).artifact.lekora.invalid/"))
     }
 
@@ -50,9 +73,50 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "lekoraErrors" {
+            // WebKit can report a page's error twice: once hidden ("Script error.") and once with its
+            // real text. The real one wins.
+            if let text = message.body as? String, !text.isEmpty,
+               pageError == nil || (pageError == "Script error." && text != "Script error.") {
+                pageError = text
+                if text == "Script error." { Task { await findHiddenError() } }
+            }
+            return
+        }
         guard let body = message.body as? [String: Any] else { return }
         if let line = body["line"] as? Int { onLine?(line) }
         if let id = body["edit"] as? String { onComment?(id) }
+    }
+
+    /// WebKit hides a page's error text from the page ("Script error."). Only code that catches an
+    /// error sees it, so a hidden copy of the page is run with each script wrapped to catch, and the
+    /// first real message replaces the hidden one. (A syntax error is found without running anything.)
+    static let errorFinder = """
+    const parsed = new DOMParser().parseFromString(source, "text/html");
+    const scripts = [...parsed.querySelectorAll("script:not([src])")].filter(s => !s.type || /javascript|ecmascript/i.test(s.type));
+    for (const s of scripts) { try { new Function(s.textContent); } catch (e) { return "Syntax error: " + e.message; } }
+    for (const s of scripts) {
+      s.textContent = "try {\\n" + s.textContent + "\\n} catch (e) { parent.postMessage({ lekoraError: (e && e.message) || String(e) }, '*'); }";
+    }
+    return await new Promise(done => {
+      const frame = document.createElement("iframe");
+      frame.setAttribute("sandbox", "allow-scripts");
+      frame.style.cssText = "position:absolute;width:1px;height:1px;left:-9999px;visibility:hidden";
+      const finish = (m) => { window.removeEventListener("message", listen); frame.remove(); done(m); };
+      const listen = (e) => { if (e.source === frame.contentWindow && e.data && e.data.lekoraError) finish(e.data.lekoraError); };
+      window.addEventListener("message", listen);
+      setTimeout(() => finish(null), 4000);
+      frame.srcdoc = "<!doctype html>" + parsed.documentElement.outerHTML;
+      document.body.appendChild(frame);
+    });
+    """
+
+    private func findHiddenError() async {
+        let source = lastHTML
+        guard let found = try? await webView.callAsyncJavaScript(Self.errorFinder, arguments: ["source": source],
+                                                                in: nil, contentWorld: .defaultClient) as? String,
+              !found.isEmpty, lastHTML == source, pageError == "Script error." else { return }
+        pageError = found
     }
 
     /// Our own page functions (lines pages), never the artifact's.
@@ -114,7 +178,49 @@ struct LKArtifactCard: View {
     let fromUser: Bool
     /// An older card of an artifact that has a newer one below: one quiet line (it lives at the newest).
     var compact = false
+    #if canImport(UIKit)
+    /// Draws a page, image, diagram or component for the card's preview (nil: no picture).
+    var preview: (() async -> UIImage?)?
+    #endif
     let open: () -> Void
+
+    init(artifact: ArtifactCard, fromUser: Bool, compact: Bool = false, open: @escaping () -> Void) {
+        self.artifact = artifact
+        self.fromUser = fromUser
+        self.compact = compact
+        self.open = open
+    }
+
+    #if canImport(UIKit)
+    init(artifact: ArtifactCard, fromUser: Bool, compact: Bool = false,
+         preview: (() async -> UIImage?)?, open: @escaping () -> Void) {
+        self.init(artifact: artifact, fromUser: fromUser, compact: compact, open: open)
+        self.preview = preview
+    }
+    #endif
+
+    /// The preview at the top of the card (as Claude's artifacts show one).
+    @ViewBuilder
+    private var previewArea: some View {
+        if let excerpt = artifact.excerpt, !excerpt.isEmpty {
+            ArtifactExcerpt(card: artifact, excerpt: excerpt)
+        } else {
+            #if canImport(UIKit)
+            if let preview, ["html", "svg", "mermaid", "react"].contains(artifact.kind) {
+                ArtifactPreviewImage(card: artifact, load: preview)
+            }
+            #endif
+        }
+    }
+
+    private var hasPreview: Bool {
+        if artifact.excerpt?.isEmpty == false { return true }
+        #if canImport(UIKit)
+        return preview != nil && ["html", "svg", "mermaid", "react"].contains(artifact.kind)
+        #else
+        return false
+        #endif
+    }
 
     private var subtitle: String {
         let kind = ArtifactRendering.kindName(artifact.kind, language: artifact.language)
@@ -148,6 +254,15 @@ struct LKArtifactCard: View {
         HStack {
             if fromUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
             Button(action: open) {
+                VStack(spacing: 0) {
+                if hasPreview {
+                    previewArea
+                        .frame(height: 140)
+                        .frame(maxWidth: .infinity)
+                        .clipped()
+                        .allowsHitTesting(false)
+                    Divider()
+                }
                 HStack(spacing: LK.Spacing.sm) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -172,9 +287,13 @@ struct LKArtifactCard: View {
                 }
                 .foregroundStyle(fromUser ? LK.Palette.onAccent : .primary)
                 .padding(LK.Spacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(fromUser ? LK.Surface.accent : LK.Surface.inset)  // solid: the title never sits on the picture
+                }
                 .frame(maxWidth: 300, alignment: .leading)
-                .background(fromUser ? LK.Surface.accent : LK.Surface.inset,
-                            in: RoundedRectangle(cornerRadius: LK.Radius.bubble, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: LK.Radius.bubble, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: LK.Radius.bubble, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08)))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -218,7 +337,8 @@ struct ArtifactViewer: View {
     var title: String = "Artifact"
 
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var web = ArtifactWebController()
+    @StateObject private var web = ArtifactWebController(reportsErrors: true)
+    @State private var showChanges = false
     /// Code, text and Show Source: lines you can tap to comment on (docs/artifacts.md, "Comments").
     @StateObject private var linesPage = ArtifactWebController(lines: true)
     @State private var source = false
@@ -239,7 +359,9 @@ struct ArtifactViewer: View {
     @AppStorage("artifactCodeSize") private var codeSize = 13
 
     private var isLatest: Bool { detail.map { $0.shown_version == $0.version } ?? true }
-    private var showsLines: Bool { detail.map { ArtifactRendering.commentable(kind: $0.kind, source: source) } ?? false }
+    private var showsLines: Bool {
+        !showChanges && (detail.map { ArtifactRendering.commentable(kind: $0.kind, source: source) } ?? false)
+    }
     private var page: ArtifactWebController { showsLines ? linesPage : web }
 
     var body: some View {
@@ -259,6 +381,29 @@ struct ArtifactViewer: View {
                     LKNotice(.warning, failure).padding()
                 } else if detail == nil || page.loading {
                     ProgressView()
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                if let detail, let error = web.pageError, !showsLines, !showChanges {
+                    // The page hit an error: say so, and offer the agent a fix (as Claude does).
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("This \(ArtifactRendering.kindName(detail.kind).lowercased()) hit an error", systemImage: "exclamationmark.triangle.fill")
+                            .font(LK.Typography.footnote.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        Text(error).font(.system(.caption, design: .monospaced)).lineLimit(3).foregroundStyle(.secondary)
+                        Button("Ask \(agentName) to Fix") {
+                            Task {
+                                await gateway.sendMessage("The artifact shows this error:\n\(error)\nPlease fix it.", about: detail.card)
+                                dismiss()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                    .padding(.horizontal, LK.Spacing.lg)
+                    .padding(.vertical, LK.Spacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.bar)
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -360,6 +505,10 @@ struct ArtifactViewer: View {
                 selection = nil
                 if let detail { render(detail) }
             }
+            .onChange(of: showChanges) { _, _ in
+                selection = nil
+                if let detail { render(detail) }
+            }
             .onChange(of: wrapLines) { _, _ in if let detail { render(detail) } }
             .onChange(of: codeSize) { _, _ in if let detail { render(detail) } }
             .onChange(of: gateway.artifactVersions[artifactId]) { _, newest in
@@ -392,7 +541,11 @@ struct ArtifactViewer: View {
         ToolbarItemGroup(placement: bottomPlacement) {
             if let detail {
                 Menu {
-                    if ["html", "svg", "markdown"].contains(detail.kind) {
+                    if detail.shown_version > 1 {
+                        // What changed since the version before (added green, removed red).
+                        Toggle("Show Changes", systemImage: "plusminus", isOn: $showChanges)
+                    }
+                    if ["html", "svg", "markdown", "mermaid", "react"].contains(detail.kind) {
                         // The source, as lines you can comment on.
                         Toggle("Show Source", systemImage: "chevron.left.forwardslash.chevron.right", isOn: $source)
                     }
@@ -414,7 +567,24 @@ struct ArtifactViewer: View {
                     Label("Change", systemImage: "pencil.and.outline")
                 }
                 Spacer()
+                // Step through versions (as Claude's artifacts do).
+                if detail.version > 1 {
+                    Button { Task { await load(detail.shown_version - 1) } } label: {
+                        Label("Previous Version", systemImage: "chevron.left")
+                    }
+                    .disabled(detail.shown_version <= 1)
+                    Text("v\(detail.shown_version) of \(detail.version)")
+                        .font(LK.Typography.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .fixedSize()
+                    Button { Task { await load(detail.shown_version + 1) } } label: {
+                        Label("Next Version", systemImage: "chevron.right")
+                    }
+                    .disabled(detail.shown_version >= detail.version)
+                    Spacer()
+                }
                 Menu {
+                    Button("Copy", systemImage: "doc.on.doc") { copy(detail) }
                     Button("Share File", systemImage: "doc") { shareFile(detail) }
                     Button("Share as PDF", systemImage: "doc.richtext") { sharePDF(detail) }
                 } label: {
@@ -454,9 +624,25 @@ struct ArtifactViewer: View {
     }
 
     private func render(_ detail: ArtifactDetail) {
+        if showChanges, detail.shown_version > 1 {
+            Task {
+                // Compared with the version before the one shown.
+                let previous = try? await gateway.artifact(artifactId, version: detail.shown_version - 1, in: profileId).content
+                web.show(ArtifactRendering.changesPage(from: previous ?? "", to: detail.content, codeSize: codeSize),
+                         artifactId: detail.artifact_id)
+            }
+            return
+        }
         let html = ArtifactRendering.html(kind: detail.kind, content: detail.content, language: detail.language,
                                           wrap: wrapLines, codeSize: codeSize, source: source)
         page.show(html, artifactId: detail.artifact_id)
+    }
+
+    private func copy(_ detail: ArtifactDetail) {
+        #if os(iOS)
+        UIPasteboard.general.string = detail.content
+        #endif
+        show("Copied")
     }
 
     // MARK: - Comments on lines (docs/artifacts.md, "Comments")

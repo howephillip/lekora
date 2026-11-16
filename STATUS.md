@@ -9,6 +9,14 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 
 **Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) is complete** (confirmed on your iPhone 2026-11-15): voice notes, hearing replies (with direct streaming voice), hands-free calls, your name for agents, and the fixes from your list. **Phase 5 (artifacts) has started:** built, waiting for your phone check.
 
+## Ready for your phone check: artifacts as good as Claude's (your request, 2026-11-15; spec: `docs/artifacts.md`)
+- **Previews in cards:** a picture of web pages, images, diagrams and components; the first lines of code and documents, coloured. Clean layout: the picture on top, the title below it.
+- **Claude's other kinds:** diagrams (Mermaid: flowcharts, timelines…) and interactive components (React, e.g. a calculator or dashboard) open and run in the app.
+- **In the viewer:** ‹ v2 of 3 › arrows; View › Show Changes (removed red, added green); Share › Copy; if a page hits an error, the real error and **Ask Carl to Fix**.
+- **Left out:** showing an artifact while it's still being written (Hermes doesn't share that); public share links (would need an outside service: your call).
+- **Checked:** plugin 365 tests, app 209; in the simulator, every check passed after fixing what the first rounds found (title over the picture, pictures cut from the middle, diagrams showing text, error text hidden).
+- **Needs from you:** `hermes plugins update lekora`, restart Hermes. Ask an agent for "a flowchart of …", "an interactive … calculator", or a page; look at the cards.
+
 ## Ready for your phone check: past chats, artifact cards, times (your notes, 2026-11-15; spec: `docs/chats.md`)
 - **Past chats:** the chat shows only the current conversation (as Hermes counts them: New Chat, `/new`, or Hermes' own daily reset). Earlier ones fold into an **Earlier chats** pill at the top, and aren't loaded as you scroll, so long-used agents stay quick. Tap it (or Chat Settings › Past Chats) to see every conversation with its Hermes title, date and size; open one to read it, or **Continue This Chat** to pick it up again (Hermes' own /resume).
 - **Artifacts at the newest message:** only an artifact's newest card is a full card; older ones become a quiet line that opens the newest.
