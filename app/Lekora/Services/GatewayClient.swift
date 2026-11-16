@@ -119,7 +119,10 @@ public final class GatewayClient: ObservableObject {
             self.state = .error("Lekora now encrypts the connection to \(saved.instanceName), so this iPhone needs to pair again. On your Hermes computer, run hermes lekora pair and scan the new code.")
         } else {
             self.savedHost = saved
-            if let saved { loadCache(for: saved) }
+            if let saved {
+                loadCache(for: saved)
+                restoreQueuedSends()
+            }
         }
     }
 
@@ -160,6 +163,63 @@ public final class GatewayClient: ObservableObject {
     /// True when a host is paired and some of its chats are known (shown while reconnecting).
     public var hasCachedChats: Bool {
         savedHost != nil && !profiles.isEmpty && !(savedHost?.enabledProfileIds ?? []).isEmpty
+    }
+
+    // MARK: - Offline (docs/auto-reconnect.md, "Offline")
+
+    /// Set when reconnecting can't fix it: the instance's certificate changed, or it refused this
+    /// phone. Anything else (the gateway restarting, no network) is just being offline for now.
+    @Published public private(set) var pairingProblem = false
+
+    /// The chats stay usable without a connection: read everything kept on the phone, write
+    /// messages that go out once it's back (owner, 2026-11-15: a gateway restart threw him out).
+    public var canWorkOffline: Bool { hasCachedChats && !pairingProblem }
+
+    /// Messages written while offline, sent in order once connected again. Kept on the phone, so
+    /// quitting the app before they go doesn't lose them.
+    private var queuedSends: [Envelope<ChatSendData>] = [] {
+        didSet { saveQueuedSends() }
+    }
+
+    private var queueKey: String? { savedHost.map { "lekora.queued.\($0.instanceId)" } }
+
+    private func saveQueuedSends() {
+        guard let queueKey else { return }
+        if queuedSends.isEmpty {
+            UserDefaults.standard.removeObject(forKey: queueKey)
+        } else if let data = try? JSONEncoder().encode(queuedSends) {
+            UserDefaults.standard.set(data, forKey: queueKey)
+        }
+    }
+
+    /// After a relaunch: the waiting messages, back in their chats.
+    private func restoreQueuedSends() {
+        guard let queueKey, let data = UserDefaults.standard.data(forKey: queueKey),
+              let saved = try? JSONDecoder().decode([Envelope<ChatSendData>].self, from: data) else { return }
+        for envelope in saved where !timeline.entries.contains(where: { $0.id == envelope.id }) {
+            timeline.addOutgoing(id: envelope.id, profileId: envelope.profile_id ?? activeProfileId, text: envelope.data.text)
+        }
+        queuedSends = saved
+    }
+
+    /// How many messages are waiting for the connection.
+    public var queuedCount: Int { queuedSends.count }
+
+    private func flushQueuedSends(on wsTask: URLSessionWebSocketTask) {
+        guard !queuedSends.isEmpty else { return }
+        let waiting = queuedSends
+        queuedSends = []
+        Task { [weak self] in
+            for envelope in waiting {
+                guard let self else { return }
+                do {
+                    try await self.send(envelope, on: wsTask)
+                    self.timeline.markSent(id: envelope.id)
+                } catch {
+                    self.queuedSends.append(envelope)  // dropped again: next time
+                }
+            }
+        }
     }
 
     // MARK: - Unread (docs/chat-history.md)
@@ -564,6 +624,16 @@ public final class GatewayClient: ObservableObject {
 
     /// When the last reconnect attempt failed, and how long to wait before the next one.
     private var lastFailedAttempt: Date?
+    /// When this connection was first lost (cleared once connected).
+    private var offlineSince: Date?
+
+    /// Time to try again: every 5 s for the first two minutes offline (a gateway restart takes
+    /// seconds), then every 30 s.
+    public var retryDue: Bool {
+        guard let failed = lastFailedAttempt else { return true }
+        let offlineFor = Date().timeIntervalSince(offlineSince ?? failed)
+        return Date().timeIntervalSince(failed) >= (offlineFor < 120 ? 5 : 30)
+    }
     var minimumRetryInterval: TimeInterval = 2
 
     /// Reconnects to the saved host, if there is one. Safe to call repeatedly: does
@@ -586,10 +656,13 @@ public final class GatewayClient: ObservableObject {
         } catch RouteProberError.certificateMismatch {
             closeSocket()
             lastFailedAttempt = Date()
+            if offlineSince == nil { offlineSince = Date() }
+            pairingProblem = true
             state = .error(RouteProberError.certificateMismatch.localizedDescription)
         } catch {
             closeSocket()
             lastFailedAttempt = Date()
+            if offlineSince == nil { offlineSince = Date() }
             state = .error("Can't reach \(host.instanceName) right now. Check that the computer is on and that this phone is on the same network or Tailscale.")
         }
     }
@@ -615,6 +688,7 @@ public final class GatewayClient: ObservableObject {
             let ack = try await receiveReply(HelloAckData.self, on: wsTask)
             guard ack.status == "ok" else {
                 closeSocket()
+                pairingProblem = true
                 state = .error("Handshake rejected by host.")
                 return
             }
@@ -639,9 +713,12 @@ public final class GatewayClient: ObservableObject {
             agentActivity = [:]
             let activeName = activeProfile?.name ?? ack.profiles.first?.name ?? "Hermes Agent"
             state = .connected(instanceName: ack.instance_name, profileName: activeName)
+            pairingProblem = false
+            offlineSince = nil
 
             startHeartbeat()
             startReceiveLoop(wsTask: wsTask)
+            flushQueuedSends(on: wsTask)  // what was written while offline
             markActiveChatRead()
             cacheChanged()  // the agent list and change number may be new
         } catch let hostError as HostError where hostError.meansCredentialsInvalid {
@@ -950,9 +1027,17 @@ public final class GatewayClient: ObservableObject {
                             review: [ReviewComment]? = nil) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty || review?.isEmpty == false,
-              case .connected = state,
-              let wsTask = webSocketTask,
               let instanceId = savedHost?.instanceId else {
+            return
+        }
+        guard case .connected = state, let wsTask = webSocketTask else {
+            // Offline: kept on the phone and sent once connected (voice notes and files need the
+            // connection to upload, so they aren't queued).
+            guard files.isEmpty, voice == nil, !handsFree else { return }
+            let envelope = Self.makeChatSendEnvelope(text: trimmed, instanceId: instanceId, profileId: activeProfileId,
+                                                     about: about?.artifact_id, review: review)
+            timeline.addOutgoing(id: envelope.id, profileId: activeProfileId, text: trimmed, about: about, review: review)
+            queuedSends.append(envelope)
             return
         }
 

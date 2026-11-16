@@ -9,6 +9,12 @@ README rewritten (2026-11-09): outward-facing, alpha status, build-in-Xcode step
 
 **Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) is complete** (confirmed on your iPhone 2026-11-15): voice notes, hearing replies (with direct streaming voice), hands-free calls, your name for agents, and the fixes from your list. **Phase 5 (artifacts) has started:** built, waiting for your phone check.
 
+## Ready for your phone check: offline mode (your request, 2026-11-15; spec: `docs/auto-reconnect.md`, "Offline")
+- **No more being thrown out:** when the gateway restarts (or there's no network), you stay in your chats and the agents list with everything kept on the phone; the header says "Offline". Only a truly lost pairing shows the reconnect screen.
+- **Write while offline:** messages show at once with "Offline · sends when connected", survive quitting the app, and go out by themselves once (voice notes and files wait for the connection).
+- **Back in seconds:** retries every 5 s for the first two minutes, so after a gateway restart the app is back ~3–4 s after Hermes is.
+- **Checked:** app 210 tests; in the simulator by stopping and starting the stand-in Hermes mid-chat: all of the above.
+
 ## Ready for your phone check: artifacts as good as Claude's (your request, 2026-11-15; spec: `docs/artifacts.md`)
 - **Previews in cards:** a picture of web pages, images, diagrams and components; the first lines of code and documents, coloured. Clean layout: the picture on top, the title below it.
 - **Claude's other kinds:** diagrams (Mermaid: flowcharts, timelines…) and interactive components (React, e.g. a calculator or dashboard) open and run in the app.

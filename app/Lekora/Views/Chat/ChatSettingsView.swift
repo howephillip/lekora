@@ -440,7 +440,8 @@ struct ChatHeaderTitle: View {
     let working: Bool
 
     private var subtitle: String? {
-        let detail = connection ?? gateway.chatSettings[gateway.activeProfileId]?.model?.model.components(separatedBy: "/").last
+        if let connection { return connection }  // offline: just that, so it fits beside the buttons
+        let detail = gateway.chatSettings[gateway.activeProfileId]?.model?.model.components(separatedBy: "/").last
         guard let computer else { return detail }
         return detail.map { "\(computer) · \($0)" } ?? computer
     }

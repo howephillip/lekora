@@ -134,8 +134,8 @@ public struct AgentsHomeView: View {
             // Stops as soon as the list goes away: a cancelled sleep must never retry (with one
             // computer, a failed attempt swaps this list for the "Not connected" screen, and
             // retrying then brought it straight back: a reconnect loop).
-            while (try? await Task.sleep(nanoseconds: 20_000_000_000)) != nil, !Task.isCancelled {
-                for client in hosts.clients {
+            while (try? await Task.sleep(nanoseconds: 5_000_000_000)) != nil, !Task.isCancelled {
+                for client in hosts.clients where client.retryDue {
                     if case .error = client.state { Task { await client.resumeSavedSession() } }
                 }
             }

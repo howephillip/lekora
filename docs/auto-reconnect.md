@@ -28,3 +28,10 @@ Uses `pair.request`/`pair.response`, `hello`/`hello.ack`, `error`, and `device.u
 
 ## Tests
 `app/LekoraTests/AutoReconnectTests.swift` runs against `FakeHost.swift`, a local WebSocket server that answers like the plugin: launch reconnect and history replay, chat after reconnect, `last_seq` after a drop, repeated resume ignored, revoked token, unreachable host, pairing saves the host, invalid pairing code, Forget Host (connected, not connected, host unreachable, already revoked), descriptive device name, and old pairings without endpoints.
+
+## Offline (owner, 2026-11-15: "each time the gateway restarts, the app kicks me out completely")
+- **Never thrown out for being offline.** Whether the instance is restarting, the network is gone, or the app was relaunched without a connection, the agents list and every chat stay on screen from what's kept on the phone (messages, voice notes, files, artifacts' previews). The header says **Offline**; things that need the instance (model, hands-free, attachments) wait.
+- Only a **lost pairing** shows the reconnect screen: the instance's certificate changed, or it refused this phone (`pairingProblem`). A phone the instance no longer knows is forgotten, as before.
+- **Writing offline:** a text message (also an "ask to change" or a review) shows straight away with "Offline · sends when connected", is kept on the phone (it survives quitting the app), and goes out by itself, once, when the connection is back. Voice notes and files need the connection to upload, so they wait.
+- **Back quickly:** every 5 s for the first two minutes offline (a gateway restart takes seconds), then every 30 s.
+- Tests: `OfflineTests` (written offline, kept through a relaunch, sent once on connecting). Simulator (iOS 27.0, real plugin, the instance stopped and started): stayed in the chat and the list, offline message shown and kept through a force-quit, sent exactly once on reconnecting, back about 3–4 s after the instance came back, "Offline" fits the header.

@@ -238,3 +238,36 @@ final class AutoReconnectTests: XCTestCase {
         XCTAssertTrue(name.contains(" · "), "model and OS version, e.g. iPhone19,2 · iOS 27.0.1")
     }
 }
+
+/// Offline (docs/auto-reconnect.md, "Offline").
+final class OfflineTests: XCTestCase {
+    @MainActor
+    func testMessagesWrittenOfflineGoOutOnceConnected() async throws {
+        let host = try FakeHost()
+        host.profiles = [["profile_id": "default", "name": "Default", "avatar": "sparkles"]]
+        try await host.start()
+        defer { host.stop() }
+        let store = InMemoryCredentialStore()
+        try SavedHost(instanceId: host.instanceId, instanceName: host.instanceName, deviceId: "dev_1",
+                      deviceToken: host.acceptedDeviceToken, endpoints: [host.endpoint],
+                      enabledProfileIds: ["default"], activeProfileId: "default").save(to: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
+        XCTAssertFalse(gateway.pairingProblem, "being offline isn't a pairing problem")
+
+        await gateway.sendMessage("written on the train")  // not connected yet
+        XCTAssertEqual(gateway.queuedCount, 1)
+        // Quitting the app before it goes doesn't lose it.
+        let relaunched = GatewayClient(keychain: store, requireTLS: false)
+        XCTAssertEqual(relaunched.queuedCount, 1)
+        XCTAssertEqual(relaunched.timeline.entries(for: "default").last?.text, "written on the train")
+        relaunched.shutDown()
+        XCTAssertEqual(gateway.timeline.entries(for: "default").last?.text, "written on the train",
+                       "it shows in the chat straight away")
+        XCTAssertEqual(gateway.timeline.entries(for: "default").last?.status, .sending)
+
+        await gateway.resumeSavedSession()
+        let sent = await waitUntil { host.received(type: "chat.send").contains { ($0["data"] as? [String: Any])?["text"] as? String == "written on the train" } }
+        XCTAssertTrue(sent, "sent once the connection is back")
+        XCTAssertEqual(gateway.queuedCount, 0)
+    }
+}

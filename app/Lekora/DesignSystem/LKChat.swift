@@ -14,6 +14,8 @@ public struct LKMessageBubble: View {
     public enum Delivery: Equatable {
         case delivered
         case sending
+        /// Written offline: sent once connected.
+        case waiting
         case failed(String)
         /// The agent is still writing this reply: show a cursor at the end.
         case streaming
@@ -72,6 +74,10 @@ public struct LKMessageBubble: View {
                     EmptyView()
                 case .sending:
                     Text("Sending…")
+                        .font(LK.Typography.caption)
+                        .foregroundStyle(.secondary)
+                case .waiting:
+                    Label("Offline · sends when connected", systemImage: "clock")
                         .font(LK.Typography.caption)
                         .foregroundStyle(.secondary)
                 case .failed(let reason):

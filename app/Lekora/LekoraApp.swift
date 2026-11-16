@@ -55,10 +55,10 @@ public struct ContentView: View {
         switch gateway.state {
         case .connected:
             return !gateway.needsProfileChoice
-        case .disconnected, .probing, .connecting:
-            return gateway.hasCachedChats
         default:
-            return false
+            // Not reachable right now (the gateway restarting, no network): stay in the chats,
+            // reconnecting in the background. Only a lost pairing goes to the reconnect screen.
+            return gateway.canWorkOffline
         }
     }
 

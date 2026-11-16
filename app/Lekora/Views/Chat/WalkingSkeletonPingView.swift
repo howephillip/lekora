@@ -159,7 +159,9 @@ public struct WalkingSkeletonPingView: View {
     }
 
     private var canSend: Bool {
-        isConnected && !uploading
+        // Offline, text still goes: it waits on the phone and is sent once connected.
+        if !isConnected { return gateway.canWorkOffline && attachments.isEmpty && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return !uploading
             && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
     }
 
@@ -171,7 +173,7 @@ public struct WalkingSkeletonPingView: View {
     /// Only while not connected: what's happening ("Connecting…"). Connected, the header shows the model.
     private var subtitle: String? {
         if isConnected { return nil }
-        return gateway.state == .disconnected ? "Not connected" : "Connecting…"
+        return "Offline"  // short: the header's other buttons leave little room
     }
 
     public var body: some View {
@@ -1093,7 +1095,7 @@ public struct WalkingSkeletonPingView: View {
 
     private func delivery(for entry: ChatEntry) -> LKMessageBubble.Delivery {
         switch entry.status {
-        case .sending: return .sending
+        case .sending: return isConnected ? .sending : .waiting
         case .sent: return .delivered
         case .failed(let reason): return .failed(reason)
         case .streaming: return .streaming
