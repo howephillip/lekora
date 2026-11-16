@@ -131,7 +131,10 @@ class LekoraService:
         chat_sessions_reader: Optional[Callable[[str, int], dict]] = None,
         current_session_reader: Optional[Callable[[str], Optional[str]]] = None,
         env_value: Optional[Callable[[str, tuple], Any]] = None,
+        kanban_boards: Optional[Any] = None,
     ) -> None:
+        # The board (docs/kanban.md): Hermes' own kanban code, from the adapter.
+        self._kanban_boards = kanban_boards
         # Direct voice (docs/voice.md §4): Hermes' streaming voice per agent, and its .env keys.
         self._hermes_streamer = hermes_streamer
         # Past chats (docs/chats.md): Hermes' conversations per agent, and the one now.
@@ -250,6 +253,15 @@ class LekoraService:
         self.gateway.artifacts = Artifacts(self._store, self.gateway.publish_artifact_message,
                                            self.gateway.publish_artifact_changed)
         self._artifact_watch = asyncio.create_task(self.gateway.watch_artifacts())
+        self._kanban_watch = None
+        if self._kanban_boards is not None:
+            from .kanban import Kanban
+            gateway = self.gateway
+            self.gateway.kanban = Kanban(
+                self._kanban_boards, gateway.publish_kanban_changed,
+                profiles=lambda: [p["profile_id"] for p in gateway._profiles()],
+                author=lambda: self._store.get_user_name() or "user")
+            self._kanban_watch = asyncio.create_task(self.gateway.kanban.watch(active=gateway.phones_connected))
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(
@@ -322,9 +334,10 @@ class LekoraService:
             **({"model_info": self._model_info} if self._model_info else {}))
 
     async def stop(self) -> None:
-        watch = getattr(self, "_artifact_watch", None)
-        if watch is not None:
-            watch.cancel()
+        for name in ("_artifact_watch", "_kanban_watch"):
+            watch = getattr(self, name, None)
+            if watch is not None:
+                watch.cancel()
         if self.gateway is not None:
             await self.gateway.stop()
             self.gateway = None

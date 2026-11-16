@@ -17,6 +17,9 @@ public struct AgentsHomeView: View {
     @State private var managingAgentsOn: GatewayClient?
     @State private var showingComputers = false
     @State private var editingName = false
+    /// The left menu (docs/kanban.md), and the board opened from it.
+    @State private var menuOpen = false
+    @State private var boardOn: GatewayClient?
     @AppStorage("homeLayout") private var layoutChoice = Layout.recent.rawValue
 
     public init(hosts: HostsModel) {
@@ -61,44 +64,29 @@ public struct AgentsHomeView: View {
     }
 
     public var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                switch layout {
-                case .recent:
-                    ForEach(hosts.agentsByRecency, id: \.key) { item in
-                        agentButton(item.key, client: item.client, profile: item.profile)
-                    }
-                case .byComputer:
-                    ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
-                        Section {
-                            ForEach(client.agentsByRecency) { profile in
-                                agentButton(AgentKey(instanceId: client.savedHost?.instanceId ?? "", profileId: profile.profile_id),
-                                            client: client, profile: profile)
-                            }
-                        } header: {
-                            ComputerSectionHeader(gateway: client)
-                        }
-                    }
+        let home = NavigationStack(path: $path) {
+            withSheets(agentList
+                .toolbar { homeToolbar }
+                .navigationDestination(isPresented: Binding(get: { boardOn != nil }, set: { if !$0 { boardOn = nil } })) {
+                    if let client = boardOn { BoardView(gateway: client) }
                 }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .lkScreenBackground()
-            .navigationTitle("Agents")
-            .navigationSubtitle(subtitle)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) { addAgentButton }
-                ToolbarItem(placement: .primaryAction) { moreMenu }
-            }
-            .navigationDestination(for: AgentKey.self) { key in
-                if let client = hosts.client(for: key.instanceId) {
-                    WalkingSkeletonPingView(gateway: client, instanceName: name(of: client),
-                                            profileName: client.profiles.first { $0.profile_id == key.profileId }?.name ?? "",
-                                            unreadElsewhere: unreadElsewhere(than: client),
-                                            computerName: hosts.hasSeveral ? name(of: client) : nil)
-                        .onAppear { client.switchToProfile(key.profileId) }
-                }
-            }
+                .navigationDestination(for: AgentKey.self) { key in
+                    chat(for: key)
+                })
+        }
+        // The left menu covers the whole screen, bars included.
+        .overlay {
+            SideMenuView(hosts: hosts, isOpen: $menuOpen,
+                         openBoard: { boardOn = $0 },
+                         openYourName: { editingName = true },
+                         openInstances: { showingComputers = true },
+                         manageAgents: { managingAgentsOn = $0 })
+        }
+        return keepingConnected(home)
+    }
+
+    private func withSheets<V: View>(_ content: V) -> some View {
+        content
             .sheet(item: $addingAgentOn) { client in
                 AddAgentView(gateway: client, instanceName: name(of: client)) { created in
                     // The new agent is switched on and becomes the current chat.
@@ -123,7 +111,59 @@ public struct AgentsHomeView: View {
                 ChooseProfilesView(gateway: client, mode: .setup)
                     .interactiveDismissDisabled()
             }
+    }
+
+    private var agentList: some View {
+            List {
+                switch layout {
+                case .recent:
+                    ForEach(hosts.agentsByRecency, id: \.key) { item in
+                        agentButton(item.key, client: item.client, profile: item.profile)
+                    }
+                case .byComputer:
+                    ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
+                        Section {
+                            ForEach(client.agentsByRecency) { profile in
+                                agentButton(AgentKey(instanceId: client.savedHost?.instanceId ?? "", profileId: profile.profile_id),
+                                            client: client, profile: profile)
+                            }
+                        } header: {
+                            ComputerSectionHeader(gateway: client)
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .lkScreenBackground()
+            .navigationTitle("Agents")
+            .navigationSubtitle(subtitle)
+    }
+
+    @ToolbarContentBuilder
+    private var homeToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button { menuOpen = true } label: { Label("Menu", systemImage: "line.3.horizontal") }
         }
+        ToolbarItem(placement: .primaryAction) { addAgentButton }
+        if hosts.hasSeveral {
+            ToolbarItem(placement: .primaryAction) { moreMenu }
+        }
+    }
+
+    @ViewBuilder
+    private func chat(for key: AgentKey) -> some View {
+        if let client = hosts.client(for: key.instanceId) {
+            WalkingSkeletonPingView(gateway: client, instanceName: name(of: client),
+                                    profileName: client.profiles.first { $0.profile_id == key.profileId }?.name ?? "",
+                                    unreadElsewhere: unreadElsewhere(than: client),
+                                    computerName: hosts.hasSeveral ? name(of: client) : nil)
+                .onAppear { client.switchToProfile(key.profileId) }
+        }
+    }
+
+    private func keepingConnected<V: View>(_ content: V) -> some View {
+        content
         // An open chat whose agent was switched off or deleted, or whose computer was
         // forgotten, closes.
         .onChange(of: openableKeys) { _, keys in
@@ -179,34 +219,16 @@ public struct AgentsHomeView: View {
         }
     }
 
+    /// Several instances: how the list is arranged (settings are in the left menu).
     private var moreMenu: some View {
         Menu {
-            if hosts.hasSeveral {
-                Picker("Arrange", selection: $layoutChoice) {
-                    Text("Sort by Recent").tag(Layout.recent.rawValue)
-                    Text("Group by Instance").tag(Layout.byComputer.rawValue)
-                }
-                .pickerStyle(.inline)
-                // No icon: with the submenu arrow it would wrap.
-                Menu("Manage Agents") {
-                    ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
-                        Button(name(of: client)) { managingAgentsOn = client }
-                    }
-                }
-            } else {
-                Button("Manage Agents…", systemImage: "person.2") {
-                    managingAgentsOn = hosts.clients.first
-                }
+            Picker("Arrange", selection: $layoutChoice) {
+                Text("Sort by Recent").tag(Layout.recent.rawValue)
+                Text("Group by Instance").tag(Layout.byComputer.rawValue)
             }
-            Divider()
-            Button("Your Name…", systemImage: "person.crop.circle") {
-                editingName = true
-            }
-            Button("Hermes Instances…", systemImage: "server.rack") {
-                showingComputers = true
-            }
+            .pickerStyle(.inline)
         } label: {
-            Label("More", systemImage: "ellipsis")
+            Label("Arrange", systemImage: "line.3.horizontal.decrease")
         }
     }
 

@@ -70,13 +70,78 @@ class Demo:
             await gw.publish_message(profile_id, REPLY, draft_id="d1")
 
 
+def demo_board():
+    """A made-up board (docs/kanban.md), in memory, shaped like Hermes' own."""
+    import time
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugin"))
+    from tests.test_kanban import FakeBoards
+
+    class DemoBoards(FakeBoards):
+        def workflow(self):
+            keys = ["triage", "todo", "scheduled", "ready", "running", "blocked", "review", "done"]
+            moves = {"triage": ["todo", "ready"], "todo": ["triage", "scheduled", "ready"],
+                     "scheduled": ["triage", "todo", "ready"], "ready": ["triage", "todo", "scheduled", "blocked", "review", "done"],
+                     "running": ["triage", "todo", "ready", "blocked", "review", "done"],
+                     "blocked": ["triage", "todo", "ready", "done"], "review": ["triage", "todo", "ready", "done"],
+                     "done": ["triage", "todo", "ready"], "archived": ["triage", "todo", "ready"]}
+            for k in keys:
+                moves[k] = moves[k] + ["archived"]
+            return [{"key": k, "label": k.capitalize()} for k in keys], moves
+
+        def card(self, board, task_id):
+            t = super().card(board, task_id)
+            t.setdefault("created_at", time.time() - 3600)
+            return t
+
+        def comment(self, board, task_id, body, author):
+            self._require(task_id)
+            self.comments.setdefault(task_id, []).append(
+                {"id": len(self.comments.get(task_id, [])) + 1, "author": author, "body": body, "created_at": time.time()})
+            self._touch(task_id)
+            return self.card(board, task_id)
+
+        def task(self, board, task_id):
+            got = super().task(board, task_id)
+            got["parents"] = [{"id": p, "title": self.tasks_[p]["title"], "status": self.tasks_[p]["status"]}
+                              for p, c in self.links if c == task_id]
+            got["children"] = [{"id": c, "title": self.tasks_[c]["title"], "status": self.tasks_[c]["status"]}
+                               for p, c in self.links if p == task_id]
+            now = time.time()
+            got["runs"] = [{"id": 1, "profile": got["task"].get("assignee") or "default", "status": "done",
+                            "outcome": "completed", "started_at": now - 5400, "ended_at": now - 4800,
+                            "summary": "Collected the numbers and drafted an outline.", "error": None}] \
+                if got["task"]["status"] in ("done", "review", "running") else []
+            got["events"] = [{"id": 1, "kind": "created", "created_at": now - 7200, "summary": "Created"}]
+            return got
+
+    b = DemoBoards()
+    now = time.time()
+    for title, status, who, pri, summary in [
+            ("Book the venue for the launch party", "running", "scout", 2, "Called three places; waiting on one quote."),
+            ("Draft the beta announcement", "ready", "juniper", 1, None),
+            ("Review the Q3 invoices", "blocked", "default", 3, "Needs the October statement."),
+            ("Plan the coast weekend", "todo", "atlas", 0, None),
+            ("Sort the inbox newsletters", "triage", None, 0, None),
+            ("Summarise the meeting notes", "done", "juniper", 0, "Ship beta Friday; review moved to Tuesday."),
+            ("Find a quiet cafe near the office", "done", "scout", 0, "Fernwood Coffee, 8 min walk.")]:
+        card = b.create("default", title=title, body=None, assignee=who, priority=pri, parents=[], triage=False, author="demo")
+        t = b.tasks_[card["id"]]
+        t.update(status=status, summary=summary, created_at=now - 86400)
+        if status == "running":
+            t["running_since"] = now - 1500
+        if status == "done":
+            t["completed_at"] = now - 3600
+    b.links.add(("t_3", "t_2"))
+    return b
+
+
 async def main():
     tmp = Path(tempfile.mkdtemp(prefix="lekora-demo-"))
     demo = Demo()
     cfg = LekoraConfig(db_path=str(tmp / "lekora.db"), listen_host="127.0.0.1",
                        instance_name="Demo Hermes", extra_hosts=["127.0.0.1"], profiles=PROFILES)
     svc = LekoraService(demo, cfg, hermes_version="0.22.5",
-                        commands_provider=lambda pid: COMMANDS)
+                        commands_provider=lambda pid: COMMANDS, kanban_boards=demo_board())
     demo.svc = svc
     await svc.start()
     for pid, msgs in SEED.items():

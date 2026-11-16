@@ -1266,6 +1266,66 @@ public final class GatewayClient: ObservableObject {
         return saved
     }
 
+    // MARK: - Board (docs/kanban.md)
+
+    /// Counts the instance's "something changed on a board" notices (an open board or task reloads).
+    @Published public private(set) var kanbanChanges = 0
+    public private(set) var lastKanbanChange: KanbanChangedData?
+
+    public func kanbanBoard(_ board: String? = nil, archived: Bool = false) async throws -> KanbanBoardResult {
+        try await request(type: "kanban.board", data: KanbanBoardRequest(board: board, archived: archived),
+                          reply: KanbanBoardResult.self, timeout: 30)
+    }
+
+    public func kanbanTask(_ taskId: String, board: String?) async throws -> KanbanTaskResult {
+        try await request(type: "kanban.task", data: KanbanTaskRequest(board: board, task_id: taskId),
+                          reply: KanbanTaskResult.self, timeout: 30)
+    }
+
+    @discardableResult
+    public func createTask(on board: String?, title: String, body: String?, assignee: String?, priority: Int,
+                           waitsOn: [String] = [], triage: Bool = false) async throws -> KanbanCard {
+        try await kanbanChange("kanban.create", KanbanCreateData(board: board, title: title, body: body, assignee: assignee,
+                                                                priority: priority, parents: waitsOn, triage: triage))
+    }
+
+    @discardableResult
+    public func editTask(_ taskId: String, on board: String?, title: String, body: String, priority: Int) async throws -> KanbanCard {
+        try await kanbanChange("kanban.edit", KanbanEditData(board: board, task_id: taskId, title: title, body: body, priority: priority))
+    }
+
+    /// To another status (Hermes' rules decide; a refusal says why). `note`: why it's blocked, or what was done.
+    @discardableResult
+    public func moveTask(_ taskId: String, on board: String?, to status: String, note: String? = nil) async throws -> KanbanCard {
+        try await kanbanChange("kanban.move", KanbanMoveData(board: board, task_id: taskId, status: status, note: note))
+    }
+
+    @discardableResult
+    public func assignTask(_ taskId: String, on board: String?, to assignee: String?) async throws -> KanbanCard {
+        try await kanbanChange("kanban.assign", KanbanAssignData(board: board, task_id: taskId, assignee: assignee))
+    }
+
+    @discardableResult
+    public func commentOnTask(_ taskId: String, on board: String?, _ body: String) async throws -> KanbanCard {
+        try await kanbanChange("kanban.comment", KanbanCommentData(board: board, task_id: taskId, body: body))
+    }
+
+    /// The task waits on `parentId` (or, with `remove`, no longer does).
+    @discardableResult
+    public func linkTask(_ taskId: String, on board: String?, waitsOn parentId: String, remove: Bool = false) async throws -> KanbanCard {
+        try await kanbanChange("kanban.link", KanbanLinkData(board: board, task_id: taskId, parent_id: parentId, remove: remove))
+    }
+
+    /// Stops a running task; it waits as blocked.
+    @discardableResult
+    public func stopTask(_ taskId: String, on board: String?) async throws -> KanbanCard {
+        try await kanbanChange("kanban.stop", KanbanTaskRequest(board: board, task_id: taskId))
+    }
+
+    private func kanbanChange<T: Codable>(_ type: String, _ data: T) async throws -> KanbanCard {
+        try await request(type: type, data: data, reply: KanbanChangeResult.self, timeout: 30).task
+    }
+
     /// Direct voice (docs/voice.md §4): replies whose sound is streamed while it's made.
     public private(set) var streamingReplies: Set<String> = []
     /// Streamed sound as it arrives (a hands-free call plays it at once).
@@ -1381,6 +1441,10 @@ public final class GatewayClient: ObservableObject {
         case "artifact.changed":
             guard let envelope = try? decoder.decode(Envelope<ArtifactChangedData>.self, from: data) else { return }
             artifactVersions[envelope.data.artifact.artifact_id] = envelope.data.artifact.version
+        case "kanban.changed":
+            guard let envelope = try? decoder.decode(Envelope<KanbanChangedData>.self, from: data) else { return }
+            lastKanbanChange = envelope.data
+            kanbanChanges += 1
         case "voice.stream":
             guard let envelope = try? decoder.decode(Envelope<VoiceStreamData>.self, from: data) else { return }
             onVoiceStream?(envelope.data)

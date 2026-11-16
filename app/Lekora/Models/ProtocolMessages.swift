@@ -1133,3 +1133,139 @@ public struct ChatSessionsData: Codable, Equatable, Sendable {
 struct ChatSessionRef: Codable { let session_id: String }
 struct ChatsQuery: Codable { let query: String? }
 struct ChatHistoryResult: Codable { let session_id: String; let messages: [ChatMessageData] }
+
+// MARK: - Board (docs/kanban.md, protocol.md §20)
+
+/// A task on Hermes' board, as a card (with more filled in when opened).
+public struct KanbanCard: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public var title: String
+    public var status: String
+    public var assignee: String?
+    public var priority: Int
+    public let created_at: Double?
+    public var started_at: Double?
+    public var completed_at: Double?
+    /// While running: when this run started.
+    public var running_since: Double?
+    public var summary: String?
+    /// Unfinished tasks it waits on.
+    public var waits_on: Int
+    public var comments: Int
+    // Opened only:
+    public var body: String?
+    public var result: String?
+    public var failures: Int?
+    public var last_error: String?
+
+    public init(id: String, title: String, status: String, assignee: String? = nil, priority: Int = 0,
+                created_at: Double? = nil, started_at: Double? = nil, completed_at: Double? = nil,
+                running_since: Double? = nil, summary: String? = nil, waits_on: Int = 0, comments: Int = 0) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.assignee = assignee
+        self.priority = priority
+        self.created_at = created_at
+        self.started_at = started_at
+        self.completed_at = completed_at
+        self.running_since = running_since
+        self.summary = summary
+        self.waits_on = waits_on
+        self.comments = comments
+    }
+}
+
+public struct KanbanBoardInfo: Codable, Equatable, Identifiable, Sendable {
+    public let slug: String
+    public let name: String
+    public let icon: String?
+    public let current: Bool
+    public var id: String { slug }
+}
+
+public struct KanbanColumn: Codable, Equatable, Sendable {
+    public let key: String
+    public let label: String
+}
+
+public struct KanbanBoardResult: Codable, Equatable, Sendable {
+    public let board: String
+    public let boards: [KanbanBoardInfo]
+    public let columns: [KanbanColumn]
+    /// Where a task may be moved from each status (Hermes' rules).
+    public let moves: [String: [String]]
+    public var tasks: [KanbanCard]
+}
+
+public struct KanbanComment: Codable, Equatable, Identifiable, Sendable {
+    public let id: Int
+    public let author: String
+    public let body: String
+    public let created_at: Double
+}
+
+public struct KanbanRun: Codable, Equatable, Identifiable, Sendable {
+    public let id: Int
+    public let profile: String?
+    public let status: String
+    public let outcome: String?
+    public let started_at: Double?
+    public let ended_at: Double?
+    public let summary: String?
+    public let error: String?
+}
+
+public struct KanbanLinked: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let status: String
+}
+
+public struct KanbanEvent: Codable, Equatable, Identifiable, Sendable {
+    public let id: Int
+    public let kind: String
+    public let created_at: Double
+    public let summary: String
+}
+
+public struct KanbanTaskResult: Codable, Equatable, Sendable {
+    public let board: String
+    public let task: KanbanCard
+    public let comments: [KanbanComment]
+    public let runs: [KanbanRun]
+    public let parents: [KanbanLinked]
+    public let children: [KanbanLinked]
+    public let events: [KanbanEvent]
+}
+
+public struct KanbanChangeResult: Codable, Equatable, Sendable {
+    public let board: String
+    public let task: KanbanCard
+}
+
+public struct KanbanChangedData: Codable, Equatable, Sendable {
+    public let board: String
+    public let task_ids: [String]
+}
+
+struct KanbanBoardRequest: Codable { let board: String?; let archived: Bool }
+struct KanbanTaskRequest: Codable { let board: String?; let task_id: String }
+struct KanbanCreateData: Codable {
+    let board: String?; let title: String; let body: String?; let assignee: String?
+    let priority: Int; let parents: [String]; let triage: Bool
+}
+struct KanbanEditData: Codable { let board: String?; let task_id: String; let title: String; let body: String; let priority: Int }
+struct KanbanMoveData: Codable { let board: String?; let task_id: String; let status: String; let note: String? }
+struct KanbanAssignData: Codable {
+    let board: String?; let task_id: String; let assignee: String?
+    // `assignee: null` means nobody: sent even when empty.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(board, forKey: .board)
+        try c.encode(task_id, forKey: .task_id)
+        try c.encode(assignee, forKey: .assignee)
+    }
+}
+struct KanbanCommentData: Codable { let board: String?; let task_id: String; let body: String }
+struct KanbanLinkData: Codable { let board: String?; let task_id: String; let parent_id: String; let remove: Bool }

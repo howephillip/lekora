@@ -102,6 +102,7 @@ class Gateway:
         # An agent's tools in Lekora chats (docs/agent-tools.md); set by LekoraService.
         self.tools: Optional[Any] = None
         self.artifacts: Optional[Any] = None   # Artifacts (docs/artifacts.md)
+        self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
         self.chats: Optional[Any] = None       # ChatSessions: past chats (docs/chats.md)
         # The voice note waiting for Hermes' transcript, per chat (docs/voice.md).
         self._awaiting_transcript: dict[str, int] = {}
@@ -485,6 +486,8 @@ class Gateway:
             await self._chats_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("artifacts.list", "artifact.get", "artifact.save"):
             await self._artifact_request(conn, msg_id, type_, env.get("profile_id"), data)
+        elif type_.startswith("kanban."):
+            await self._kanban_request(conn, msg_id, type_, data)
         elif type_ in ("agent.tools.get", "agent.tools.set"):
             await self._tools_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("voice.settings.get", "voice.settings.set", "voice.speak",
@@ -998,6 +1001,38 @@ class Gateway:
         except ArtifactError as exc:
             raise _Reject(exc.code, exc.reason, True, False, msg_id)
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
+
+    # ---- the board (docs/kanban.md) -------------------------------------------------
+
+    def phones_connected(self) -> bool:
+        return any(c.authed for c in self._conns)
+
+    async def publish_kanban_changed(self, board: str, task_ids: list) -> None:
+        """Phones showing this board (or one of these tasks) load it again."""
+        await self._broadcast_ephemeral(self._envelope("kanban.changed", {"board": board, "task_ids": task_ids}))
+
+    async def _kanban_request(self, conn: _Conn, msg_id: Optional[str], type_: str, data: dict) -> None:
+        from .kanban import KanbanError
+        if self.kanban is None:
+            raise _Reject("KANBAN_UNAVAILABLE", "This Hermes instance has no board", True, False, msg_id)
+        try:
+            if type_ == "kanban.board":
+                result = await self.kanban.board(data)
+            elif type_ == "kanban.task":
+                result = await self.kanban.task(data)
+            elif type_ in ("kanban.create", "kanban.edit", "kanban.move", "kanban.assign",
+                           "kanban.comment", "kanban.link", "kanban.stop"):
+                result = await self.kanban.change(type_, data)
+            else:
+                raise _Reject("INVALID_MESSAGE", f"Unknown message type: {type_}", True, False, msg_id)
+        except KanbanError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except _Reject:
+            raise
+        except Exception:
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("KANBAN_UNAVAILABLE", "Couldn't reach the board on this Hermes instance", True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id))
 
     async def _tools_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
                              profile_id: Any, data: dict) -> None:

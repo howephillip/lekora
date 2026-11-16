@@ -426,3 +426,18 @@ Requests with `profile_id` set, answered with `<type>.result`:
 - `chats.list` `{query?}` → `chats.list.result` `{current, chats: [{session_id, title?, preview?, started_at, last_at, messages, current}]}`, newest first (empty ones left out); with `query`, only chats whose title or messages contain it, each with `match` (the matching words).
 - `chat.history` `{session_id}` → `chat.history.result` `{session_id, messages}` (that conversation's messages, as `chat.message` data).
 - `chat.resume` `{session_id}` → `chat.resume.result` `{session_id}`: the plugin sends Hermes' own `/resume <id>`. Error `UNKNOWN_CHAT` for a conversation that isn't this agent's.
+
+## 20. Board (spec: `kanban.md`)
+No `profile_id`: boards are shared by every agent on the instance. `board` is a board slug; omitted means Hermes' current board.
+- `kanban.board` `{board?, archived?: bool}` → `kanban.board.result` `{board, boards: [{slug, name, icon?, current}], columns: [{key, label}], moves: {status: [status…]}, tasks: [card]}`. A card: `{id, title, status, assignee?, priority, created_at, started_at?, completed_at?, running_since?, summary? (up to 200 characters), waits_on (unfinished tasks it waits on), comments}`. `moves` is Hermes' allowed manual moves (plus `archived` always, and `archived` → restore).
+- `kanban.task` `{board?, task_id}` → `kanban.task.result` `{board, task: card + {body?, result?, failures, last_error?}, comments: [{id, author, body, created_at}], runs: [{id, profile?, status, outcome?, started_at, ended_at?, summary?, error?}], parents: [{id, title, status}], children: [{id, title, status}], events: [{id, kind, created_at, summary}]}` (newest 100 events; heartbeats left out).
+- Changes, each → `<type>.result` `{board, task: card}`:
+  - `kanban.create` `{board?, title, body?, assignee?, priority?, parents?: [id], triage?: bool}`
+  - `kanban.edit` `{board?, task_id, title?, body?, priority?}`
+  - `kanban.move` `{board?, task_id, status}` (`archived` archives; from archived, restores)
+  - `kanban.assign` `{board?, task_id, assignee}` (null unassigns)
+  - `kanban.comment` `{board?, task_id, body}` (signed with the user's name)
+  - `kanban.link` `{board?, task_id, parent_id, remove?: bool}` (the task waits on `parent_id`)
+  - `kanban.stop` `{board?, task_id}` (a running task: its worker is stopped, it waits as blocked)
+- `kanban.changed` (plugin → phones, not stored): `{board, task_ids}` after anything changes on a board (a heartbeat doesn't count).
+- Errors: `KANBAN_UNAVAILABLE` (Hermes without a board), `UNKNOWN_BOARD`, `UNKNOWN_TASK`, `INVALID_TASK`, `MOVE_REFUSED` (Hermes' reason as text), `UNKNOWN_PROFILE` (assignee).

@@ -144,6 +144,16 @@ def _artifact_handler(name: str):
     return handler
 
 
+def _hermes_boards():
+    """Hermes' own board (docs/kanban.md); None on a Hermes without one."""
+    try:
+        from .kanban import HermesBoards
+        return HermesBoards()
+    except Exception:
+        logger.info("Lekora: this Hermes has no kanban board; the Board is unavailable")
+        return None
+
+
 class LekoraAdapter(BasePlatformAdapter):
     # Streaming (docs/streaming.md): Hermes sends the first words, then edits the message.
     SUPPORTS_MESSAGE_EDITING = True
@@ -433,7 +443,8 @@ class LekoraAdapter(BasePlatformAdapter):
             hermes_voice=self._hermes_voice_for, speaker=self._speak_as,
             tools_reader=self._tools_for, tools_writer=self._set_tools_for, persona=self._persona_for,
             hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for,
-            chat_sessions_reader=self._chat_sessions_for, current_session_reader=self._current_session_for)
+            chat_sessions_reader=self._chat_sessions_for, current_session_reader=self._current_session_for,
+            kanban_boards=_hermes_boards())
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()

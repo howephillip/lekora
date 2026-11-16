@@ -1,0 +1,15 @@
+# Board (Phase 6, feature 1)
+
+Owner's request (2026-11-15): a menu button at the top left of the home screen opens a left pane holding the Board, Settings and future features (learning from Hermex, not copying it). The board is a list by default, with columns as an option. Every action is available: create, edit, comment; move and reassign; archive and links between tasks; and watching a task's progress, summaries and run history, including stopping a run.
+
+- **What the board is:** Hermes' own kanban board, as Hermes keeps it (`~/.hermes/kanban.db`, plus any other boards in `kanban/boards/`). Boards are shared by every agent on the instance. Lekora reads and changes it only through Hermes' own kanban functions (`hermes_cli.kanban_db`), the way Hermes' dashboard does, so its dispatcher, rules and history stay correct. Nothing about the board is stored in Lekora; it is the truth on the instance.
+- **The menu:** a button at the top left of the Agents home opens a pane from the left: Board, Settings (and later features). Swiping from the left edge or tapping outside it closes it.
+- **The board:** tasks grouped by status in Hermes' order (Triage, Todo, Scheduled, Ready, Running, Blocked, Review, Done). Lists by default: one section per status, Done folded to its newest few. Columns as an option (remembered): side by side, scrolled sideways. A filter by agent; a board switcher when the instance has more than one board; archived tasks shown on request.
+- **A card:** title, the agent it's assigned to, priority, how long it has been running, its newest summary, and how many tasks it waits on.
+- **A task:** its description, status, agent, priority; the newest summary; comments; run history (each run's agent, outcome, time and summary); the tasks it waits on and the ones waiting on it; and its history (status changes, comments, runs; heartbeats left out).
+- **Actions:** New Task (title, description, agent, priority, waits on); Edit (title, description, priority); Comment (signed with your name); Move (only to the statuses Hermes allows from where it is; Hermes' rules decide, and a refusal shows Hermes' reason, e.g. a task it waits on isn't done); Assign (any agent, or nobody); Waits on (add or remove); Archive and Restore; Stop (a running task: Hermes stops its worker and the task waits as Blocked, "Stopped from Lekora", until moved again).
+- **Live:** the plugin watches the board's history every few seconds and tells phones what changed; an open board or task refreshes itself.
+- **Offline:** the board needs the instance; offline it says so.
+- **All agents equal:** every agent can be assigned; none is special.
+- **Protocol:** `protocol.md` §20.
+- **Tests:** plugin `test_kanban.py` (with a stand-in board: reading, every action, refusals with reasons, change watching, gateway messages) and `test_kanban_hermes.py` (the same actions against Hermes' real kanban code, run on an instance with Hermes); app `KanbanTests` (board decoding, grouping, filters, actions, live refresh). Simulator: menu, board in lists and columns, a task, each action.

@@ -62,6 +62,33 @@ final class FakeHost: @unchecked Sendable {
     var chats: [[String: Any]] = []
     var chatHistory: [String: [[String: Any]]] = [:]
 
+    /// The board (docs/kanban.md): its tasks (card fields), and comments per task.
+    var kanbanTasks: [[String: Any]] = []
+    var kanbanComments: [String: [[String: Any]]] = [:]
+    var kanbanMoves: [String: [String]] = ["todo": ["ready", "archived"], "ready": ["todo", "blocked", "done", "archived"],
+                                           "running": ["ready", "blocked", "archived"], "blocked": ["ready", "archived"],
+                                           "done": ["ready", "archived"], "archived": ["todo"]]
+
+    /// Something changed on the board elsewhere (an agent, Hermes).
+    func sendKanbanChanged(_ taskIds: [String]) {
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open { send(type: "kanban.changed", data: ["board": "default", "task_ids": taskIds], on: connection) }
+    }
+
+    private func kanbanCard(_ id: String) -> [String: Any]? {
+        guard var card = kanbanTasks.first(where: { $0["id"] as? String == id }) else { return nil }
+        card["comments"] = kanbanComments[id]?.count ?? 0
+        card["waits_on"] = card["waits_on"] ?? 0
+        card["priority"] = card["priority"] ?? 0
+        return card
+    }
+
+    private func updateKanban(_ id: String, _ change: (inout [String: Any]) -> Void) -> [String: Any]? {
+        guard let index = kanbanTasks.firstIndex(where: { $0["id"] as? String == id }) else { return nil }
+        change(&kanbanTasks[index])
+        return kanbanCard(id)
+    }
+
     /// Artifacts (docs/artifacts.md): id, title, kind, versions (contents, oldest first).
     var artifacts: [[String: Any]] = []
 
@@ -682,6 +709,63 @@ final class FakeHost: @unchecked Sendable {
             send(type: "chat.resume.result", id: id, data: ["session_id": currentChat],
                  profileId: message["profile_id"] as? String, on: connection)
 
+        case "kanban.board":
+            let archived = data["archived"] as? Bool ?? false
+            let tasks = kanbanTasks.compactMap { $0["id"] as? String }.compactMap(kanbanCard)
+                .filter { archived || $0["status"] as? String != "archived" }
+            let columns = ["triage", "todo", "ready", "running", "blocked", "review", "done"].map { ["key": $0, "label": $0.capitalized] }
+            send(type: "kanban.board.result", id: id, data: [
+                "board": "default", "boards": [["slug": "default", "name": "Default", "current": true]],
+                "columns": columns, "moves": kanbanMoves, "tasks": tasks], on: connection)
+        case "kanban.task":
+            guard let taskId = data["task_id"] as? String, let card = kanbanCard(taskId) else {
+                send(error: "UNKNOWN_TASK", reason: "That task isn't on this board any more", id: id, on: connection, close: false)
+                return
+            }
+            send(type: "kanban.task.result", id: id, data: [
+                "board": "default", "task": card, "comments": kanbanComments[taskId] ?? [],
+                "runs": [["id": 1, "profile": "default", "status": "done", "outcome": "completed", "started_at": 1_794_700_000.0,
+                          "ended_at": 1_794_700_600.0, "summary": "Did the thing"]],
+                "parents": [], "children": [],
+                "events": [["id": 1, "kind": "created", "created_at": 1_794_700_000.0, "summary": "Created"]]], on: connection)
+        case "kanban.create", "kanban.edit", "kanban.move", "kanban.assign", "kanban.comment", "kanban.link", "kanban.stop":
+            let type = message["type"] as? String ?? ""
+            var card: [String: Any]?
+            if type == "kanban.create" {
+                let newId = "t_\(kanbanTasks.count + 1)"
+                kanbanTasks.append(["id": newId, "title": data["title"] ?? "", "status": (data["triage"] as? Bool ?? false) ? "triage" : "todo",
+                                    "assignee": data["assignee"] ?? NSNull(), "priority": data["priority"] ?? 0,
+                                    "created_at": 1_794_800_000.0 + Double(kanbanTasks.count), "body": data["body"] ?? NSNull()])
+                card = kanbanCard(newId)
+            } else if let taskId = data["task_id"] as? String {
+                switch type {
+                case "kanban.move":
+                    let status = data["status"] as? String ?? ""
+                    let from = kanbanTasks.first { $0["id"] as? String == taskId }?["status"] as? String ?? ""
+                    guard kanbanMoves[from]?.contains(status) == true else {
+                        send(error: "MOVE_REFUSED", reason: "It waits on tasks that aren't done", id: id, on: connection, close: false)
+                        return
+                    }
+                    card = updateKanban(taskId) { $0["status"] = status; $0["note"] = data["note"] ?? NSNull() }
+                case "kanban.edit":
+                    card = updateKanban(taskId) { $0["title"] = data["title"]; $0["body"] = data["body"]; $0["priority"] = data["priority"] }
+                case "kanban.assign":
+                    card = updateKanban(taskId) { $0["assignee"] = data["assignee"] ?? NSNull() }
+                case "kanban.comment":
+                    kanbanComments[taskId, default: []].append(["id": (kanbanComments[taskId]?.count ?? 0) + 1, "author": "Phillip",
+                                                                 "body": data["body"] ?? "", "created_at": 1_794_800_000.0])
+                    card = kanbanCard(taskId)
+                case "kanban.stop":
+                    card = updateKanban(taskId) { $0["status"] = "blocked" }
+                default:
+                    card = updateKanban(taskId) { $0["waits_on"] = (data["remove"] as? Bool ?? false) ? 0 : 1 }
+                }
+            }
+            guard let card else {
+                send(error: "UNKNOWN_TASK", reason: "That task isn't on this board any more", id: id, on: connection, close: false)
+                return
+            }
+            send(type: type + ".result", id: id, data: ["board": "default", "task": card], on: connection)
         case "artifacts.list":
             send(type: "artifacts.list.result", id: id, data: ["artifacts": artifacts.map(artifactCard)],
                  profileId: message["profile_id"] as? String, on: connection)
