@@ -78,3 +78,34 @@ def test_a_runs_output_is_read(hermes):
     runs = hermes.runs("default", job["id"])
     assert runs and runs[0]["status"] == "ok"
     assert hermes.output("default", job["id"], runs[0]["id"]) == "All quiet today."
+
+
+def test_hermes_scheduler_accepts_lekora_chats_as_a_destination(hermes, monkeypatch):
+    """Owner, 2026-11-17: "lekora is not a known delivery target". The platform must tell Hermes it
+    takes scheduled results; then `lekora:<agent>` passes Hermes' checks and goes to that agent's chat."""
+    pytest.importorskip("gateway.platform_registry")
+    from cron import scheduler_delivery as delivery, scheduler_preflight as preflight
+    from gateway.platform_registry import PlatformEntry, platform_registry
+    from lekora import hermes_adapter
+
+    home = hermes.jobs_file("default").parent.parent
+    (home / "config.yaml").write_text("model: test\nplatforms:\n  lekora:\n    enabled: true\n")
+
+    class Ctx:
+        def __getattr__(self, name):
+            return lambda *a, **k: None
+
+        def register_platform(self, name, label, adapter_factory, check_fn, validate_config=None,
+                              required_env=None, install_hint="", **kw):
+            platform_registry.register(PlatformEntry(
+                name=name, label=label, adapter_factory=adapter_factory, check_fn=check_fn,
+                validate_config=validate_config, required_env=required_env or [], install_hint=install_hint,
+                source="plugin", plugin_name="lekora", **kw))
+
+    hermes_adapter.register(Ctx())
+    job = {"id": "x", "name": "x", "deliver": "lekora:default"}
+    assert delivery._is_known_delivery_platform("lekora")
+    assert preflight._preflight_check_delivery(job) is None
+    target = delivery._resolve_single_delivery_target(job, "lekora:default")
+    assert target["platform"] == "lekora" and target["chat_id"] == "default"
+    assert hermes_adapter.lekora_target("../etc") is None

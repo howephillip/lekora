@@ -32,6 +32,7 @@ from .hermes_routes import ProfileRouter, check_routed
 from .prompts import CARD_MESSAGE_PREFIX, Resolvers
 from .streaming import LiveReplies
 from .plugin import LekoraAlreadyRunning, LekoraConfig, LekoraService, UnsupportedHermesVersion
+from . import profiles as _profiles
 from .profiles import named_profile_in_scope
 
 logger = logging.getLogger(__name__)
@@ -671,6 +672,29 @@ class LekoraAdapter(BasePlatformAdapter):
         return {"name": chat_id, "type": "dm", "chat_id": chat_id}
 
 
+CRON_HOME_ENV = "LEKORA_HOME_CHANNEL"
+
+
+def lekora_target(ref: str):
+    """A schedule's ``lekora:<agent>``: that agent's Lekora chat (docs/scheduler.md)."""
+    ref = str(ref or "").strip()
+    return (ref, None) if ref and _profiles._valid_id(ref) else None
+
+
+def _schedule_delivery_options() -> dict:
+    """Lets Hermes' scheduler deliver results to Lekora chats (``deliver: lekora:<agent>``);
+    without ``cron_deliver_env_var`` Hermes refuses "lekora" as an unknown delivery target.
+    Only the options this Hermes knows are passed."""
+    wanted = {"cron_deliver_env_var": CRON_HOME_ENV, "parse_target_ref_fn": lekora_target}
+    try:
+        import dataclasses
+        from gateway.platform_registry import PlatformEntry
+        known = {f.name for f in dataclasses.fields(PlatformEntry)}
+    except Exception:
+        return {}
+    return {k: v for k, v in wanted.items() if k in known}
+
+
 def check_requirements() -> bool:
     return True  # standard library only; nothing to install
 
@@ -696,6 +720,7 @@ def register(ctx) -> None:
         # activity in the working indicator instead of as extra chat messages.
         display_overrides={"streaming": hermes_streaming.STREAMING_MARK, "tool_progress": "off"},
         pii_safe=False,
+        **_schedule_delivery_options(),
     )
     # Agents send files with a real tool (rule 7), offered only in Lekora chats (docs/files.md).
     try:
