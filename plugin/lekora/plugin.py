@@ -133,7 +133,10 @@ class LekoraService:
         env_value: Optional[Callable[[str, tuple], Any]] = None,
         kanban_boards: Optional[Any] = None,
         hermes_schedules: Optional[Any] = None,
+        draft_llm: Optional[Callable[[str, str], Any]] = None,
     ) -> None:
+        # Drafting a schedule from a description (docs/scheduler.md): Hermes' model for plugins.
+        self._draft_llm = draft_llm
         # Schedules (docs/scheduler.md): Hermes' own cron code, from the adapter.
         self._hermes_schedules = hermes_schedules
         # The board (docs/kanban.md): Hermes' own kanban code, from the adapter.
@@ -271,7 +274,9 @@ class LekoraService:
             gateway = self.gateway
             self.gateway.schedules = Schedules(
                 self._hermes_schedules, gateway.publish_schedules_changed,
-                profiles=lambda: [p["profile_id"] for p in gateway._profiles()])
+                profiles=lambda: [p["profile_id"] for p in gateway._profiles()],
+                llm=self._draft_llm,
+                agent_name=lambda pid: next((p["name"] for p in gateway._profiles() if p["profile_id"] == pid), pid))
             self._schedules_watch = asyncio.create_task(self.gateway.schedules.watch(active=gateway.phones_connected))
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.

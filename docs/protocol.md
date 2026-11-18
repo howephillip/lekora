@@ -446,6 +446,7 @@ No `profile_id`: boards are shared by every agent on the instance. `board` is a 
 `profile_id` is the agent the schedule belongs to (every request but `schedules.list` without one and `schedule.preview` needs it).
 - `schedules.list` `{}` (no `profile_id`: every agent's) → `schedules.list.result` `{jobs: [job]}`. A job: `{id, profile_id, name, prompt, schedule: {kind: cron|interval|once, display, expr?, minutes?, run_at?}, state (scheduled|paused|completed|error|running), enabled, next_run_at?, last_run_at?, last_status?, last_error?, deliver, repeat: {times?, completed}, model?, skills: [], script: bool}` (times ISO 8601 with offset).
 - `schedule.preview` `{schedule}` → `{kind, display, expr?, minutes?, run_at?, next: [ISO…] (up to 3)}`; error `INVALID_SCHEDULE` with Hermes' hint.
+- `schedule.draft` `{description}` (up to 2000 characters) → `{name?, prompt, schedule, preview}` (preview as `schedule.preview`): a cron job drafted by Hermes' model from the user's words; nothing is created. Errors `DRAFT_UNAVAILABLE`, `DRAFT_FAILED`.
 - `schedule.create` `{name?, prompt, schedule, deliver? ("lekora" = this agent's Lekora chat, the default; "local"; or a Hermes target), repeat? (int), model?, skills?}` → `{job}`.
 - `schedule.update` `{job_id, changes: {name?, prompt?, schedule?, deliver?, repeat? (null = forever), model? (null = default), skills?}}` → `{job}`.
 - `schedule.pause` / `schedule.resume` / `schedule.run` `{job_id}` → `{job}` (`schedule.run`: the next scheduler tick; refused while paused).

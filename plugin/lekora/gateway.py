@@ -1014,7 +1014,7 @@ class Gateway:
     async def _schedules_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
                                  profile_id: Any, data: dict) -> None:
         from .schedules import ScheduleError
-        known = ("schedules.list", "schedule.preview", "schedule.create", "schedule.update", "schedule.pause",
+        known = ("schedules.list", "schedule.preview", "schedule.draft", "schedule.create", "schedule.update", "schedule.pause",
                  "schedule.resume", "schedule.run", "schedule.delete", "schedule.runs", "schedule.output")
         if type_ not in known:
             raise _Reject("INVALID_MESSAGE", f"Unknown message type: {type_}", True, False, msg_id)

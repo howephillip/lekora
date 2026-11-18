@@ -1351,6 +1351,15 @@ public struct ScheduleOutputResult: Codable, Equatable, Sendable { public let te
 struct ScheduleDeleteResult: Codable { let job_id: String }
 
 struct SchedulePreviewData: Codable { let schedule: String }
+struct ScheduleDraftData: Codable { let description: String }
+
+/// A cron job drafted from the user's words by Hermes' model; nothing is created until they confirm.
+public struct ScheduleDraft: Codable, Equatable, Sendable {
+    public let name: String?
+    public let prompt: String
+    public let schedule: String
+    public let preview: SchedulePreview
+}
 struct ScheduleJobRef: Codable { let job_id: String }
 struct ScheduleOutputData: Codable { let job_id: String; let run_id: String }
 public struct ScheduleCreateData: Codable, Equatable {

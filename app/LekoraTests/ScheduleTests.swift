@@ -102,6 +102,11 @@ final class ScheduleTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("every 30m"), "Hermes' hint is shown")
         }
 
+        let draft = try await gateway.draftSchedule("every weekday at 8, my inbox", for: "carl")
+        XCTAssertEqual(draft.name, "Morning inbox")
+        XCTAssertEqual(ScheduleWords.choice(for: draft.preview.when), .weekdays(hour: 8, minute: 0), "a draft fills the pickers")
+        XCTAssertEqual(host.received.last { $0["type"] as? String == "schedule.draft" }?["profile_id"] as? String, "carl")
+
         let made = try await gateway.createSchedule(ScheduleCreateData(name: "Morning", prompt: "Summarise my inbox",
                                                                       schedule: "0 9 * * 1-5", deliver: "lekora"), for: "carl")
         XCTAssertEqual(made.deliver, "lekora:carl")

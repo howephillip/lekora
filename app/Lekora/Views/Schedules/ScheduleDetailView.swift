@@ -73,10 +73,10 @@ struct ScheduleDetailView: View {
                     Button("Pause", systemImage: "pause") { act("pause") }.disabled(working || job.state == "completed")
                 }
                 Button(role: .destructive) { confirmingDelete = true } label: {
-                    Label("Delete Schedule", systemImage: "trash").foregroundStyle(.red)
+                    Label("Delete Cron Job", systemImage: "trash").foregroundStyle(.red)
                 }
                 .disabled(working)
-                .confirmationDialog("Delete this schedule?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+                .confirmationDialog("Delete this cron job?", isPresented: $confirmingDelete, titleVisibility: .visible) {
                     Button("Delete", role: .destructive) { delete() }
                 } message: {
                     Text("Hermes stops running it. Results it already sent stay where they are.")

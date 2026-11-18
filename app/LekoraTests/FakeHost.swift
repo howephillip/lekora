@@ -742,6 +742,12 @@ final class FakeHost: @unchecked Sendable {
             send(type: "schedule.preview.result", id: id, data: [
                 "kind": "cron", "display": text, "expr": text,
                 "next": ["2026-11-18T09:00:00-06:00", "2026-11-19T09:00:00-06:00"]], on: connection)
+        case "schedule.draft":
+            send(type: "schedule.draft.result", id: id, data: [
+                "name": "Morning inbox", "prompt": "Summarise my unread email and say what needs a reply.",
+                "schedule": "0 8 * * 1-5",
+                "preview": ["kind": "cron", "display": "0 8 * * 1-5", "expr": "0 8 * * 1-5",
+                            "next": ["2026-11-18T08:00:00-06:00"]]], profileId: message["profile_id"] as? String, on: connection)
         case "schedule.create":
             let profile = message["profile_id"] as? String ?? ""
             let job = scheduleJob(data, id: "j\(scheduleJobs.count + 1)", profile: profile)

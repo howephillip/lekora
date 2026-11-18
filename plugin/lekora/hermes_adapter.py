@@ -455,7 +455,7 @@ class LekoraAdapter(BasePlatformAdapter):
             tools_reader=self._tools_for, tools_writer=self._set_tools_for, persona=self._persona_for,
             hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for,
             chat_sessions_reader=self._chat_sessions_for, current_session_reader=self._current_session_for,
-            kanban_boards=_hermes_boards(), hermes_schedules=_hermes_schedules())
+            kanban_boards=_hermes_boards(), hermes_schedules=_hermes_schedules(), draft_llm=_draft_llm)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()
@@ -699,7 +699,23 @@ def check_requirements() -> bool:
     return True  # standard library only; nothing to install
 
 
+_PLUGIN_CTX: Any = None  # Hermes' plugin context: its model for plugins (ctx.llm)
+
+
+async def _draft_llm(instructions: str, text: str) -> Any:
+    """One structured completion on the user's active model, through Hermes (no keys seen here)."""
+    if _PLUGIN_CTX is None or not hasattr(_PLUGIN_CTX, "llm"):
+        from .schedules import ScheduleError
+        raise ScheduleError("DRAFT_UNAVAILABLE", "This Hermes version can't draft schedules for Lekora")
+    result = await _PLUGIN_CTX.llm.acomplete_structured(
+        instructions=instructions, input=[{"type": "text", "text": text}], json_mode=True,
+        max_tokens=800, timeout=60, purpose="lekora: draft a cron job from the user's words")
+    return result.parsed
+
+
 def register(ctx) -> None:
+    global _PLUGIN_CTX
+    _PLUGIN_CTX = ctx
     from .pairing import handle_cli, setup_cli
     ctx.register_cli_command(
         "lekora", help="Lekora iPhone app: pairing and paired devices",

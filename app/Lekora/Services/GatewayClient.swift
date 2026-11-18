@@ -1284,6 +1284,12 @@ public final class GatewayClient: ObservableObject {
                           reply: SchedulePreview.self, timeout: 15)
     }
 
+    /// A draft from the user's words ("every weekday morning, summarise my inbox"), checked with Hermes.
+    public func draftSchedule(_ description: String, for profileId: String) async throws -> ScheduleDraft {
+        try await request(type: "schedule.draft", profileId: profileId, data: ScheduleDraftData(description: description),
+                          reply: ScheduleDraft.self, timeout: 90)
+    }
+
     @discardableResult
     public func createSchedule(_ data: ScheduleCreateData, for profileId: String) async throws -> ScheduleJob {
         try await request(type: "schedule.create", profileId: profileId, data: data, reply: ScheduleJobResult.self, timeout: 30).job

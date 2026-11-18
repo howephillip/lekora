@@ -49,7 +49,7 @@ struct ChatSettingsView: View {
                     NavigationLink {
                         SchedulesView(gateway: gateway, profileId: profileId)
                     } label: {
-                        Label("Schedules", systemImage: "calendar.badge.clock")
+                        Label("Cron Jobs", systemImage: "calendar.badge.clock")
                     }
                 }
                 if let failure {

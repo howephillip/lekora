@@ -52,6 +52,13 @@ class Bridge:
         return nothing
 
 
+async def stand_in_drafter(instructions, text):
+    """No model here (and no cost): a fixed draft, so the Describe It screen can be checked."""
+    await asyncio.sleep(1.5)
+    return {"name": "Morning inbox", "prompt": "Summarise my unread email and tell me what needs a reply.",
+            "schedule": "0 8 * * 1-5"}
+
+
 async def main():
     tmp = Path(tempfile.mkdtemp(prefix="lekora-real-hermes-"))
     hermes_home(tmp)
@@ -63,7 +70,8 @@ async def main():
     seed(schedules, boards)
     cfg = LekoraConfig(db_path=str(tmp / "lekora.db"), listen_host="127.0.0.1",
                        instance_name="Real Hermes Demo", extra_hosts=["127.0.0.1"], profiles=PROFILES)
-    svc = LekoraService(Bridge(), cfg, hermes_version="0.22.5", kanban_boards=boards, hermes_schedules=schedules)
+    svc = LekoraService(Bridge(), cfg, hermes_version="0.22.5", kanban_boards=boards, hermes_schedules=schedules,
+                        draft_llm=stand_in_drafter)
     await svc.start()
     out = io.StringIO()
     run_pair(svc.store, out, extra_hosts=["127.0.0.1"], listening=lambda p: True)

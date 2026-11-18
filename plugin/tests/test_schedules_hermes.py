@@ -109,3 +109,36 @@ def test_hermes_scheduler_accepts_lekora_chats_as_a_destination(hermes, monkeypa
     target = delivery._resolve_single_delivery_target(job, "lekora:default")
     assert target["platform"] == "lekora" and target["chat_id"] == "default"
     assert hermes_adapter.lekora_target("../etc") is None
+
+
+async def _no_model(**kw):  # stands in for the model call only (no money spent)
+    import json as _json
+    from types import SimpleNamespace
+    _no_model.seen = kw
+    body = _json.dumps({"name": "Inbox", "prompt": "Summarise my unread email.", "schedule": "0 9 * * 1-5"})
+    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=body))], usage=None, model="stand-in")
+    return "stand-in", "stand-in", response  # (provider, model, response), as Hermes' caller returns
+
+
+def test_drafting_goes_through_hermes_model_for_plugins(hermes):
+    """Hermes' own PluginLlm (trust gate, JSON parsing) with the model call stood in."""
+    import asyncio
+    pytest.importorskip("agent.plugin_llm")
+    from agent.plugin_llm import PluginLlm
+    from lekora import hermes_adapter
+    from lekora.schedules import Schedules
+
+    class Ctx:
+        llm = PluginLlm(plugin_id="lekora", async_caller=_no_model)
+
+    async def run():
+        hermes_adapter._PLUGIN_CTX = Ctx()
+        schedules = Schedules(hermes, publish=lambda p: asyncio.sleep(0), profiles=lambda: ["default"],
+                              llm=hermes_adapter._draft_llm)
+        return await schedules.request("schedule.draft", "default", {"description": "weekday mornings, my inbox"})
+    try:
+        got = asyncio.run(run())
+    finally:
+        hermes_adapter._PLUGIN_CTX = None
+    assert got["schedule"] == "0 9 * * 1-5" and got["preview"]["kind"] == "cron" and len(got["preview"]["next"]) == 3
+    assert hermes.list("default") == [], "a draft creates nothing"

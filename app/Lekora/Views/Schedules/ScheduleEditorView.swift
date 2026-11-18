@@ -40,8 +40,15 @@ struct ScheduleEditorView: View {
     @State private var saving = false
     @State private var problem: String?
     @State private var loaded = false
+    @State private var describing = ""
+    @State private var drafting = false
+    @State private var drafted = false
+    @State private var draftProblem: String?
 
     private var isNew: Bool { job == nil }
+    private var cantDraft: Bool {
+        drafting || describing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (agent.isEmpty && profileId == nil)
+    }
 
     var body: some View {
         NavigationStack {
@@ -49,6 +56,33 @@ struct ScheduleEditorView: View {
                 if isNew && profileId == nil {
                     Picker("Agent", selection: $agent) {
                         ForEach(gateway.profiles) { Text($0.name).tag($0.profile_id) }
+                    }
+                }
+                if isNew {
+                    Section {
+                        TextField("e.g. Every weekday at 8, summarise my unread email and what needs a reply",
+                                  text: $describing, axis: .vertical)
+                            .lineLimit(2...6)
+                        Button {
+                            draft()
+                        } label: {
+                            HStack {
+                                Label(drafting ? "Drafting…" : "Draft It for Me", systemImage: "sparkles")
+                                if drafting { Spacer(); ProgressView() }
+                            }
+                        }
+                        .disabled(cantDraft)
+                        .opacity(cantDraft && !drafting ? 0.45 : 1)
+                    } header: {
+                        Text("Describe It")
+                    } footer: {
+                        if let draftProblem {
+                            Text(draftProblem).foregroundStyle(LK.Palette.danger)
+                        } else if drafted {
+                            Text("Drafted below. Check it, change anything, then tap Add.")
+                        } else {
+                            Text("Hermes' model drafts the cron job from your words; nothing is made until you tap Add.")
+                        }
                     }
                 }
                 Section {
@@ -115,7 +149,7 @@ struct ScheduleEditorView: View {
                     Section { LKNotice(.warning, problem) }
                 }
             }
-            .navigationTitle(isNew ? "New Schedule" : "Edit Schedule")
+            .navigationTitle(isNew ? "New Cron Job" : "Edit Cron Job")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -274,6 +308,41 @@ struct ScheduleEditorView: View {
         case nil:
             mode = .words
             words = ScheduleWords.text(for: job.schedule)
+        }
+    }
+
+    private func draft() {
+        let text = describing.trimmingCharacters(in: .whitespacesAndNewlines)
+        drafting = true
+        draftProblem = nil
+        Task {
+            defer { drafting = false }
+            do {
+                let got = try await gateway.draftSchedule(text, for: profileId ?? agent)
+                prompt = got.prompt
+                name = got.name ?? ""
+                cron = ""
+                apply(when: got.preview.when, text: got.schedule)
+                drafted = true
+            } catch {
+                draftProblem = error.localizedDescription
+            }
+        }
+    }
+
+    /// Shows a schedule in the pickers when it fits one, else as words.
+    private func apply(when: ScheduleWhen, text: String) {
+        switch ScheduleWords.choice(for: when) {
+        case .every(let minutes)?:
+            mode = .pick; kind = .every
+            everyHours = minutes % 60 == 0
+            everyCount = everyHours ? minutes / 60 : minutes
+        case .daily(let h, let m)?: mode = .pick; kind = .daily; setTime(h, m)
+        case .weekdays(let h, let m)?: mode = .pick; kind = .weekdays; setTime(h, m)
+        case .days(let d, let h, let m)?: mode = .pick; kind = .days; days = d; setTime(h, m)
+        case .monthly(let day, let h, let m)? where day <= 28: mode = .pick; kind = .monthly; monthDay = day; setTime(h, m)
+        case .once(let date)?: mode = .pick; kind = .once; onceAt = date
+        default: mode = .words; words = text
         }
     }
 

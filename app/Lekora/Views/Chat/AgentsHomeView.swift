@@ -68,10 +68,10 @@ public struct AgentsHomeView: View {
         let home = NavigationStack(path: $path) {
             withSheets(agentList
                 .toolbar { homeToolbar }
-                .navigationDestination(isPresented: Binding(get: { boardOn != nil }, set: { if !$0 { boardOn = nil } })) {
+                .navigationDestination(isPresented: Binding(get: { boardOn != nil }, set: { if !$0 { boardOn = nil; menuOpen = true } })) {
                     if let client = boardOn { BoardView(gateway: client) }
                 }
-                .navigationDestination(isPresented: Binding(get: { schedulesOn != nil }, set: { if !$0 { schedulesOn = nil } })) {
+                .navigationDestination(isPresented: Binding(get: { schedulesOn != nil }, set: { if !$0 { schedulesOn = nil; menuOpen = true } })) {
                     if let client = schedulesOn { SchedulesView(gateway: client) }
                 }
                 .navigationDestination(for: AgentKey.self) { key in

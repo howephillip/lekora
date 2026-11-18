@@ -60,11 +60,11 @@ struct SideMenuView: View {
                             item("Board", detail: client.savedHost?.instanceName, symbol: "square.stack.3d.up") { pick { openBoard(client) } }
                         }
                         ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
-                            item("Schedules", detail: client.savedHost?.instanceName, symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
+                            item("Cron Jobs", detail: client.savedHost?.instanceName, symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
                         }
                     } else if let client = hosts.clients.first {
                         item("Board", symbol: "square.stack.3d.up") { pick { openBoard(client) } }
-                        item("Schedules", symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
+                        item("Cron Jobs", symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
                     }
                 }
                 group("Settings") {

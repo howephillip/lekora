@@ -227,3 +227,33 @@ async def test_without_schedules_the_phone_is_told(fgw, store):
     got = await recv(ws)
     assert got["type"] == "error" and got["data"]["code"] == "SCHEDULES_UNAVAILABLE"
     await ws.close()
+
+
+async def test_a_cron_job_is_drafted_from_words_and_checked_with_hermes(tmp_path):
+    asked = []
+    answers = [{"name": "Inbox", "prompt": "Summarise my unread email.", "schedule": "weekday mornings"},
+               {"name": "Inbox", "prompt": "Summarise my unread email.", "schedule": "weekdays at 9am"}]
+
+    async def llm(instructions, text):
+        asked.append((instructions, text))
+        return answers.pop(0)
+    schedules, cron, _ = service(tmp_path)
+    schedules.llm = llm
+    schedules.agent_name = lambda pid: "Coder"
+    got = await schedules.request("schedule.draft", "coder", {"description": "every weekday morning summarise my inbox"})
+    assert got["schedule"] == "weekdays at 9am" and got["preview"]["expr"] == "0 9 * * 1-5"
+    assert got["prompt"] == "Summarise my unread email." and got["name"] == "Inbox"
+    assert "Coder" in asked[0][0] and "weekday mornings" in asked[1][1], "Hermes' hint goes back for one retry"
+    assert cron.created == [], "nothing is created until the person confirms"
+
+    schedules.llm = None
+    with pytest.raises(ScheduleError) as err:
+        await schedules.request("schedule.draft", "coder", {"description": "x"})
+    assert err.value.code == "DRAFT_UNAVAILABLE"
+
+    async def broken(instructions, text):
+        return "not json"
+    schedules.llm = broken
+    with pytest.raises(ScheduleError) as err:
+        await schedules.request("schedule.draft", "coder", {"description": "x"})
+    assert err.value.code == "DRAFT_FAILED"

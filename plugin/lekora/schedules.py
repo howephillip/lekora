@@ -243,14 +243,28 @@ class HermesSchedules:
             raise ScheduleError("UNKNOWN_SCHEDULE", "That schedule isn't on this agent any more")
 
 
+DRAFT_INSTRUCTIONS = """You turn a person's description of a recurring or one-off task into a Hermes cron job.
+Reply with JSON only: {"name": short title (max 6 words), "prompt": the instruction the agent will
+receive each time it runs, written to the agent in second person, complete and self-contained (what to do,
+what to include in the result), "schedule": when, in one of these forms: "every 30m", "every 2h",
+"in 45m", a 5-field cron expression such as "0 9 * * 1-5" (minute hour day-of-month month day-of-week,
+0 = Sunday), or an ISO local time "YYYY-MM-DDTHH:MM" for a single run}.
+Use the cron form for anything at a time of day. Times are the person's local time. If no time is given,
+pick a sensible one (mornings 8:00, evenings 18:00). The agent is called {agent}. Now is {now}."""
+
+
 class Schedules:
     """Schedules for phones: checks what they send, delivers to Lekora by default, tells phones of changes."""
 
     def __init__(self, hermes: Any, publish: Callable[[str], Awaitable[None]],
-                 profiles: Callable[[], Iterable[str]]) -> None:
+                 profiles: Callable[[], Iterable[str]],
+                 llm: Optional[Callable[[str, str], Awaitable[Any]]] = None,
+                 agent_name: Callable[[str], str] = lambda profile: profile) -> None:
         self.hermes = hermes        # HermesSchedules (or a stand-in in tests)
         self.publish = publish      # (agent): `schedules.changed` to every phone
         self.profiles = profiles    # the agents
+        self.llm = llm              # (instructions, text) -> parsed JSON: Hermes' model for plugins (ctx.llm)
+        self.agent_name = agent_name
         self._stamps: dict[str, Optional[float]] = {}
 
     async def _run(self, fn: Callable, *args: Any) -> Any:
@@ -280,6 +294,8 @@ class Schedules:
             return await self._run(self.hermes.preview, self._schedule(data.get("schedule")))
 
         profile = self._profile(profile_id)
+        if type_ == "schedule.draft":
+            return await self.draft(profile, self._text(data.get("description"), 2000, "Describe what it should do and when"))
         if type_ == "schedule.create":
             fields: dict[str, Any] = {
                 "prompt": self._text(data.get("prompt"), PROMPT_CHARS, "What should the agent do?"),
@@ -323,6 +339,39 @@ class Schedules:
             raise ScheduleError("INVALID_SCHEDULE", f"Unknown schedule request: {type_}")
         await self._changed(profile)
         return {"job": phone_job(job, profile)}
+
+    async def draft(self, profile: str, description: str) -> dict:
+        """A cron job drafted from the person's words, by Hermes' own model; the schedule is checked
+        with Hermes (one retry with Hermes' hint). Nothing is created: the person reviews it first."""
+        if self.llm is None:
+            raise ScheduleError("DRAFT_UNAVAILABLE", "Drafting isn't available on this Hermes instance")
+        instructions = DRAFT_INSTRUCTIONS.replace("{agent}", self.agent_name(profile)).replace(
+            "{now}", datetime.now().astimezone().strftime("%A %Y-%m-%d %H:%M %Z"))
+        text, hint = description, None
+        for _ in range(2):
+            try:
+                got = await self.llm(instructions, text)
+            except ScheduleError:
+                raise
+            except Exception as exc:
+                log.info("Lekora: drafting a schedule failed: %s", exc)
+                raise ScheduleError("DRAFT_FAILED", "Hermes' model couldn't draft it just now. Try again, or fill it in yourself")
+            if not isinstance(got, dict):
+                hint = "Reply with the JSON object only."
+            else:
+                name = str(got.get("name") or "").strip()[:NAME_CHARS]
+                prompt = str(got.get("prompt") or "").strip()[:PROMPT_CHARS]
+                schedule = " ".join(str(got.get("schedule") or "").split())[:SCHEDULE_CHARS]
+                if prompt and schedule:
+                    try:
+                        preview = await self._run(self.hermes.preview, schedule)
+                        return {"name": name or None, "prompt": prompt, "schedule": schedule, "preview": preview}
+                    except ScheduleError as exc:
+                        hint = f"Hermes couldn't read the schedule {schedule!r}: {exc.reason}"
+                else:
+                    hint = "Both prompt and schedule are required."
+            text = f"{description}\n\n(Your last answer didn't work. {hint})"
+        raise ScheduleError("DRAFT_FAILED", "Hermes' model couldn't turn that into a schedule. Try saying when more plainly")
 
     # ---- checks ----------------------------------------------------------------------
 
