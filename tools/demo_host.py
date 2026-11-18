@@ -5,12 +5,13 @@ Start:  plugin/.venv/bin/python tools/demo_host.py     (prints a pairing link)
 In a chat, type: "approve" (an approval card), "ask" (a question card),
 "/model" (model picker), anything else (a streamed reply).
 """
-import asyncio, io, sys, tempfile
+import asyncio, io, os, sys, tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugin"))
 from lekora.pairing import run_pair
 from lekora.plugin import LekoraConfig, LekoraService
+from lekora.prompts import Resolvers
 
 PROFILES = [
     {"profile_id": "default", "name": "Default", "avatar": "sparkles"},
@@ -19,14 +20,15 @@ PROFILES = [
     {"profile_id": "atlas", "name": "Atlas", "avatar": "sparkles"},
 ]
 SEED = {
-    "default": [("user", "What's on my plate today?"),
-                ("assistant", "Three things: the invoice review at 10, a call with Dana at 2, and the draft you wanted to finish. Want me to block time for the draft?")],
+    "default": [("user", "Good morning! What's on my plate today?"),
+                ("assistant", "Morning! Three things today:\n\n1. **10:00** invoice review with Priya\n2. **14:00** call with Dana about the launch\n3. The **draft announcement** you wanted to finish\n\nWant me to block time for the draft?"),
+                ("user", "Yes please, after lunch.")],
     "scout": [("user", "Find me a quiet cafe near the office with good wifi."),
-              ("assistant", "Found two: **Fernwood Coffee** (8 min walk, power outlets at every table) and **The Quiet Cup** (12 min, no music before noon).")],
-    "juniper": [("user", "Can you summarise the meeting notes?"),
-                ("assistant", "Done. Main decisions: ship the beta on Friday, move the review to Tuesday, and Priya owns the launch checklist.")],
-    "atlas": [("user", "Plan a weekend trip to the coast."),
-              ("assistant", "Here's a relaxed plan: leave Saturday at 9, lunch in Port Ellis, a sunset walk on the pier, and a slow Sunday before heading home.")],
+              ("assistant", "Found two:\n\n- **Fernwood Coffee**: 8 min walk, power outlets at every table\n- **The Quiet Cup**: 12 min walk, no music before noon\n\nFernwood is the better bet for a long work session.")],
+    "juniper": [("user", "Can you summarise the meeting notes from Monday?"),
+                ("assistant", "Done. Main decisions: ship the beta on **Friday**, move the design review to **Tuesday**, and Priya owns the launch checklist. I added the open questions to the board.")],
+    "atlas": [("user", "I'd love a relaxed weekend by the coast. Can you help plan it?"),
+              ("assistant", "Absolutely. Do you want something active (hikes, kayaking) or slow (cafes, long walks)? And roughly how far are you happy to drive?")],
 }
 COMMANDS = [
     {"name": "new", "description": "Start a new conversation", "args": "", "choices": [], "aliases": ["reset"], "group": "hermes"},
@@ -37,37 +39,192 @@ COMMANDS = [
     {"name": "summarize", "description": "Summarise a page or file", "args": "<url>", "choices": [], "aliases": [], "group": "skill"},
     {"name": "research", "description": "Dig into a topic and report back", "args": "<topic>", "choices": [], "aliases": [], "group": "skill"},
 ]
-REPLY = ("Sure! Here's a quick plan:\n\n1. Gather the details you mentioned\n2. Draft a first version\n"
-         "3. Check it with you before anything is sent\n\nI'll start now and keep you posted.")
+
+ITINERARY_HTML = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:-apple-system,system-ui,sans-serif;margin:0;background:#f4f7fb;color:#1d2733}
+header{background:linear-gradient(135deg,#2f80ed,#56ccf2);color:#fff;padding:28px 20px}
+h1{margin:0 0 4px;font-size:26px}p.sub{margin:0;opacity:.9}
+main{padding:16px}.day{background:#fff;border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.day h2{margin:0 0 10px;font-size:18px}.row{display:flex;gap:12px;padding:8px 0;border-top:1px solid #eef1f5}
+.row:first-of-type{border-top:0}.t{width:56px;color:#2f80ed;font-weight:600}</style></head><body>
+<header><h1>Coast weekend</h1><p class="sub">Port Ellis · Sat 9 – Sun 6</p></header><main>
+<div class="day"><h2>Saturday</h2>
+<div class="row"><span class="t">9:00</span><span>Leave home, scenic coast road</span></div>
+<div class="row"><span class="t">12:30</span><span>Lunch at The Salt House (fish tacos)</span></div>
+<div class="row"><span class="t">15:00</span><span>Cliff walk to Lantern Point, 5 km</span></div>
+<div class="row"><span class="t">19:00</span><span>Sunset on the pier, dinner nearby</span></div></div>
+<div class="day"><h2>Sunday</h2>
+<div class="row"><span class="t">10:00</span><span>Slow breakfast at Harbour Bakery</span></div>
+<div class="row"><span class="t">11:30</span><span>Kayak rental, calm bay (2 hrs)</span></div>
+<div class="row"><span class="t">15:00</span><span>Drive home, ice cream stop</span></div></div>
+</main></body></html>"""
+
+
+def _settings_state():
+    return {
+        "model": {"model": "claude-sonnet-5-5", "provider": "anthropic", "this_chat": False},
+        "reasoning": {"effort": "medium", "this_chat": False},
+        "show_reasoning": False, "fast": "normal", "yolo": False,
+        "personality": {"current": "none", "options": [
+            {"name": "concise", "description": "Short, direct answers with no filler."},
+            {"name": "friendly", "description": "Warm and encouraging, like a helpful friend."},
+            {"name": "coach", "description": "Motivating and practical; asks good questions."},
+            {"name": "pirate", "description": "Answers like a swashbuckling pirate."}]},
+        "approvals": "manual", "title": None,
+        "usage": {"input_tokens": 18420, "output_tokens": 2310, "total_tokens": 20730,
+                  "context_tokens": 20730, "context_length": 200000, "cost_usd": 0.083},
+    }
+
+
+def _model_info(provider, model):
+    prices = {"claude-sonnet-5-5": (3.0, 15.0, 200000), "claude-opus-5-5": (15.0, 75.0, 200000),
+              "claude-haiku-5-5": (0.8, 4.0, 200000)}
+    if model not in prices:
+        return None
+    i, o, c = prices[model]
+    return {"input": i, "output": o, "context": c, "reasoning": True, "vision": True, "tools": True}
+
+
+def _openrouter_picks():
+    """A few real OpenRouter models for the picker, from their public list (offline: a fallback)."""
+    import json, urllib.request
+    fallback = ["anthropic/claude-sonnet-4.5", "google/gemini-2.5-pro", "deepseek/deepseek-chat-v3.1"]
+    try:
+        with urllib.request.urlopen("https://openrouter.ai/api/v1/models", timeout=10) as r:
+            ids = [m["id"] for m in json.load(r)["data"]]
+    except Exception:
+        return fallback
+    picks = []
+    for prefix in ("anthropic/", "openai/", "google/", "deepseek/", "meta-llama/"):
+        found = [i for i in ids if i.startswith(prefix) and ":" not in i]
+        if found:
+            picks.append(found[0])
+    return picks or fallback
+
+
+async def _stream(gw, pid, text, status=None, delay=0.05, lead=0.8):
+    await gw.publish_typing(pid, True, status)
+    await asyncio.sleep(lead)
+    words = text.split(" ")
+    draft = "d" + str(abs(hash(text)) % 10**6)
+    for i in range(1, len(words) + 1):
+        await gw.publish_draft(pid, draft, " ".join(words[:i]))
+        await asyncio.sleep(delay)
+    await gw.publish_typing(pid, False)
+    await gw.publish_message(pid, text, draft_id=draft)
+
+
+TOOLSETS = [("web", "Web search", "Search the web and read pages"),
+            ("terminal", "Terminal", "Run commands on the Hermes computer"),
+            ("file", "Files", "Read, write and organise files"),
+            ("kanban", "Task board", "Create and manage tasks on the board"),
+            ("tts", "Speech", "Speak replies aloud"),
+            ("x_search", "X search", "Search posts on X")]
+_enabled = {}
+
+
+def tools_read(profile):
+    on = _enabled.setdefault(profile, {"web", "terminal", "file", "kanban"})
+    return {"toolsets": [{"key": k, "label": l, "description": d, "enabled": k in on} for k, l, d in TOOLSETS],
+            "elsewhere": {"telegram": ["kanban", "terminal", "web", "x_search"]}}
+
+
+def tools_write(profile, enable, disable):
+    on = _enabled.setdefault(profile, {"web", "terminal", "file", "kanban"})
+    on.update(enable)
+    on.difference_update(disable)
 
 
 class Demo:
     svc = None
+    state: dict = {}
+    asking = "default"
+
+    def settings_for(self, pid):
+        return self.state.setdefault(pid, _settings_state())
 
     async def deliver_to_agent(self, profile_id, text, message_id):
         gw = self.svc.gateway
-        t = text.strip().lower()
-        if t == "approve":
+        raw = text.strip()
+        t = raw.lower()
+        st = self.settings_for(profile_id)
+        if raw.startswith("/"):
+            return await self._command(profile_id, raw, st)
+        self.asking = profile_id
+        if "download" in t:
+            await _stream(gw, profile_id, "On it. I found **14 old installers** in ~/Downloads, about 2.3 GB, all older than 90 days. "
+                          "I'll remove that folder now.", "Reading ~/Downloads…")
             await self.svc.prompts.ask_approval(profile_id, "demo", "rm -rf ~/Downloads/old-installers",
-                "Deletes files from your Downloads folder", ["once", "session", "always", "deny"])
-        elif t == "ask":
-            await self.svc.prompts.ask_question(profile_id, "demo", "Which day works best for the trip?",
-                ["Saturday", "Sunday", "Both"], "demo-q")
-        elif t == "/model":
-            async def chosen(*a, **k): return "ok"
-            await self.svc.prompts.ask_model(profile_id, "demo", [
-                {"slug": "anthropic", "name": "Anthropic", "is_current": True, "models": ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"]},
-                {"slug": "openrouter", "name": "OpenRouter", "models": ["deepseek/deepseek-v4", "google/gemini-3-pro", "meta/llama-5"]},
-            ], "claude-sonnet-5-5", "anthropic", chosen)
+                "Deletes 14 files (2.3 GB) from your Downloads folder", ["once", "session", "always", "deny"])
+        elif "coast" in t or "trip" in t or "active" in t or "slow" in t:
+            await _stream(gw, profile_id, "Slow it is. I'll plan around cafes, an easy cliff walk and a sunset on the pier. "
+                          "One question before I lock it in:", "Searching the web…")
+            await self.svc.prompts.ask_question(profile_id, "demo", "Which day would you like the kayak outing on?",
+                                                ["Saturday", "Sunday", "Skip kayaking"], "demo-q")
+        elif "itinerary" in t or "page" in t:
+            await _stream(gw, profile_id, "Here's the plan as a page you can keep and edit:", "Writing the itinerary…")
+            await gw.artifacts.create(profile_id, "Coast weekend itinerary", "html", ITINERARY_HTML)
         else:
-            await gw.publish_typing(profile_id, True, "Searching the web…")
-            await asyncio.sleep(1.2)
-            words = REPLY.split(" ")
-            for i in range(1, len(words) + 1):
-                await gw.publish_draft(profile_id, "d1", " ".join(words[:i]))
-                await asyncio.sleep(0.12)
-            await gw.publish_typing(profile_id, False)
-            await gw.publish_message(profile_id, REPLY, draft_id="d1")
+            await _stream(gw, profile_id, "Sure, I'm on it. I'll gather what I need, draft a first version, and "
+                          "check with you before anything is sent.", "Thinking…")
+
+    def follow_up(self, pid, text, status=None):
+        asyncio.get_running_loop().create_task(_stream(self.svc.gateway, pid, text, status, lead=1.0))
+
+    def resolvers(self):
+        demo = self
+
+        def approve(session_key, choice, reason):
+            pid = demo.asking
+            if choice == "deny":
+                demo.follow_up(pid, "Understood, I left your Downloads folder as it is. Tell me if you'd like me to try a smaller clean-up instead.")
+            else:
+                demo.follow_up(pid, "Done. I removed the 14 installers and freed **2.3 GB**. Your laptop now has 11.4 GB free.", "Running the command…")
+            return 1
+
+        def answer(clarify_id, text):
+            demo.follow_up(demo.asking, f"{text} it is. I'll book the kayaks for then and add the plan to your calendar. "
+                           "I've also put the full itinerary on a page for you to keep.", "Booking…")
+            asyncio.get_running_loop().create_task(demo._itinerary(demo.asking))
+            return True
+
+        async def confirm(session_key, confirm_id, choice):
+            return True, "New conversation started."
+        return Resolvers(approve=approve, answer=answer, approval_timeout=lambda: 300, confirm=confirm)
+
+    async def _itinerary(self, pid):
+        await asyncio.sleep(9)
+        await self.svc.gateway.artifacts.create(pid, "Coast weekend itinerary", "html", ITINERARY_HTML)
+
+    async def _command(self, pid, raw, st):
+        gw = self.svc.gateway
+        cmd, _, arg = raw[1:].partition(" ")
+        arg = arg.strip()
+        if cmd == "model" and not arg:
+            async def chosen(*a, **k): return "ok"
+            await self.svc.prompts.ask_model(pid, "demo", [
+                {"slug": "anthropic", "name": "Anthropic", "is_current": True,
+                 "models": ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"]},
+                {"slug": "openrouter", "name": "OpenRouter", "models": _openrouter_picks()},
+            ], st["model"]["model"], st["model"]["provider"], chosen)
+            return
+        if cmd == "reasoning" and arg:
+            st["reasoning"] = {"effort": "none" if arg == "off" else arg, "this_chat": True}
+        elif cmd == "fast":
+            st["fast"] = "fast" if arg in ("fast", "on", "") and st["fast"] != "fast" else "normal"
+        elif cmd == "approvals" and arg:
+            st["approvals"] = arg
+        elif cmd == "personality" and arg:
+            st["personality"]["current"] = arg
+        elif cmd == "title" and arg:
+            st["title"] = arg
+        elif cmd == "yolo":
+            st["yolo"] = not st["yolo"]
+        elif cmd == "new":
+            await self.svc.prompts.ask_confirm(pid, "demo", "Start a new conversation?",
+                                               "This ends the current chat. Earlier chats stay in Past Chats.", "demo-c")
+            return
+        await gw.publish_message(pid, "Done.", role="system")
 
 
 def demo_board():
@@ -136,17 +293,28 @@ def demo_board():
 
 
 async def main():
-    tmp = Path(tempfile.mkdtemp(prefix="lekora-demo-"))
+    keep = os.environ.get("DEMO_DATA")
+    tmp = Path(keep) if keep else Path(tempfile.mkdtemp(prefix="lekora-demo-"))
+    tmp.mkdir(parents=True, exist_ok=True)
     demo = Demo()
     cfg = LekoraConfig(db_path=str(tmp / "lekora.db"), listen_host="127.0.0.1",
-                       instance_name="Demo Hermes", extra_hosts=["127.0.0.1"], profiles=PROFILES)
+                       instance_name="Demo Hermes", extra_hosts=["127.0.0.1"], profiles=PROFILES,
+                       hermes_root=str(tmp / "hermes"))
     svc = LekoraService(demo, cfg, hermes_version="0.22.5",
-                        commands_provider=lambda pid: COMMANDS, kanban_boards=demo_board())
+                        commands_provider=lambda pid: COMMANDS, kanban_boards=demo_board(),
+                        settings_reader=lambda pid: demo.settings_for(pid), model_info=_model_info,
+                        resolvers=demo.resolvers(), tools_reader=tools_read, tools_writer=tools_write)
     demo.svc = svc
     await svc.start()
-    for pid, msgs in SEED.items():
-        for role, text in msgs:
-            svc.store.append_event(pid, "chat.message", {"role": role, "text": text})
+    # OpenRouter routing choices are kept in memory here (a real host writes the agent's Hermes config).
+    from lekora.routing_config import RoutingConfig
+    saved = {}
+    svc.gateway.models.routing = RoutingConfig(tmp / "backups", read=lambda path: saved.get(str(path), {}),
+                                               write=lambda path, data: saved.__setitem__(str(path), data))
+    if not svc.store.fetch_events_since(0):  # a fresh store: seed the opening conversations
+        for pid, msgs in SEED.items():
+            for role, text in msgs:
+                svc.store.append_event(pid, "chat.message", {"role": role, "text": text})
     out = io.StringIO()
     run_pair(svc.store, out, extra_hosts=["127.0.0.1"], listening=lambda p: True)
     print(out.getvalue(), flush=True)
