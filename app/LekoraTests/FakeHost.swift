@@ -62,6 +62,25 @@ final class FakeHost: @unchecked Sendable {
     var chats: [[String: Any]] = []
     var chatHistory: [String: [[String: Any]]] = [:]
 
+    /// Schedules (docs/scheduler.md): jobs as the plugin sends them (each with `profile_id`).
+    var scheduleJobs: [[String: Any]] = []
+
+    func sendSchedulesChanged(profile: String) {
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open { send(type: "schedules.changed", data: [:], profileId: profile, on: connection) }
+    }
+
+    private func scheduleJob(_ fields: [String: Any], id: String, profile: String) -> [String: Any] {
+        let text = fields["schedule"] as? String ?? ""
+        return ["id": id, "profile_id": profile, "name": fields["name"] ?? NSNull(), "prompt": fields["prompt"] ?? "",
+                "schedule": ["kind": text.hasPrefix("every") ? "interval" : "cron", "display": text, "expr": text,
+                             "minutes": text == "every 2h" ? 120 as Any : NSNull() as Any],
+                "state": "scheduled", "enabled": true, "next_run_at": "2026-11-18T09:00:00-06:00",
+                "deliver": (fields["deliver"] as? String).map { $0 == "lekora" ? "lekora:" + profile : $0 } ?? "lekora:" + profile,
+                "repeat": ["times": fields["repeat"] ?? NSNull(), "completed": 0], "model": fields["model"] ?? NSNull(),
+                "skills": fields["skills"] ?? [], "script": false]
+    }
+
     /// The board (docs/kanban.md): its tasks (card fields), and comments per task.
     var kanbanTasks: [[String: Any]] = []
     var kanbanComments: [String: [[String: Any]]] = [:]
@@ -709,6 +728,65 @@ final class FakeHost: @unchecked Sendable {
             send(type: "chat.resume.result", id: id, data: ["session_id": currentChat],
                  profileId: message["profile_id"] as? String, on: connection)
 
+        case "schedules.list":
+            let profile = message["profile_id"] as? String
+            send(type: "schedules.list.result", id: id,
+                 data: ["jobs": scheduleJobs.filter { profile == nil || $0["profile_id"] as? String == profile }], on: connection)
+        case "schedule.preview":
+            let text = data["schedule"] as? String ?? ""
+            guard text != "whenever" else {
+                send(error: "INVALID_SCHEDULE", reason: "Invalid schedule 'whenever'. Use: 'every 30m', 'weekdays at 9am'",
+                     id: id, on: connection, close: false)
+                return
+            }
+            send(type: "schedule.preview.result", id: id, data: [
+                "kind": "cron", "display": text, "expr": text,
+                "next": ["2026-11-18T09:00:00-06:00", "2026-11-19T09:00:00-06:00"]], on: connection)
+        case "schedule.create":
+            let profile = message["profile_id"] as? String ?? ""
+            let job = scheduleJob(data, id: "j\(scheduleJobs.count + 1)", profile: profile)
+            scheduleJobs.append(job)
+            send(type: "schedule.create.result", id: id, data: ["job": job], profileId: profile, on: connection)
+        case "schedule.update", "schedule.pause", "schedule.resume", "schedule.run", "schedule.delete",
+             "schedule.runs", "schedule.output":
+            let type = message["type"] as? String ?? ""
+            let profile = message["profile_id"] as? String ?? ""
+            guard let jobId = data["job_id"] as? String,
+                  let index = scheduleJobs.firstIndex(where: { $0["id"] as? String == jobId }) else {
+                send(error: "UNKNOWN_SCHEDULE", reason: "That schedule isn't on this agent any more", id: id, on: connection, close: false)
+                return
+            }
+            switch type {
+            case "schedule.update":
+                var job = scheduleJobs[index]
+                let changes = data["changes"] as? [String: Any] ?? [:]
+                for key in ["name", "prompt", "model", "skills"] where changes.keys.contains(key) { job[key] = changes[key] }
+                if let text = changes["schedule"] as? String { job = scheduleJob(job.merging(["schedule": text]) { $1 }, id: jobId, profile: profile) }
+                if changes.keys.contains("repeat") { job["repeat"] = ["times": changes["repeat"] ?? NSNull(), "completed": 0] }
+                job["last_changes"] = changes
+                scheduleJobs[index] = job
+            case "schedule.pause": scheduleJobs[index]["state"] = "paused"; scheduleJobs[index]["enabled"] = false
+            case "schedule.resume": scheduleJobs[index]["state"] = "scheduled"; scheduleJobs[index]["enabled"] = true
+            case "schedule.run":
+                guard scheduleJobs[index]["state"] as? String != "paused" else {
+                    send(error: "SCHEDULE_REFUSED", reason: "It's paused. Resume it first, then run it", id: id, on: connection, close: false)
+                    return
+                }
+                scheduleJobs[index]["next_run_at"] = "2026-11-17T19:30:00-06:00"
+            case "schedule.delete":
+                scheduleJobs.remove(at: index)
+                send(type: type + ".result", id: id, data: ["job_id": jobId], profileId: profile, on: connection)
+                return
+            case "schedule.runs":
+                send(type: type + ".result", id: id, data: ["runs": [
+                    ["id": "r2", "started_at": 1_794_916_849.0, "ended_at": 1_794_916_861.0, "status": "ok", "title": "Morning"],
+                    ["id": "r1", "started_at": 1_794_830_449.0, "status": "failed", "title": "Morning"]]], profileId: profile, on: connection)
+                return
+            default:
+                send(type: type + ".result", id: id, data: ["text": "Three new emails."], profileId: profile, on: connection)
+                return
+            }
+            send(type: type + ".result", id: id, data: ["job": scheduleJobs[index]], profileId: profile, on: connection)
         case "kanban.board":
             let archived = data["archived"] as? Bool ?? false
             let tasks = kanbanTasks.compactMap { $0["id"] as? String }.compactMap(kanbanCard)

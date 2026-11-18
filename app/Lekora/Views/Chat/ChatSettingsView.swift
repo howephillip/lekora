@@ -45,6 +45,12 @@ struct ChatSettingsView: View {
                     } label: {
                         Label("Past Chats", systemImage: "clock.arrow.circlepath")
                     }
+                    // What this agent does on its own (docs/scheduler.md).
+                    NavigationLink {
+                        SchedulesView(gateway: gateway, profileId: profileId)
+                    } label: {
+                        Label("Schedules", systemImage: "calendar.badge.clock")
+                    }
                 }
                 if let failure {
                     Text(failure).font(LK.Typography.footnote).foregroundStyle(LK.Palette.danger)

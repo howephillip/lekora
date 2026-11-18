@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// The menu that slides in from the left of the Agents home (docs/kanban.md): the Board, Settings,
+/// The menu that slides in from the left of the Agents home (docs/kanban.md): the Board, Schedules, Settings,
 /// and later features. Tapping outside it, or swiping it left, closes it.
 struct SideMenuView: View {
     @ObservedObject var hosts: HostsModel
     @Binding var isOpen: Bool
     let openBoard: (GatewayClient) -> Void
+    let openSchedules: (GatewayClient) -> Void
     let openYourName: () -> Void
     let openInstances: () -> Void
     let manageAgents: (GatewayClient) -> Void
@@ -58,8 +59,12 @@ struct SideMenuView: View {
                         ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
                             item("Board", detail: client.savedHost?.instanceName, symbol: "square.stack.3d.up") { pick { openBoard(client) } }
                         }
+                        ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
+                            item("Schedules", detail: client.savedHost?.instanceName, symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
+                        }
                     } else if let client = hosts.clients.first {
                         item("Board", symbol: "square.stack.3d.up") { pick { openBoard(client) } }
+                        item("Schedules", symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
                     }
                 }
                 group("Settings") {

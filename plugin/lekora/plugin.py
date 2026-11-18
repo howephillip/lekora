@@ -132,7 +132,10 @@ class LekoraService:
         current_session_reader: Optional[Callable[[str], Optional[str]]] = None,
         env_value: Optional[Callable[[str, tuple], Any]] = None,
         kanban_boards: Optional[Any] = None,
+        hermes_schedules: Optional[Any] = None,
     ) -> None:
+        # Schedules (docs/scheduler.md): Hermes' own cron code, from the adapter.
+        self._hermes_schedules = hermes_schedules
         # The board (docs/kanban.md): Hermes' own kanban code, from the adapter.
         self._kanban_boards = kanban_boards
         # Direct voice (docs/voice.md §4): Hermes' streaming voice per agent, and its .env keys.
@@ -262,6 +265,14 @@ class LekoraService:
                 profiles=lambda: [p["profile_id"] for p in gateway._profiles()],
                 author=lambda: self._store.get_user_name() or "user")
             self._kanban_watch = asyncio.create_task(self.gateway.kanban.watch(active=gateway.phones_connected))
+        self._schedules_watch = None
+        if self._hermes_schedules is not None:
+            from .schedules import Schedules
+            gateway = self.gateway
+            self.gateway.schedules = Schedules(
+                self._hermes_schedules, gateway.publish_schedules_changed,
+                profiles=lambda: [p["profile_id"] for p in gateway._profiles()])
+            self._schedules_watch = asyncio.create_task(self.gateway.schedules.watch(active=gateway.phones_connected))
         self.gateway.prompts = self.prompts
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(
@@ -334,7 +345,7 @@ class LekoraService:
             **({"model_info": self._model_info} if self._model_info else {}))
 
     async def stop(self) -> None:
-        for name in ("_artifact_watch", "_kanban_watch"):
+        for name in ("_artifact_watch", "_kanban_watch", "_schedules_watch"):
             watch = getattr(self, name, None)
             if watch is not None:
                 watch.cancel()

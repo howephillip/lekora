@@ -1266,6 +1266,57 @@ public final class GatewayClient: ObservableObject {
         return saved
     }
 
+    // MARK: - Schedules (docs/scheduler.md)
+
+    /// Counts "an agent's schedules changed" notices (open schedule screens reload).
+    @Published public private(set) var schedulesChanges = 0
+    public private(set) var lastSchedulesChange: String?
+
+    /// Every agent's schedules, or one agent's.
+    public func schedules(for profileId: String? = nil) async throws -> [ScheduleJob] {
+        try await request(type: "schedules.list", profileId: profileId, data: EmptyData(),
+                          reply: SchedulesListResult.self, timeout: 30).jobs
+    }
+
+    /// What Hermes understands from a schedule ("weekdays at 9am"): its words and the next times.
+    public func previewSchedule(_ text: String) async throws -> SchedulePreview {
+        try await request(type: "schedule.preview", data: SchedulePreviewData(schedule: text),
+                          reply: SchedulePreview.self, timeout: 15)
+    }
+
+    @discardableResult
+    public func createSchedule(_ data: ScheduleCreateData, for profileId: String) async throws -> ScheduleJob {
+        try await request(type: "schedule.create", profileId: profileId, data: data, reply: ScheduleJobResult.self, timeout: 30).job
+    }
+
+    @discardableResult
+    public func updateSchedule(_ jobId: String, _ changes: ScheduleChanges, for profileId: String) async throws -> ScheduleJob {
+        try await request(type: "schedule.update", profileId: profileId, data: ScheduleUpdateData(job_id: jobId, changes: changes),
+                          reply: ScheduleJobResult.self, timeout: 30).job
+    }
+
+    /// `schedule.pause`, `schedule.resume` or `schedule.run` (due at the next tick).
+    @discardableResult
+    public func scheduleAction(_ action: String, _ jobId: String, for profileId: String) async throws -> ScheduleJob {
+        try await request(type: "schedule." + action, profileId: profileId, data: ScheduleJobRef(job_id: jobId),
+                          reply: ScheduleJobResult.self, timeout: 30).job
+    }
+
+    public func deleteSchedule(_ jobId: String, for profileId: String) async throws {
+        _ = try await request(type: "schedule.delete", profileId: profileId, data: ScheduleJobRef(job_id: jobId),
+                              reply: ScheduleDeleteResult.self, timeout: 30)
+    }
+
+    public func scheduleRuns(_ jobId: String, for profileId: String) async throws -> [ScheduleRun] {
+        try await request(type: "schedule.runs", profileId: profileId, data: ScheduleJobRef(job_id: jobId),
+                          reply: ScheduleRunsResult.self, timeout: 30).runs
+    }
+
+    public func scheduleOutput(_ jobId: String, run runId: String, for profileId: String) async throws -> String {
+        try await request(type: "schedule.output", profileId: profileId, data: ScheduleOutputData(job_id: jobId, run_id: runId),
+                          reply: ScheduleOutputResult.self, timeout: 30).text
+    }
+
     // MARK: - Board (docs/kanban.md)
 
     /// Counts the instance's "something changed on a board" notices (an open board or task reloads).
@@ -1441,6 +1492,9 @@ public final class GatewayClient: ObservableObject {
         case "artifact.changed":
             guard let envelope = try? decoder.decode(Envelope<ArtifactChangedData>.self, from: data) else { return }
             artifactVersions[envelope.data.artifact.artifact_id] = envelope.data.artifact.version
+        case "schedules.changed":
+            lastSchedulesChange = (try? decoder.decode(Envelope<EmptyData>.self, from: data))?.profile_id
+            schedulesChanges += 1
         case "kanban.changed":
             guard let envelope = try? decoder.decode(Envelope<KanbanChangedData>.self, from: data) else { return }
             lastKanbanChange = envelope.data

@@ -1269,3 +1269,138 @@ struct KanbanAssignData: Codable {
 }
 struct KanbanCommentData: Codable { let board: String?; let task_id: String; let body: String }
 struct KanbanLinkData: Codable { let board: String?; let task_id: String; let parent_id: String; let remove: Bool }
+
+// MARK: - Schedules (docs/scheduler.md, protocol.md §21)
+
+/// When a Hermes cron job runs, as Hermes keeps it.
+public struct ScheduleWhen: Codable, Equatable, Sendable {
+    /// cron, interval or once.
+    public let kind: String?
+    public let display: String
+    public let expr: String?
+    public let minutes: Int?
+    public let run_at: String?
+
+    public init(kind: String?, display: String, expr: String? = nil, minutes: Int? = nil, run_at: String? = nil) {
+        self.kind = kind
+        self.display = display
+        self.expr = expr
+        self.minutes = minutes
+        self.run_at = run_at
+    }
+}
+
+public struct ScheduleRepeat: Codable, Equatable, Sendable {
+    public let times: Int?
+    public let completed: Int
+}
+
+/// One agent's scheduled job (a Hermes cron job).
+public struct ScheduleJob: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let profile_id: String
+    public let name: String?
+    public let prompt: String
+    public let schedule: ScheduleWhen
+    public let state: String
+    public let enabled: Bool
+    public let next_run_at: String?
+    public let last_run_at: String?
+    public let last_status: String?
+    public let last_error: String?
+    public let deliver: String
+    public let `repeat`: ScheduleRepeat
+    public let model: String?
+    public let skills: [String]
+    /// Runs a script rather than (or before) the agent: shown, not editable here.
+    public let script: Bool
+
+    public var isPaused: Bool { state == "paused" || !enabled }
+    public var title: String {
+        if let name, !name.isEmpty { return name }
+        let first = prompt.split(whereSeparator: \.isNewline).first.map(String.init) ?? prompt
+        return first.isEmpty ? "Untitled schedule" : String(first.prefix(80))
+    }
+}
+
+public struct SchedulesListResult: Codable, Equatable, Sendable { public let jobs: [ScheduleJob] }
+public struct ScheduleJobResult: Codable, Equatable, Sendable { public let job: ScheduleJob }
+
+public struct SchedulePreview: Codable, Equatable, Sendable {
+    public let kind: String?
+    public let display: String
+    public let expr: String?
+    public let minutes: Int?
+    public let run_at: String?
+    public let next: [String]
+
+    public var when: ScheduleWhen { ScheduleWhen(kind: kind, display: display, expr: expr, minutes: minutes, run_at: run_at) }
+}
+
+public struct ScheduleRun: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let started_at: Double?
+    public let ended_at: Double?
+    /// ok, failed or running.
+    public let status: String
+    public let title: String?
+}
+
+public struct ScheduleRunsResult: Codable, Equatable, Sendable { public let runs: [ScheduleRun] }
+public struct ScheduleOutputResult: Codable, Equatable, Sendable { public let text: String }
+struct ScheduleDeleteResult: Codable { let job_id: String }
+
+struct SchedulePreviewData: Codable { let schedule: String }
+struct ScheduleJobRef: Codable { let job_id: String }
+struct ScheduleOutputData: Codable { let job_id: String; let run_id: String }
+public struct ScheduleCreateData: Codable, Equatable {
+    public var name: String?
+    public var prompt: String
+    public var schedule: String
+    public var deliver: String?
+    public var `repeat`: Int?
+    public var model: String?
+    public var skills: [String]?
+}
+
+/// What to change; a field left nil is kept. `repeat`/`model` can be cleared on purpose.
+public struct ScheduleChanges: Codable, Equatable {
+    public var name: String?
+    public var prompt: String?
+    public var schedule: String?
+    public var deliver: String?
+    public var skills: [String]?
+    /// Set: change it (nil inside = forever / the agent's own model).
+    public var repeatTimes: Int??
+    public var model: String??
+
+    public init(name: String? = nil, prompt: String? = nil, schedule: String? = nil, deliver: String? = nil,
+                skills: [String]? = nil, repeatTimes: Int?? = nil, model: String?? = nil) {
+        self.name = name
+        self.prompt = prompt
+        self.schedule = schedule
+        self.deliver = deliver
+        self.skills = skills
+        self.repeatTimes = repeatTimes
+        self.model = model
+    }
+
+    enum CodingKeys: String, CodingKey { case name, prompt, schedule, deliver, skills, repeatTimes = "repeat", model }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(name, forKey: .name)
+        try c.encodeIfPresent(prompt, forKey: .prompt)
+        try c.encodeIfPresent(schedule, forKey: .schedule)
+        try c.encodeIfPresent(deliver, forKey: .deliver)
+        try c.encodeIfPresent(skills, forKey: .skills)
+        if let repeatTimes { try c.encode(repeatTimes, forKey: .repeatTimes) }
+        if let model { try c.encode(model, forKey: .model) }
+    }
+
+    public var isEmpty: Bool {
+        name == nil && prompt == nil && schedule == nil && deliver == nil && skills == nil && repeatTimes == nil && model == nil
+    }
+}
+
+struct ScheduleUpdateData: Codable { let job_id: String; let changes: ScheduleChanges }

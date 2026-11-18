@@ -154,6 +154,16 @@ def _hermes_boards():
         return None
 
 
+def _hermes_schedules():
+    """Hermes' own cron code (docs/scheduler.md); None on a Hermes without it."""
+    try:
+        from .schedules import HermesSchedules
+        return HermesSchedules()
+    except Exception:
+        logger.info("Lekora: this Hermes' scheduler can't be reached; Schedules are unavailable")
+        return None
+
+
 class LekoraAdapter(BasePlatformAdapter):
     # Streaming (docs/streaming.md): Hermes sends the first words, then edits the message.
     SUPPORTS_MESSAGE_EDITING = True
@@ -444,7 +454,7 @@ class LekoraAdapter(BasePlatformAdapter):
             tools_reader=self._tools_for, tools_writer=self._set_tools_for, persona=self._persona_for,
             hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for,
             chat_sessions_reader=self._chat_sessions_for, current_session_reader=self._current_session_for,
-            kanban_boards=_hermes_boards())
+            kanban_boards=_hermes_boards(), hermes_schedules=_hermes_schedules())
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()

@@ -441,3 +441,16 @@ No `profile_id`: boards are shared by every agent on the instance. `board` is a 
   - `kanban.stop` `{board?, task_id}` (a running task: its worker is stopped, it waits as blocked)
 - `kanban.changed` (plugin → phones, not stored): `{board, task_ids}` after anything changes on a board (a heartbeat doesn't count).
 - Errors: `KANBAN_UNAVAILABLE` (Hermes without a board), `UNKNOWN_BOARD`, `UNKNOWN_TASK`, `INVALID_TASK`, `MOVE_REFUSED` (Hermes' reason as text), `UNKNOWN_PROFILE` (assignee).
+
+## 21. Schedules (spec: `scheduler.md`)
+`profile_id` is the agent the schedule belongs to (every request but `schedules.list` without one and `schedule.preview` needs it).
+- `schedules.list` `{}` (no `profile_id`: every agent's) → `schedules.list.result` `{jobs: [job]}`. A job: `{id, profile_id, name, prompt, schedule: {kind: cron|interval|once, display, expr?, minutes?, run_at?}, state (scheduled|paused|completed|error|running), enabled, next_run_at?, last_run_at?, last_status?, last_error?, deliver, repeat: {times?, completed}, model?, skills: [], script: bool}` (times ISO 8601 with offset).
+- `schedule.preview` `{schedule}` → `{kind, display, expr?, minutes?, run_at?, next: [ISO…] (up to 3)}`; error `INVALID_SCHEDULE` with Hermes' hint.
+- `schedule.create` `{name?, prompt, schedule, deliver? ("lekora" = this agent's Lekora chat, the default; "local"; or a Hermes target), repeat? (int), model?, skills?}` → `{job}`.
+- `schedule.update` `{job_id, changes: {name?, prompt?, schedule?, deliver?, repeat? (null = forever), model? (null = default), skills?}}` → `{job}`.
+- `schedule.pause` / `schedule.resume` / `schedule.run` `{job_id}` → `{job}` (`schedule.run`: the next scheduler tick; refused while paused).
+- `schedule.delete` `{job_id}` → `{job_id}`.
+- `schedule.runs` `{job_id}` → `{runs: [{id, started_at, ended_at?, status: ok|failed|running, title}]}`, newest first (up to 30).
+- `schedule.output` `{job_id, run_id}` → `{text}`: what that run produced (its Hermes output document's response, or the whole document).
+- `schedules.changed` (plugin → phones, not stored; `profile_id`): `{}` after any change to that agent's schedules.
+- Errors: `SCHEDULES_UNAVAILABLE`, `UNKNOWN_PROFILE`, `UNKNOWN_SCHEDULE`, `INVALID_SCHEDULE`, `SCHEDULE_REFUSED` (Hermes' reason as text).

@@ -20,6 +20,7 @@ public struct AgentsHomeView: View {
     /// The left menu (docs/kanban.md), and the board opened from it.
     @State private var menuOpen = false
     @State private var boardOn: GatewayClient?
+    @State private var schedulesOn: GatewayClient?
     @AppStorage("homeLayout") private var layoutChoice = Layout.recent.rawValue
 
     public init(hosts: HostsModel) {
@@ -70,6 +71,9 @@ public struct AgentsHomeView: View {
                 .navigationDestination(isPresented: Binding(get: { boardOn != nil }, set: { if !$0 { boardOn = nil } })) {
                     if let client = boardOn { BoardView(gateway: client) }
                 }
+                .navigationDestination(isPresented: Binding(get: { schedulesOn != nil }, set: { if !$0 { schedulesOn = nil } })) {
+                    if let client = schedulesOn { SchedulesView(gateway: client) }
+                }
                 .navigationDestination(for: AgentKey.self) { key in
                     chat(for: key)
                 })
@@ -78,6 +82,7 @@ public struct AgentsHomeView: View {
         .overlay {
             SideMenuView(hosts: hosts, isOpen: $menuOpen,
                          openBoard: { boardOn = $0 },
+                         openSchedules: { schedulesOn = $0 },
                          openYourName: { editingName = true },
                          openInstances: { showingComputers = true },
                          manageAgents: { managingAgentsOn = $0 })

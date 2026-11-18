@@ -103,6 +103,7 @@ class Gateway:
         self.tools: Optional[Any] = None
         self.artifacts: Optional[Any] = None   # Artifacts (docs/artifacts.md)
         self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
+        self.schedules: Optional[Any] = None   # Schedules: agents' Hermes cron jobs (docs/scheduler.md)
         self.chats: Optional[Any] = None       # ChatSessions: past chats (docs/chats.md)
         # The voice note waiting for Hermes' transcript, per chat (docs/voice.md).
         self._awaiting_transcript: dict[str, int] = {}
@@ -486,6 +487,8 @@ class Gateway:
             await self._chats_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("artifacts.list", "artifact.get", "artifact.save"):
             await self._artifact_request(conn, msg_id, type_, env.get("profile_id"), data)
+        elif type_.startswith("schedule"):
+            await self._schedules_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_.startswith("kanban."):
             await self._kanban_request(conn, msg_id, type_, data)
         elif type_ in ("agent.tools.get", "agent.tools.set"):
@@ -1001,6 +1004,31 @@ class Gateway:
         except ArtifactError as exc:
             raise _Reject(exc.code, exc.reason, True, False, msg_id)
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
+
+    # ---- schedules (docs/scheduler.md) ----------------------------------------------
+
+    async def publish_schedules_changed(self, profile_id: str) -> None:
+        """Phones showing this agent's schedules load them again."""
+        await self._broadcast_ephemeral(self._envelope("schedules.changed", {}, profile_id=profile_id))
+
+    async def _schedules_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                                 profile_id: Any, data: dict) -> None:
+        from .schedules import ScheduleError
+        known = ("schedules.list", "schedule.preview", "schedule.create", "schedule.update", "schedule.pause",
+                 "schedule.resume", "schedule.run", "schedule.delete", "schedule.runs", "schedule.output")
+        if type_ not in known:
+            raise _Reject("INVALID_MESSAGE", f"Unknown message type: {type_}", True, False, msg_id)
+        if self.schedules is None:
+            raise _Reject("SCHEDULES_UNAVAILABLE", "Schedules can't be reached on this Hermes instance", True, False, msg_id)
+        try:
+            result = await self.schedules.request(type_, profile_id, data)
+        except ScheduleError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except Exception:
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("SCHEDULES_UNAVAILABLE", "Couldn't reach this agent's schedules", True, False, msg_id)
+        reply_profile = profile_id if isinstance(profile_id, str) else None
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=reply_profile))
 
     # ---- the board (docs/kanban.md) -------------------------------------------------
 
