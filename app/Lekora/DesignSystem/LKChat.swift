@@ -61,12 +61,16 @@ public struct LKMessageBubble: View {
             VStack(alignment: isUser ? .trailing : .leading, spacing: LK.Spacing.xs) {
                 Text(rendered)
                     .font(LK.Typography.body)
-                    .textSelection(.enabled)
                     .foregroundStyle(isUser ? LK.Palette.onAccent : .primary)
                     .padding(.horizontal, LK.Spacing.md + LK.Spacing.xxs)
                     .padding(.vertical, LK.Spacing.sm + 1)
                     .background(isUser ? LK.Surface.accent : LK.Surface.inset,
                                 in: RoundedRectangle(cornerRadius: LK.Radius.bubble, style: .continuous))
+                    .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: LK.Radius.bubble, style: .continuous))
+                    #if canImport(UIKit)
+                    // What's shown, without Markdown marks (and not the typing cursor).
+                    .modifier(LKCopyMenu(isUser ? text : String(Self.markdown(text).characters)))
+                    #endif
                     .opacity(delivery == .sending ? 0.6 : 1)
 
                 switch delivery {
@@ -110,10 +114,17 @@ public struct LKComposer: View {
     private let replacementID: String?
     /// Shown inside the field instead of Send (the mic while there's nothing to send).
     private let action: AnyView?
+    /// Photos and files pasted into the field (docs/files.md).
+    private let onPaste: (([NSItemProvider]) -> Void)?
+    /// Goes up each time the chat wants the keyboard.
+    private let focusRequest: Int
 
     public init(_ placeholder: String, text: Binding<String>, canSend: Bool,
                 focus: FocusState<Bool>.Binding, accessory: AnyView? = nil, replacement: AnyView? = nil,
-                replacementID: String? = nil, action: AnyView? = nil, onSend: @escaping () -> Void) {
+                replacementID: String? = nil, action: AnyView? = nil,
+                onPaste: (([NSItemProvider]) -> Void)? = nil, focusRequest: Int = 0, onSend: @escaping () -> Void) {
+        self.onPaste = onPaste
+        self.focusRequest = focusRequest
         self.replacementID = replacementID
         self.placeholder = placeholder
         self._text = text
@@ -137,8 +148,8 @@ public struct LKComposer: View {
                 HStack(alignment: .bottom, spacing: LK.Spacing.sm) {
                     if let accessory { accessory }
                     LKTextField(placeholder, text: $text, style: .glass, axis: .vertical,
-                                trailing: action ?? AnyView(sendButton))
-                        .focused(focus)
+                                trailing: action ?? AnyView(sendButton), focus: focus, focusRequest: focusRequest,
+                                onPaste: onPaste)
                 }
                 .transition(.scale(scale: 0.96, anchor: .trailing).combined(with: .opacity))
             }
@@ -347,6 +358,80 @@ public struct LKLeftwardPan: UIGestureRecognizerRepresentable {
         public func gestureRecognizer(_ recognizer: UIGestureRecognizer,
                                       shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             true
+        }
+    }
+}
+#endif
+
+#if canImport(UIKit)
+/// Long-press a message for Copy and Select Text… (as in Messages). Voice notes copy what was said.
+public struct LKCopyMenu: ViewModifier {
+    let text: String?
+    let copyLabel: String
+    @State private var selecting = false
+
+    public init(_ text: String?, copyLabel: String = "Copy") {
+        self.text = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.copyLabel = copyLabel
+    }
+
+    public func body(content: Content) -> some View {
+        if let text, !text.isEmpty {
+            content
+                .contextMenu {
+                    Button(copyLabel, systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
+                    Button("Select Text…", systemImage: "text.cursor") { selecting = true }
+                    ShareLink(item: text) { Label("Share…", systemImage: "square.and.arrow.up") }
+                }
+                .sheet(isPresented: $selecting) { LKSelectTextView(text: text) }
+        } else {
+            content
+        }
+    }
+}
+
+/// The whole message, to select any part of it and copy.
+struct LKSelectTextView: View {
+    let text: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            SelectableText(text: text)
+                .padding(.horizontal, LK.Spacing.lg)
+                .navigationTitle("Select Text")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Copy All") {
+                            UIPasteboard.general.string = text
+                            dismiss()
+                        }
+                    }
+                }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private struct SelectableText: UIViewRepresentable {
+        let text: String
+
+        func makeUIView(context: Context) -> UITextView {
+            let view = UITextView()
+            view.isEditable = false
+            view.isSelectable = true
+            view.font = .preferredFont(forTextStyle: .body)
+            view.adjustsFontForContentSizeCategory = true
+            view.backgroundColor = .clear
+            view.dataDetectorTypes = [.link]
+            view.textContainerInset = UIEdgeInsets(top: LK.Spacing.md, left: 0, bottom: LK.Spacing.xl, right: 0)
+            view.text = text
+            return view
+        }
+
+        func updateUIView(_ view: UITextView, context: Context) {
+            if view.text != text { view.text = text }
         }
     }
 }

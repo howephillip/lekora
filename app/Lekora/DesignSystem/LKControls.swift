@@ -80,23 +80,60 @@ public struct LKTextField: View {
     private let axis: Axis
     /// Inside the field on the right, e.g. the message bar's mic or Send (as in Messages).
     private let trailing: AnyView?
+    /// Set: Paste also takes photos and files (the message bar), which go here.
+    private let onPaste: (([NSItemProvider]) -> Void)?
+    private let focus: FocusState<Bool>.Binding?
+    private let focusRequest: Int
 
     public init(_ placeholder: String, text: Binding<String>, style: Style = .surface, axis: Axis = .horizontal,
-                trailing: AnyView? = nil) {
+                trailing: AnyView? = nil, focus: FocusState<Bool>.Binding? = nil, focusRequest: Int = 0,
+                onPaste: (([NSItemProvider]) -> Void)? = nil) {
+        self.focusRequest = focusRequest
         self.placeholder = placeholder
         self._text = text
         self.style = style
         self.axis = axis
         self.trailing = trailing
+        self.focus = focus
+        self.onPaste = onPaste
+    }
+
+    @ViewBuilder
+    private var input: some View {
+        #if canImport(UIKit)
+        if let onPaste {
+            LKPasteTextView(placeholder: placeholder, text: $text, focus: focus, focusRequest: focusRequest,
+                            maxLines: 5, onPaste: onPaste)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
+        } else {
+            plainField
+        }
+        #else
+        plainField
+        #endif
+    }
+
+    @ViewBuilder
+    private var plainField: some View {
+        if let focus {
+            TextField(placeholder, text: $text, axis: axis)
+                .font(LK.Typography.body)
+                .lineLimit(1...5)
+                .padding(.vertical, LK.Spacing.md)
+                .focused(focus)
+        } else {
+            TextField(placeholder, text: $text, axis: axis)
+                .font(LK.Typography.body)
+                .lineLimit(1...5)
+                .padding(.vertical, LK.Spacing.md)
+        }
     }
 
     public var body: some View {
         let shape = RoundedRectangle(cornerRadius: LK.Radius.field, style: .continuous)
         let field = HStack(alignment: .bottom, spacing: LK.Spacing.xs) {
-            TextField(placeholder, text: $text, axis: axis)
-                .font(LK.Typography.body)
-                .lineLimit(1...5)
-                .padding(.vertical, LK.Spacing.md)
+            input
             if let trailing {
                 trailing
                     .padding(.vertical, (LK.Spacing.md * 2 + 22 - 32) / 2)  // centred on the first line

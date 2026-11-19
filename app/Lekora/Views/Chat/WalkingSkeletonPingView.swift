@@ -15,6 +15,8 @@ public struct WalkingSkeletonPingView: View {
 
     @State private var draft: String = ""
     @FocusState private var inputFocused: Bool
+    /// Asks the message bar for the keyboard (it's a UIKit field, see LKPasteTextView).
+    @State private var focusRequests = 0
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
     @State private var isOnScreen = false
@@ -207,6 +209,7 @@ public struct WalkingSkeletonPingView: View {
                         LKCommandSuggestions(suggestions) { picked in
                             draft = picked.insert
                             inputFocused = true
+                            focusRequests += 1
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
@@ -220,6 +223,7 @@ public struct WalkingSkeletonPingView: View {
                                focus: $inputFocused, accessory: AnyView(attachMenu),
                                replacement: voiceBar, replacementID: voiceStage,
                                action: showsMic ? AnyView(LKFieldMicButton(action: startRecording)) : nil,
+                               onPaste: pasted, focusRequest: focusRequests,
                                onSend: send)
                         .id(composerID)
                         .animation(.spring(duration: 0.42, bounce: 0.22), value: voiceStage)
@@ -440,6 +444,7 @@ public struct WalkingSkeletonPingView: View {
                     SpokenReplyBubble(entry: entry, parts: spokenParts(entry), live: isLiveSpoken(entry),
                                       personality: voiceStyle(entry) == "personality",
                                       problem: voiceProblem(entry), gateway: gateway, player: player)
+                        .modifier(LKCopyMenu(String(LKMessageBubble.markdown(entry.text).characters), copyLabel: "Copy Text"))
                         .offset(x: -timeReveal)
                         .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
                 } else if let voice = entry.voice, let file = entry.files?.first {
@@ -449,6 +454,7 @@ public struct WalkingSkeletonPingView: View {
                                   loading: loadingVoice == entry.id,
                                   onToggle: { toggleVoice(entry, file: file) },
                                   onSeek: { seekVoice(entry, file: file, to: $0) })
+                        .modifier(LKCopyMenu(entry.transcript, copyLabel: "Copy Transcript"))
                         .offset(x: -timeReveal)
                         .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
                     fileOnlyStatus(for: entry)
@@ -762,6 +768,23 @@ public struct WalkingSkeletonPingView: View {
         .buttonBorderShape(.circle)
         .disabled(!isConnected || uploading || attachments.count >= GatewayClient.maxFilesPerMessage)
         .accessibilityLabel("Add photos or files")
+    }
+
+    /// Photos and files pasted into the message bar (docs/files.md), like ones chosen with +.
+    private func pasted(_ providers: [NSItemProvider]) {
+        guard isConnected else {
+            attachmentProblem = "Photos and files go once \(instanceName) is connected."
+            return
+        }
+        Task {
+            for (index, provider) in providers.enumerated() {
+                do {
+                    addAttachment(try await AttachmentImport.fromPasted(provider, index: index))
+                } catch {
+                    attachmentProblem = error.localizedDescription
+                }
+            }
+        }
     }
 
     private func addAttachment(_ item: LKPendingAttachment) {
@@ -1114,7 +1137,7 @@ public struct WalkingSkeletonPingView: View {
         gateway.drafts[gateway.activeProfileId] = nil
         // A fresh text box (see composerID), keeping the keyboard up.
         composerID += 1
-        DispatchQueue.main.async { inputFocused = true }
+        DispatchQueue.main.async { inputFocused = true; focusRequests += 1 }
         isAtBottom = true          // you just sent something: show it, and the reply
         scrollToBottom(animated: true)
         Task {

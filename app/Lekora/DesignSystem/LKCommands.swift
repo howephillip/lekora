@@ -56,6 +56,9 @@ public enum LKCommandMatcher {
 public struct LKCommandSuggestions: View {
     private let suggestions: [LKCommandSuggestion]
     private let onPick: (LKCommandSuggestion) -> Void
+    /// The rows' full height: the list is that tall, up to `maxHeight`, then scrolls.
+    @State private var contentHeight: CGFloat = 0
+    private static let maxHeight: CGFloat = 260
 
     public init(_ suggestions: [LKCommandSuggestion], onPick: @escaping (LKCommandSuggestion) -> Void) {
         self.suggestions = suggestions
@@ -64,7 +67,7 @@ public struct LKCommandSuggestions: View {
 
     public var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(suggestions) { suggestion in
                     Button {
                         onPick(suggestion)
@@ -99,10 +102,11 @@ public struct LKCommandSuggestions: View {
                     }
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
         .scrollBounceBehavior(.basedOnSize)
-        .frame(maxHeight: 260)
-        .fixedSize(horizontal: false, vertical: true)
+        // A fixed height: "as tall as it likes" ignored the limit, and a long list ran behind the bar.
+        .frame(height: min(max(contentHeight, 44), Self.maxHeight))
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: LK.Radius.card, style: .continuous))
         .padding(.horizontal, LK.Spacing.lg)
         .accessibilityLabel("Command suggestions")

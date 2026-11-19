@@ -69,3 +69,21 @@ private final class PreviewCredentialStore: CredentialStore {
     }
     .lkScreenBackground()
 }
+
+#if canImport(UIKit)
+#Preview("Message bar that takes pasted photos") {
+    @Previewable @State var empty = ""
+    @Previewable @State var long = "A longer message that wraps onto a second line so the bar grows with it, like Messages does."
+    @Previewable @FocusState var focused: Bool
+    VStack(spacing: 0) {
+        Spacer()
+        let commands = ["new", "model", "reasoning", "fast", "approvals", "summarize", "research", "voice", "status"]
+            .map { SlashCommand(name: $0, description: "What /\($0) does, in a few words") }
+        LKCommandSuggestions(LKCommandMatcher.suggestions(for: "/", commands: commands)) { _ in }
+        LKComposer("Message Default", text: $long, canSend: true, focus: $focused, onPaste: { _ in }) {}
+        LKComposer("Message Default", text: $empty, canSend: false, focus: $focused,
+                   accessory: AnyView(Image(systemName: "plus").frame(width: 44, height: 44)),
+                   action: AnyView(Image(systemName: "waveform").frame(width: 32, height: 32)), onPaste: { _ in }) {}
+    }
+}
+#endif

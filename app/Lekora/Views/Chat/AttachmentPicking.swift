@@ -72,6 +72,67 @@ enum AttachmentImport {
     }
 
     #if canImport(UIKit)
+    /// Pasted into the message bar: a photo, or a file copied in Files or another app.
+    static func fromPasted(_ provider: NSItemProvider, index: Int) async throws -> LKPendingAttachment {
+        let suffix = index > 0 ? " \(index + 1)" : ""
+        // A file copied in Files: the file itself, with its name.
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            let source: URL? = try? await withCheckedThrowingContinuation { done in
+                _ = provider.loadObject(ofClass: URL.self) { url, error in
+                    if let url { done.resume(returning: url) } else { done.resume(throwing: error ?? Problem.unreadable) }
+                }
+            }
+            if let source, source.isFileURL, FileManager.default.fileExists(atPath: source.path) { return try fromFile(source) }
+        }
+        // The richest real kind it comes as (the original photo or document), not text or an in-app kind.
+        let types = provider.registeredContentTypes.filter {
+            !$0.isDynamic && $0.preferredFilenameExtension != nil && !$0.conforms(to: .plainText) && !$0.conforms(to: .url)
+        }
+        if let type = types.first, let url = try? await copyFile(provider, type: type, suffix: suffix) {
+            if type.conforms(to: .heic) || type.conforms(to: .heif),
+               let image = UIImage(contentsOfFile: url.path), let jpeg = image.jpegData(compressionQuality: 0.9) {
+                let jpg = url.deletingPathExtension().appendingPathExtension("jpg")
+                try jpeg.write(to: jpg)
+                return try make(jpg, name: jpg.lastPathComponent, type: .jpeg)
+            }
+            return try make(url, name: url.lastPathComponent, type: type)
+        }
+        guard provider.canLoadObject(ofClass: UIImage.self) else { throw Problem.unreadable }
+        let image: UIImage = try await withCheckedThrowingContinuation { done in
+            _ = provider.loadObject(ofClass: UIImage.self) { object, error in
+                if let image = object as? UIImage { done.resume(returning: image) } else { done.resume(throwing: error ?? Problem.unreadable) }
+            }
+        }
+        guard let jpeg = image.jpegData(compressionQuality: 0.9) else { throw Problem.unreadable }
+        let url = try tempFolder().appendingPathComponent("Photo \(stamp())\(suffix).jpg")
+        try jpeg.write(to: url)
+        return try make(url, name: url.lastPathComponent, type: .jpeg)
+    }
+
+    /// A pasted item as a file of `type`, named as it was (or "Pasted …").
+    private static func copyFile(_ provider: NSItemProvider, type: UTType, suffix: String) async throws -> URL {
+        let ext = type.preferredFilenameExtension ?? "bin"
+        let base = type.conforms(to: .image) ? "Photo" : "Pasted"
+        var name = provider.suggestedName ?? "\(base) \(stamp())\(suffix)"
+        // "Photo 2026-11-18 at 20.30.58" ends in ".58": only a real file kind counts as its extension.
+        if UTType(filenameExtension: URL(fileURLWithPath: name).pathExtension) == nil || provider.suggestedName == nil {
+            name += "." + ext
+        }
+        let folder = try tempFolder()
+        return try await withCheckedThrowingContinuation { done in
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { source, error in
+                guard let source else { return done.resume(throwing: error ?? Problem.unreadable) }
+                do {
+                    let target = folder.appendingPathComponent(name)
+                    try FileManager.default.copyItem(at: source, to: target)  // the original goes when this returns
+                    done.resume(returning: target)
+                } catch {
+                    done.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     /// A picture just taken with the camera.
     static func fromCamera(_ image: UIImage) throws -> LKPendingAttachment {
         guard let jpeg = image.jpegData(compressionQuality: 0.9) else { throw Problem.unreadable }

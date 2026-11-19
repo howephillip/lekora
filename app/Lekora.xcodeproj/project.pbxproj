@@ -38,9 +38,11 @@
 		6335CBA60311527E8077F02D /* PinnedTLS.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8596CF7B9B0B12CD2C7E000 /* PinnedTLS.swift */; };
 		63D6F2FB67ACF2275D7D12DA /* ChatHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF412341EDFBD9C0BD40EA1 /* ChatHistoryTests.swift */; };
 		666FB1BFEBE4A4F7C4BF30BC /* VoiceNoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B80EC56CADDB2722443348C /* VoiceNoteTests.swift */; };
+		674B661760762BB5D7C652D8 /* CopyPasteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49B6E0044C418EC57F5AD720 /* CopyPasteTests.swift */; };
 		682067A437368480771B32B3 /* ScheduleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A88AB63D9FC6E36DE17ED8 /* ScheduleTests.swift */; };
 		6F86DE2FC4FB058A4BB72A2A /* KanbanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502254A09EB9FDC9617F7E6F /* KanbanTests.swift */; };
 		7016FE2A3587140FCFA0B20E /* HandsFreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C292BB4A537414C1AF0F3FE9 /* HandsFreeTests.swift */; };
+		726BCBF72EAC1F8FBF6F3AC5 /* LKPasteTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32E7354C4C9FDAD2E5FD7EA5 /* LKPasteTextView.swift */; };
 		79BFDCAE870C5AD61A964A3C /* RouteProberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B15F6543F52B84ACE021C2 /* RouteProberTests.swift */; };
 		7C5B76CBB81E02B33C7258F1 /* KanbanBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4320D1D080E13AD40487E6 /* KanbanBoard.swift */; };
 		81CE4A4DF2691A77386D4538 /* AttachmentPicking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A76BD582961EF84C909245 /* AttachmentPicking.swift */; };
@@ -121,6 +123,7 @@
 		2CD6AF1AA6582890921BFB14 /* LekoraTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LekoraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2F4320D1D080E13AD40487E6 /* KanbanBoard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanbanBoard.swift; sourceTree = "<group>"; };
 		30340119CD6EC084AB905328 /* DirectVoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectVoiceView.swift; sourceTree = "<group>"; };
+		32E7354C4C9FDAD2E5FD7EA5 /* LKPasteTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKPasteTextView.swift; sourceTree = "<group>"; };
 		3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkingSkeletonPingView.swift; sourceTree = "<group>"; };
 		33E50A84B543D54F9018D320 /* HearingRepliesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HearingRepliesTests.swift; sourceTree = "<group>"; };
 		354249C24E28051B0D46C7F7 /* AgentsHomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsHomeTests.swift; sourceTree = "<group>"; };
@@ -130,6 +133,7 @@
 		3D68937DEF313C782685EDF4 /* LKControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKControls.swift; sourceTree = "<group>"; };
 		40A37A2B9CBB6F1702860D33 /* ArtifactsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactsTests.swift; sourceTree = "<group>"; };
 		45AC25602609D1AD17992E2C /* VoicePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePickerView.swift; sourceTree = "<group>"; };
+		49B6E0044C418EC57F5AD720 /* CopyPasteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyPasteTests.swift; sourceTree = "<group>"; };
 		4DC314EDE9FA37E9DEAB8B6B /* ComputersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputersView.swift; sourceTree = "<group>"; };
 		502254A09EB9FDC9617F7E6F /* KanbanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanbanTests.swift; sourceTree = "<group>"; };
 		50C53B755498A3C7DE2ABEA0 /* ReplySpeaker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplySpeaker.swift; sourceTree = "<group>"; };
@@ -240,6 +244,7 @@
 				3D68937DEF313C782685EDF4 /* LKControls.swift */,
 				AD8D84BFDD7B657B250DD3E0 /* LKFiles.swift */,
 				0684A706179CCAB9BF30D05F /* LKModelBrowser.swift */,
+				32E7354C4C9FDAD2E5FD7EA5 /* LKPasteTextView.swift */,
 				73562A915817188C789BD926 /* LKPreviews.swift */,
 				08407DF491E075BA09148236 /* LKPrompts.swift */,
 				98E6C761189D7F9969880583 /* LKSurfaces.swift */,
@@ -290,6 +295,7 @@
 				16C8FFF0B35F4E68F6686564 /* ChatSettingsTests.swift */,
 				5206328E9A5394AD7CDB4C77 /* ChatTimelineTests.swift */,
 				A4182371F7933EBE6B3490F5 /* CodeHighlighterTests.swift */,
+				49B6E0044C418EC57F5AD720 /* CopyPasteTests.swift */,
 				A1FA8B34B4CE7A6CD6671CD0 /* EncryptionTests.swift */,
 				19C424E99FE08F51187724FC /* FakeHost.swift */,
 				203F8C1E0485F0F73E02F72F /* FilesTests.swift */,
@@ -469,6 +475,7 @@
 				9AE3FC3D1F24E1FCDEAD6CA9 /* LKControls.swift in Sources */,
 				05AB1DB29EB8104379D719FB /* LKFiles.swift in Sources */,
 				B4D5AB33121DF83AC0C4E222 /* LKModelBrowser.swift in Sources */,
+				726BCBF72EAC1F8FBF6F3AC5 /* LKPasteTextView.swift in Sources */,
 				22BE641970CDB938F9E67B27 /* LKPreviews.swift in Sources */,
 				21EA61180ECA274F34F6B62C /* LKPrompts.swift in Sources */,
 				B4BE360A187FB1147A43DC0E /* LKSurfaces.swift in Sources */,
@@ -512,6 +519,7 @@
 				D9BE1AE3B4D610F942E48436 /* ChatSettingsTests.swift in Sources */,
 				C40CC13DF8F92D779F8E1154 /* ChatTimelineTests.swift in Sources */,
 				1363F40BBFF1057B9703C171 /* CodeHighlighterTests.swift in Sources */,
+				674B661760762BB5D7C652D8 /* CopyPasteTests.swift in Sources */,
 				391E8D2FBE5FB23C6E493A93 /* EncryptionTests.swift in Sources */,
 				B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */,
 				F8F1AF8CED29B5EEA4DE0B4F /* FilesTests.swift in Sources */,
