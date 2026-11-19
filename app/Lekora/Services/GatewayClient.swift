@@ -480,6 +480,21 @@ public final class GatewayClient: ObservableObject {
         return ack
     }
 
+    // MARK: - Helpers (docs/delegation.md)
+
+    /// Stops one helper on a Helpers card, or (nil) every helper still working on it.
+    @discardableResult
+    public func stopHelpers(profileId: String, seq: Int, helperId: String?) async throws -> [String] {
+        try await request(type: "delegation.stop", profileId: profileId,
+                          data: DelegationStopRequest(seq: seq, helper_id: helperId),
+                          reply: DelegationStopData.self, timeout: 15).stopped
+    }
+
+    /// An agent's name from its profile id (the id itself when it isn't known here).
+    public func agentName(_ profileId: String) -> String {
+        profiles.first { $0.profile_id == profileId }?.name ?? profileId
+    }
+
     // MARK: - Older messages (docs/chat-history.md)
 
     /// Whether scrolling to the top of an agent's chat can load more from the host.
@@ -1563,7 +1578,8 @@ public final class GatewayClient: ObservableObject {
                 artifact: envelope.data.artifact,
                 about: envelope.data.about,
                 review: envelope.data.review,
-                session: envelope.data.session
+                session: envelope.data.session,
+                delegation: envelope.data.delegation
             )
             if let session = envelope.data.session, envelope.data.seq >= (timeline.newestSeq(for: profileId) ?? 0) {
                 // The newest message is in the current conversation (after New Chat, a resume, or Hermes' own reset).

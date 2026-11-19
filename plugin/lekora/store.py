@@ -589,6 +589,15 @@ class Store:
                 (self.instance_id,)).fetchall()
         return [self._event(r) for r in rows]
 
+    def working_helper_cards(self) -> list[Event]:
+        """Helpers cards still marked working (docs/delegation.md)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM events WHERE instance_id = ? AND event_type = 'chat.message' "
+                "AND json_extract(payload_json, '$.delegation.status') = 'working' ORDER BY seq",
+                (self.instance_id,)).fetchall()
+        return [self._event(r) for r in rows]
+
     def events_for_profile(self, profile_id: str) -> list[Event]:
         """One agent's events in order (for the backup taken before deleting it)."""
         with self._lock:

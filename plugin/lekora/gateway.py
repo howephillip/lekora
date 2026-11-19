@@ -102,6 +102,7 @@ class Gateway:
         # An agent's tools in Lekora chats (docs/agent-tools.md); set by LekoraService.
         self.tools: Optional[Any] = None
         self.artifacts: Optional[Any] = None   # Artifacts (docs/artifacts.md)
+        self.delegations: Optional[Any] = None  # Helpers cards (docs/delegation.md)
         self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
         self.schedules: Optional[Any] = None   # Schedules: agents' Hermes cron jobs (docs/scheduler.md)
         self.chats: Optional[Any] = None       # ChatSessions: past chats (docs/chats.md)
@@ -188,8 +189,11 @@ class Gateway:
                       voicing: Optional[str] = None, voice_problem: Optional[str] = None,
                       voice_key: Optional[str] = None, spoken_text: Optional[str] = None,
                       artifact: Optional[dict] = None, about: Optional[dict] = None,
-                      review: Optional[list] = None, session: Optional[str] = None) -> dict:
+                      review: Optional[list] = None, session: Optional[str] = None,
+                      delegation: Optional[dict] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
+        if delegation:
+            data["delegation"] = delegation  # a Helpers card: the helpers tree (docs/delegation.md)
         if session:
             data["session"] = session  # the Hermes conversation it belongs to (docs/chats.md)
         if review:
@@ -233,7 +237,8 @@ class Gateway:
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
             voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
             artifact=ev.payload.get("artifact"), about=ev.payload.get("about"),
-            review=ev.payload.get("review"), session=self._session_of(ev)),
+            review=ev.payload.get("review"), session=self._session_of(ev),
+            delegation=ev.payload.get("delegation")),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
@@ -339,6 +344,22 @@ class Gateway:
         if updated is not None:
             await self._broadcast(updated)
 
+    async def publish_helpers(self, profile_id: str, text: str, delegation: dict) -> int:
+        """A Helpers card (docs/delegation.md), saved as a chat message and sent to every phone."""
+        seq = self.store.append_event(profile_id, "chat.message",
+                                      {"role": "helpers", "text": text, "delegation": delegation})
+        await self._broadcast(self.store.get_event(seq))
+        return seq
+
+    async def update_helpers(self, seq: int, text: str, delegation: dict) -> None:
+        """The tree's new state: saved with a new change number, resent."""
+        event = self.store.get_event(seq)
+        if event is None:
+            return
+        updated = self.store.update_event_payload(seq, dict(event.payload, text=text, delegation=delegation))
+        if updated is not None:
+            await self._broadcast(updated)
+
     async def update_message(self, seq: int, text: str) -> bool:
         """Change a saved message (Hermes corrected it after it was sealed). Phones receive
         it again with the same seq and replace the text; replays carry the new text."""
@@ -387,7 +408,8 @@ class Gateway:
             voicing=ev.payload.get("voicing"), voice_problem=ev.payload.get("voice_problem"),
             voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
             artifact=ev.payload.get("artifact"), about=ev.payload.get("about"),
-            review=ev.payload.get("review"), session=self._session_of(ev)),
+            review=ev.payload.get("review"), session=self._session_of(ev),
+            delegation=ev.payload.get("delegation")),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -508,6 +530,8 @@ class Gateway:
         elif type_ == "voice.timing":
             if self.voice_replies is not None:
                 self.voice_replies.phone_timing(env.get("profile_id"), data)
+        elif type_ == "delegation.stop":
+            await self._delegation_stop(conn, msg_id, env.get("profile_id"), data)
         elif type_ == "prompt.respond":
             await self._prompt_respond(conn, msg_id, env.get("profile_id"), data)
         elif type_ in ("profile.create", "profile.delete"):
@@ -960,6 +984,23 @@ class Gateway:
                 await self.chats.resume(profile_id, session_id)
                 result = {"session_id": session_id}
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
+
+    # ---- helpers (docs/delegation.md) ------------------------------------------
+
+    async def _delegation_stop(self, conn: _Conn, msg_id: Optional[str], profile_id: Any, data: dict) -> None:
+        if self.delegations is None:
+            raise _Reject("UNAVAILABLE", "Helpers can't be stopped on this Hermes instance", True, False, msg_id)
+        seq, helper_id = data.get("seq"), data.get("helper_id")
+        if not isinstance(seq, int) or (helper_id is not None and not isinstance(helper_id, str)):
+            raise _Reject("INVALID_MESSAGE", "delegation.stop needs a card seq", True, False, msg_id)
+        try:
+            stopped = await self.delegations.stop(seq, helper_id)
+        except KeyError:
+            raise _Reject("UNKNOWN_CARD", "Those helpers have already finished", True, False, msg_id)
+        except RuntimeError:
+            raise _Reject("UNAVAILABLE", "This Hermes can't stop helpers", True, False, msg_id)
+        await self._send(conn, self._envelope("delegation.stop.result", {"stopped": stopped},
+                                              msg_id=msg_id, profile_id=profile_id))
 
     # ---- artifacts (docs/artifacts.md) ----------------------------------------
 

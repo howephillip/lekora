@@ -121,6 +121,26 @@ def _lekora_session() -> bool:
         return False
 
 
+def _profile_names() -> list[str]:
+    try:
+        return [p["profile_id"] for p in _profiles.discover_profiles()]
+    except Exception:
+        return []
+
+
+def _can_ask_agent() -> bool:
+    """Asking another agent: in Lekora chats, when there is another agent to ask."""
+    return _lekora_session() and len(_profile_names()) > 1
+
+
+def _helpers_target():
+    """Where Hermes' helper events go: the running Lekora's Helpers cards and its loop."""
+    active = _ACTIVE
+    if not active or active[0]._service is None or active[0]._service.gateway is None:
+        return None
+    return active[0]._service.gateway.delegations, active[1]
+
+
 def _send_file_handler(args: dict, **_kwargs) -> str:
     from gateway.session_context import get_session_env
     active = _ACTIVE
@@ -152,6 +172,17 @@ def _hermes_boards():
         return HermesBoards()
     except Exception:
         logger.info("Lekora: this Hermes has no kanban board; the Board is unavailable")
+        return None
+
+
+def _hermes_helpers():
+    """Hermes' running-helper list and Stop (docs/delegation.md); None on a Hermes without them."""
+    try:
+        from tools.delegate_tool_registry import interrupt_subagent, list_active_subagents  # noqa: F401
+        from .hermes_delegation import HermesHelpers
+        return HermesHelpers()
+    except Exception:
+        logger.info("Lekora: this Hermes can't list its helpers; Helpers cards show less")
         return None
 
 
@@ -455,7 +486,8 @@ class LekoraAdapter(BasePlatformAdapter):
             tools_reader=self._tools_for, tools_writer=self._set_tools_for, persona=self._persona_for,
             hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for,
             chat_sessions_reader=self._chat_sessions_for, current_session_reader=self._current_session_for,
-            kanban_boards=_hermes_boards(), hermes_schedules=_hermes_schedules(), draft_llm=_draft_llm)
+            kanban_boards=_hermes_boards(), hermes_schedules=_hermes_schedules(), draft_llm=_draft_llm,
+            hermes_helpers=_hermes_helpers())
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()
@@ -752,3 +784,11 @@ def register(ctx) -> None:
         ctx.register_tool(name=schema["name"], toolset=TOOLSET, schema=schema,
                           handler=_artifact_handler(schema["name"]), check_fn=check,
                           description=schema["description"], emoji="🧩")
+    # Helpers as a live tree, and asking another agent (docs/delegation.md).
+    from . import hermes_delegation
+    try:
+        from tools.registry import no_cache_check_fn
+        ask_check = no_cache_check_fn(_can_ask_agent)
+    except ImportError:
+        ask_check = _can_ask_agent
+    hermes_delegation.register(ctx, _helpers_target, _profile_names, ask_check)

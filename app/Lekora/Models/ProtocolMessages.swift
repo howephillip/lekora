@@ -427,6 +427,8 @@ public struct ChatMessageData: Codable, Equatable {
     public let review: [ReviewComment]?
     /// The Hermes conversation it belongs to (docs/chats.md).
     public let session: String?
+    /// A Helpers card: the agent's helpers as a tree (docs/delegation.md).
+    public let delegation: HelpersTree?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
                 rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
@@ -434,7 +436,8 @@ public struct ChatMessageData: Codable, Equatable {
                 spoken: [ChatFile]? = nil, voicing: String? = nil, voice_problem: String? = nil,
                 voice_key: String? = nil, spoken_text: String? = nil,
                 artifact: ArtifactCard? = nil, about: ArtifactCard? = nil, review: [ReviewComment]? = nil,
-                session: String? = nil) {
+                session: String? = nil, delegation: HelpersTree? = nil) {
+        self.delegation = delegation
         self.session = session
         self.review = review
         self.artifact = artifact
@@ -461,6 +464,90 @@ public struct ChatMessageData: Codable, Equatable {
     public var date: Date? {
         at.flatMap { try? Date($0, strategy: .iso8601) }
     }
+}
+
+// MARK: - Helpers (docs/delegation.md)
+/// The helpers an agent used for one reply, as a tree.
+public struct HelpersTree: Codable, Equatable, Hashable, Sendable {
+    /// working | done
+    public var status: String
+    public var helpers: [Helper]
+
+    public init(status: String, helpers: [Helper]) {
+        self.status = status
+        self.helpers = helpers
+    }
+
+    public var isWorking: Bool { status == "working" }
+    public var workingCount: Int { helpers.filter(\.isWorking).count }
+
+    /// One helper: a Hermes subagent, or another agent asked to help.
+    public struct Helper: Codable, Equatable, Hashable, Identifiable, Sendable {
+        public let id: String
+        /// The helper that started this one (nil: the agent itself did).
+        public let parent: String?
+        public let goal: String
+        /// Another agent asked to help (its profile id); nil for the agent's own helpers.
+        public let agent: String?
+        /// working | finishing | done | failed | stopped | timed_out
+        public var status: String
+        /// What it's doing now ("Web search").
+        public var doing: String?
+        public var steps: Int
+        public let started_at: String?
+        public var ended_at: String?
+        /// What it reported back.
+        public var summary: String?
+
+        public init(id: String, parent: String? = nil, goal: String, agent: String? = nil, status: String,
+                    doing: String? = nil, steps: Int = 0, started_at: String? = nil, ended_at: String? = nil,
+                    summary: String? = nil) {
+            self.id = id
+            self.parent = parent
+            self.goal = goal
+            self.agent = agent
+            self.status = status
+            self.doing = doing
+            self.steps = steps
+            self.started_at = started_at
+            self.ended_at = ended_at
+            self.summary = summary
+        }
+
+        public var isWorking: Bool { status == "working" || status == "finishing" }
+        public var startedDate: Date? { started_at.flatMap { try? Date($0, strategy: .iso8601) } }
+        public var endedDate: Date? { ended_at.flatMap { try? Date($0, strategy: .iso8601) } }
+    }
+
+    /// One row of the tree: a helper and how deep it sits (0 = started by the agent itself).
+    public struct Row: Identifiable, Equatable, Sendable {
+        public let helper: Helper
+        public let depth: Int
+        public var id: String { helper.id }
+    }
+
+    /// Helpers in tree order: each followed by the helpers it started.
+    public var rows: [Row] {
+        let ids = Set(helpers.map(\.id))
+        var out: [Row] = []
+        func add(_ parent: String?, _ depth: Int) {
+            for helper in helpers where helper.parent.flatMap({ ids.contains($0) ? $0 : nil }) == parent {
+                out.append(Row(helper: helper, depth: depth))
+                add(helper.id, depth + 1)
+            }
+        }
+        add(nil, 0)
+        return out
+    }
+}
+
+public struct DelegationStopRequest: Codable, Equatable, Sendable {
+    public let seq: Int
+    public let helper_id: String?
+}
+
+public struct DelegationStopData: Codable, Equatable, Sendable {
+    public let stopped: [String]
 }
 
 // MARK: - Slash commands (docs/slash-commands.md)

@@ -1,6 +1,6 @@
 # STATUS
 
-_Last updated: 2026-11-17_
+_Last updated: 2026-11-19_
 
 README rewritten as a how-to-use guide (2026-11-17): a section per feature with 38 screenshots (agents, chats with real approval and question cards, settings, model picker, OpenRouter advanced routing, call, artifacts, Board, instances), made with `tools/demo_host.py` (a fake Hermes with made-up agents; it now also fakes settings, tools, OpenRouter routing, approvals and artifacts). Not committed yet.
 
@@ -8,6 +8,15 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 **Phase 1 (Foundation) is complete** (confirmed on your iPhone and Hermes machine 2026-11-08). Pair by QR or link over encrypted, certificate-pinned connections; chat; auto-reconnect; device management; iOS 26 design system; choosing, switching, creating and deleting your real Hermes agents. 152 plugin tests and 69 app tests passed at the end of Phase 1.
 
 **Phase 2 (complete chat) is complete** (all seven features confirmed on your iPhone, 2026-11-10). **Phase 3 (files both ways) is complete** (confirmed on your iPhone 2026-11-11). **Phase 4 (voice) is complete** (confirmed on your iPhone 2026-11-15): voice notes, hearing replies (with direct streaming voice), hands-free calls, your name for agents, and the fixes from your list. **Phase 5 (artifacts) is complete** (confirmed 2026-11-15), with past chats, offline mode and the fixes from your notes. **Phase 6 (kanban and scheduler) is complete**: the Board (confirmed 2026-11-17) and Cron Jobs (confirmed 2026-11-18).
+
+**Phase 7 (delegation, then group chats) has started.** Feature 1, helpers shown as a tree, is built and waiting for your phone check (below). Group chats come after it.
+
+## Built, waiting for your phone check: helpers as a live tree (Phase 7, feature 1; spec: `docs/delegation.md`)
+- **Helpers card:** when an agent splits work into helpers (Hermes' own subagents), its chat shows one card per reply with every helper as a branch: what it was asked, what it's doing now, steps and time, then Done / Failed / Stopped / Timed out. A helper's own helpers sit under it. Tap a helper for its whole task and what it reported back. **Stop** stops one; **Stop All** stops every helper still working. The card updates live, is the same on every phone, survives reconnects, and helpers left working when Hermes restarts show as Stopped. Past chats show the card too.
+- **Asking another agent (your choice, 2026-11-19):** agents have a new Lekora tool to hand a task to another of your agents. It works in the background as itself (own personality, model, tools) and appears as a branch with its name; the answer comes back to the agent that asked. Its own chat is untouched. Nothing is written to your Hermes settings: Lekora only switches the asking chat to its own helper route for that one request, in memory.
+- **Tests:** plugin 398 pass (16 new, fake Hermes). Against real Hermes code on this Mac (7 new): asking another agent really runs as that agent's profile, unknown agents are refused, and the hooks Lekora listens to are the ones Hermes sends. App 232 pass (6 new).
+- **Not yet checked live:** a real agent using real helpers on your Hermes instance (it needs a real model, so it happens in your phone check).
+- **To check on your phone** (after `hermes plugins update lekora` and restarting Hermes): ask an agent something like "Use three helpers in parallel to research X, Y and Z" and watch the card; tap a helper; try Stop on one. Then ask an agent to "ask <another agent> to …" and look for that agent's name in the tree.
 
 ## Built, waiting for your phone check: paste and copy in chats (your report, 2026-11-18; spec: `docs/files.md`, `docs/chat-screen.md`)
 - **Paste photos and files:** the message bar is now the standard iPhone text view (as in Messages), whose Paste takes photos and files as well as text. A pasted photo or file becomes an attachment above the bar, like one chosen with +; text pastes as text. Offline, it says photos and files go once connected.

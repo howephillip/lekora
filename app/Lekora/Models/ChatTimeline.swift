@@ -9,6 +9,8 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
         case system
         /// An approval or question card from the agent (docs/prompts.md).
         case prompt
+        /// A Helpers card: the agent's helpers as a live tree (docs/delegation.md).
+        case helpers
     }
 
     public enum Status: Equatable, Codable {
@@ -53,13 +55,16 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
     public var review: [ReviewComment]?
     /// The Hermes conversation it belongs to (nil: not known, or still live).
     public var session: String?
+    /// For `.helpers` entries.
+    public var delegation: HelpersTree?
 
     public init(id: String, profileId: String, role: Role, text: String, seq: Int? = nil,
                 status: Status = .sent, date: Date? = nil, card: PromptCard? = nil, files: [ChatFile]? = nil,
                 voice: VoiceDetails? = nil, transcript: String? = nil, spoken: [ChatFile]? = nil,
                 voicing: String? = nil, voiceProblem: String? = nil, voiceKey: String? = nil,
                 spokenText: String? = nil, artifact: ArtifactCard? = nil, about: ArtifactCard? = nil,
-                review: [ReviewComment]? = nil, session: String? = nil) {
+                review: [ReviewComment]? = nil, session: String? = nil, delegation: HelpersTree? = nil) {
+        self.delegation = delegation
         self.session = session
         self.review = review
         self.artifact = artifact
@@ -127,7 +132,7 @@ public struct ChatTimeline: Equatable {
                           voicing: message.voicing, voiceProblem: message.voice_problem,
                           voiceKey: message.voice_key, spokenText: message.spoken_text,
                           artifact: message.artifact, about: message.about, review: message.review,
-                          session: message.session, isPage: true)
+                          session: message.session, delegation: message.delegation, isPage: true)
         }
         if !hasMore { completeProfiles.insert(profileId) }
     }
@@ -209,7 +214,8 @@ public struct ChatTimeline: Equatable {
                                        spoken: [ChatFile]? = nil, voicing: String? = nil, voiceProblem: String? = nil,
                                        voiceKey: String? = nil, spokenText: String? = nil,
                                        artifact: ArtifactCard? = nil, about: ArtifactCard? = nil,
-                                       review: [ReviewComment]? = nil, session: String? = nil, isPage: Bool = false) {
+                                       review: [ReviewComment]? = nil, session: String? = nil,
+                                       delegation: HelpersTree? = nil, isPage: Bool = false) {
         if let index = entries.firstIndex(where: { $0.seq == seq }) {
             // Seen before (replay) — or a correction the agent made after saving it.
             if entries[index].text != text { entries[index].text = text }
@@ -226,6 +232,7 @@ public struct ChatTimeline: Equatable {
             if let about, entries[index].about != about { entries[index].about = about }
             if let review, entries[index].review == nil { entries[index].review = review }
             if let session, entries[index].session != session { entries[index].session = session }
+            if let delegation, entries[index].delegation != delegation { entries[index].delegation = delegation }
             return
         }
 
@@ -272,7 +279,7 @@ public struct ChatTimeline: Equatable {
         let entry = ChatEntry(
             id: "seq-\(seq)",
             profileId: profileId,
-            role: Self.role(role, card: card),
+            role: Self.role(role, card: card, delegation: delegation),
             text: text,
             seq: seq,
             date: date,
@@ -288,13 +295,15 @@ public struct ChatTimeline: Equatable {
             artifact: artifact,
             about: about,
             review: review,
-            session: session
+            session: session,
+            delegation: delegation
         )
         entries.insert(entry, at: insertionIndex(for: seq))
     }
 
-    private static func role(_ role: String, card: PromptCard?) -> ChatEntry.Role {
+    private static func role(_ role: String, card: PromptCard?, delegation: HelpersTree? = nil) -> ChatEntry.Role {
         if card != nil { return .prompt }
+        if delegation != nil { return .helpers }
         switch role {
         case "user": return .user
         case "system": return .system

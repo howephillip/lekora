@@ -203,6 +203,8 @@ final class FakeHost: @unchecked Sendable {
     var respondStatusOverride: String?
 
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+    /// Helpers cards' working helpers by seq, for delegation.stop (docs/delegation.md).
+    var helpersStoppable: [Int: [String]] = [:]
 
     /// The agent says something now.
     @discardableResult
@@ -591,6 +593,18 @@ final class FakeHost: @unchecked Sendable {
                 }
             }
             send(type: "prompt.respond.ack", id: id, data: ["card_id": cardId, "status": status], on: connection)
+
+        case "delegation.stop":
+            // Helpers (docs/delegation.md): every working helper on the card, or just the one asked.
+            let seq = data["seq"] as? Int ?? -1
+            guard helpersStoppable.keys.contains(seq) else {
+                send(error: "UNKNOWN_CARD", reason: "Those helpers have already finished", id: id, on: connection, close: false)
+                return
+            }
+            let wanted = data["helper_id"] as? String
+            let stopped = (helpersStoppable[seq] ?? []).filter { wanted == nil || $0 == wanted }
+            send(type: "delegation.stop.result", id: id, data: ["stopped": stopped],
+                 profileId: message["profile_id"] as? String, on: connection)
 
         case "chat.read":
             let profile = message["profile_id"] as? String ?? ""

@@ -134,7 +134,10 @@ class LekoraService:
         kanban_boards: Optional[Any] = None,
         hermes_schedules: Optional[Any] = None,
         draft_llm: Optional[Callable[[str, str], Any]] = None,
+        hermes_helpers: Optional[Any] = None,
     ) -> None:
+        # Helpers (docs/delegation.md): Hermes' running-helper list and its Stop, from the adapter.
+        self._hermes_helpers = hermes_helpers
         # Drafting a schedule from a description (docs/scheduler.md): Hermes' model for plugins.
         self._draft_llm = draft_llm
         # Schedules (docs/scheduler.md): Hermes' own cron code, from the adapter.
@@ -259,6 +262,12 @@ class LekoraService:
         self.gateway.artifacts = Artifacts(self._store, self.gateway.publish_artifact_message,
                                            self.gateway.publish_artifact_changed)
         self._artifact_watch = asyncio.create_task(self.gateway.watch_artifacts())
+        from .delegation import Delegations
+        helpers = self._hermes_helpers
+        self.gateway.delegations = Delegations(
+            self._store, self.gateway.publish_helpers, self.gateway.update_helpers,
+            interrupt=helpers.interrupt if helpers is not None else None)
+        self._helpers_watch = asyncio.create_task(self._watch_helpers()) if helpers is not None else None
         self._kanban_watch = None
         if self._kanban_boards is not None:
             from .kanban import Kanban
@@ -300,7 +309,24 @@ class LekoraService:
             await self.prompts.expire_leftovers()
         except Exception:
             logging.getLogger(__name__).exception("Lekora: could not expire old cards")
+        try:
+            # Helpers still working when Hermes stopped are gone (docs/delegation.md).
+            await self.gateway.delegations.close_leftovers()
+        except Exception:
+            logging.getLogger(__name__).exception("Lekora: could not close old Helpers cards")
         return port
+
+    async def _watch_helpers(self, every: float = 1.0) -> None:
+        """While helpers are working: what each is doing now, from Hermes' running list."""
+        while True:
+            await asyncio.sleep(every)
+            delegations = self.gateway.delegations if self.gateway is not None else None
+            if delegations is None or not delegations.any_working:
+                continue
+            try:
+                await delegations.running(await asyncio.to_thread(self._hermes_helpers.running))
+            except Exception:
+                logging.getLogger(__name__).debug("Lekora: helper check failed", exc_info=True)
 
     def _file_store(self):
         """Files both ways (docs/files.md): kept in ``<Hermes>/lekora-files``."""
@@ -350,7 +376,7 @@ class LekoraService:
             **({"model_info": self._model_info} if self._model_info else {}))
 
     async def stop(self) -> None:
-        for name in ("_artifact_watch", "_kanban_watch", "_schedules_watch"):
+        for name in ("_artifact_watch", "_kanban_watch", "_schedules_watch", "_helpers_watch"):
             watch = getattr(self, name, None)
             if watch is not None:
                 watch.cancel()

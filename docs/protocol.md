@@ -455,3 +455,7 @@ No `profile_id`: boards are shared by every agent on the instance. `board` is a 
 - `schedule.output` `{job_id, run_id}` → `{text}`: what that run produced (its Hermes output document's response, or the whole document).
 - `schedules.changed` (plugin → phones, not stored; `profile_id`): `{}` after any change to that agent's schedules.
 - Errors: `SCHEDULES_UNAVAILABLE`, `UNKNOWN_PROFILE`, `UNKNOWN_SCHEDULE`, `INVALID_SCHEDULE`, `SCHEDULE_REFUSED` (Hermes' reason as text).
+
+## 22. Helpers (spec: `delegation.md`)
+- A Helpers card is a `chat.message` with `role: "helpers"`, `text` (a one-line summary for anything that can't draw the card) and `delegation` `{status: working|done, helpers: [helper]}`. A helper: `{id, parent? (the helper that started it), goal, agent? (profile_id when another agent was asked), status: working|finishing|done|failed|stopped|timed_out, doing? (what it's doing now), steps, started_at, ended_at?, summary? (what it reported, up to 4000 characters)}` (times ISO 8601 UTC). Updated in place: same `seq`, new `rev`, at most once a second.
+- `delegation.stop` `{seq, helper_id?}` → `delegation.stop.result` `{stopped: [helper_id]}`; no `helper_id` stops every working helper on that card. Errors `UNKNOWN_CARD`, `UNAVAILABLE` (Hermes can't stop helpers).
