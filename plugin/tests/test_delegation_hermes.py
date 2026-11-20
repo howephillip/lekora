@@ -121,7 +121,8 @@ def test_a_chat_started_under_the_old_name_follows_the_users_name(tmp_path, monk
                         user_id="lekora-owner", user_name="Lekora", profile="default")
     entry = store.get_or_create_session(old)
     me = SimpleNamespace(gateway_runner=SimpleNamespace(session_store=store),
-                         _session_key_for=lambda profile_id: entry.session_key, _user_name=lambda: "Sam")
+                         _session_key_for=lambda profile_id: entry.session_key, _user_name=lambda: "Sam",
+                         _agent_of=lambda chat_id: chat_id)
     assert LekoraAdapter._sync_chat_origin(me, "default") is True
     origin = store.lookup_by_session_key(entry.session_key).origin
     assert (origin.user_name, origin.profile) == ("Sam", None)  # the default agent's messages carry no profile
@@ -144,7 +145,8 @@ def test_a_named_agents_chat_keeps_its_profile(tmp_path, monkeypatch):
         platform=Platform.TELEGRAM, chat_id="coder", chat_name="coder", chat_type="dm",
         user_id="lekora-owner", user_name="Lekora", profile="coder"))
     me = SimpleNamespace(gateway_runner=SimpleNamespace(session_store=store),
-                         _session_key_for=lambda profile_id: entry.session_key, _user_name=lambda: "Sam")
+                         _session_key_for=lambda profile_id: entry.session_key, _user_name=lambda: "Sam",
+                         _agent_of=lambda chat_id: chat_id)
     assert LekoraAdapter._sync_chat_origin(me, "coder") is True
     origin = store.lookup_by_session_key(entry.session_key).origin
     assert (origin.user_name, origin.profile) == ("Sam", "coder")

@@ -124,10 +124,12 @@ class Artifacts:
         self.store = store
         self._publish = publish
         self._changed = changed
+        # The chat an artifact belongs to: a member's chat of a group is the group's (docs/group-chats.md).
+        self.key: Callable[[str], str] = lambda chat_id: chat_id
 
     def _own(self, profile_id: str, artifact_id: Any) -> dict:
         row = self.store.get_artifact(str(artifact_id or ""))
-        if row is None or row["profile_id"] != profile_id:
+        if row is None or row["profile_id"] != self.key(profile_id):
             raise ArtifactError("UNKNOWN_ARTIFACT", "There's no artifact with that id in this chat.")
         return row
 
@@ -145,7 +147,7 @@ class Artifacts:
         title, kind, content = _title(title), _kind(kind), _content(content)
         language = " ".join(str(language).split())[:40] if language and kind == "code" else None
         artifact_id = "art_" + uuid.uuid4().hex[:16]
-        await asyncio.to_thread(self.store.add_artifact, artifact_id, profile_id, title, kind, language,
+        await asyncio.to_thread(self.store.add_artifact, artifact_id, self.key(profile_id), title, kind, language,
                                 content, "agent")
         row = self.store.get_artifact(artifact_id)
         await self._announce(profile_id, row, "assistant", "created")
@@ -156,7 +158,7 @@ class Artifacts:
         title, kind, content = _title(made["title"]), _kind(made["kind"]), _content(made["content"])
         language = made.get("language") if kind == "code" else None
         artifact_id = "art_" + uuid.uuid4().hex[:16]
-        await asyncio.to_thread(self.store.add_artifact, artifact_id, profile_id, title, kind, language,
+        await asyncio.to_thread(self.store.add_artifact, artifact_id, self.key(profile_id), title, kind, language,
                                 content, "agent")
         row = self.store.get_artifact(artifact_id)
         seq = await self._announce(profile_id, row, "assistant", "created", text=caption or "")
@@ -238,7 +240,7 @@ class Artifacts:
                 "versions": self.store.artifact_history(row["artifact_id"])}
 
     def list(self, profile_id: str) -> list[dict]:
-        return [card(row) for row in self.store.list_artifacts(profile_id)]
+        return [card(row) for row in self.store.list_artifacts(self.key(profile_id))]
 
     def describe_for_agent(self, profile_id: str, artifact_id: Any) -> Optional[dict]:
         """For a user's "ask to change" message: which artifact it's about (None if not here)."""

@@ -281,6 +281,19 @@ class LekoraService:
         from .artifacts import Artifacts
         self.gateway.artifacts = Artifacts(self._store, self.gateway.publish_artifact_message,
                                            self.gateway.publish_artifact_changed)
+        self.gateway.artifacts.key = self.gateway.phone_key
+        # Group chats (docs/group-chats.md): every member reached as in its own Lekora chat.
+        from .groups import Groups
+        gateway = self.gateway
+        bridge = self._bridge
+        self.gateway.groups = Groups(
+            self._store, lambda: gateway._profiles(),
+            deliver=lambda chat, profile, text, message_id, files: bridge.deliver_to_agent(
+                chat, text, message_id, files or None),
+            changed=gateway.publish_groups_changed,
+            user_name=lambda: self._store.get_user_name() or "The user")
+        routes = getattr(self._bridge, "group_chats_changed", None)
+        self.gateway.groups_changed = routes if callable(routes) else None
         self._artifact_watch = asyncio.create_task(self.gateway.watch_artifacts())
         from .delegation import Delegations
         helpers = self._hermes_helpers
@@ -424,7 +437,7 @@ class LekoraService:
                                                     Path(path).name, exc_info=True)
         # Audio plays in the chat: a format iPhone can't play is converted when ffmpeg is here.
         path, name = await asyncio.to_thread(_playable_copy, Path(path), name, mime)
-        described = await asyncio.to_thread(files.add_agent_file, profile_id, Path(path), name, mime)
+        described = await asyncio.to_thread(files.add_agent_file, self.gateway.phone_key(profile_id), Path(path), name, mime)
         return await self.gateway.publish_files(profile_id, [described], caption or ""), None
 
     def _models_service(self):

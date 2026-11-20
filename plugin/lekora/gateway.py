@@ -103,7 +103,9 @@ class Gateway:
         self.tools: Optional[Any] = None
         self.artifacts: Optional[Any] = None   # Artifacts (docs/artifacts.md)
         self.delegations: Optional[Any] = None  # Delegated cards (docs/delegation.md)
+        self.groups: Optional[Any] = None       # Groups: group chats (docs/group-chats.md)
         self.name_changed: Optional[Callable[[], None]] = None  # set by the service
+        self.groups_changed: Optional[Callable[[], None]] = None  # set by the service
         self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
         self.schedules: Optional[Any] = None   # Schedules: agents' Hermes cron jobs (docs/scheduler.md)
         self.chats: Optional[Any] = None       # ChatSessions: past chats (docs/chats.md)
@@ -191,8 +193,10 @@ class Gateway:
                       voice_key: Optional[str] = None, spoken_text: Optional[str] = None,
                       artifact: Optional[dict] = None, about: Optional[dict] = None,
                       review: Optional[list] = None, session: Optional[str] = None,
-                      delegation: Optional[dict] = None) -> dict:
+                      delegation: Optional[dict] = None, speaker: Optional[str] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
+        if speaker:
+            data["speaker"] = speaker  # who spoke, in a group chat (docs/group-chats.md)
         if delegation:
             data["delegation"] = delegation  # a Delegated card: the delegation tree (docs/delegation.md)
         if session:
@@ -239,14 +243,32 @@ class Gateway:
             voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
             artifact=ev.payload.get("artifact"), about=ev.payload.get("about"),
             review=ev.payload.get("review"), session=self._session_of(ev),
-            delegation=ev.payload.get("delegation")),
+            delegation=ev.payload.get("delegation"), speaker=ev.payload.get("speaker")),
             profile_id=ev.profile_id)
 
     # ---- publishing (agent -> phones) --------------------------------------
 
+    def _phone(self, chat_id: str) -> tuple[str, Optional[str]]:
+        """The phone's chat for a Hermes chat, and who spoke: a member's chat of a group is the
+        group's chat, spoken by that member (docs/group-chats.md). Anything else is itself."""
+        if self.groups is None:
+            return chat_id, None
+        return self.groups.phone(chat_id)
+
+    def phone_key(self, chat_id: str) -> str:
+        return self._phone(chat_id)[0]
+
+    def _said(self, payload: dict, speaker: Optional[str]) -> dict:
+        if speaker:
+            payload["speaker"] = speaker
+        return payload
+
     async def publish_message(self, profile_id: str, text: str,
                               role: str = "assistant", draft_id: Optional[str] = None) -> int:
         """Record a message as an event and push it to every connected phone."""
+        chat, speaker = self._phone(profile_id)
+        if speaker is not None:
+            return await self._publish_group_message(profile_id, chat, speaker, text, role, draft_id)
         payload: dict[str, Any] = {"role": role, "text": text}
         key = draft_id
         if role == "assistant" and self.voice_replies is not None and text.strip():
@@ -265,6 +287,23 @@ class Gateway:
         await self._broadcast(self.store.get_event(seq), draft_id=draft_id)
         if role == "assistant" and self.voice_replies is not None and key is not None:
             await self._follow_reply(profile_id, key, text, True, seq)
+        return seq
+
+    async def _publish_group_message(self, member_chat: str, chat: str, speaker: str, text: str,
+                                     role: str, draft_id: Optional[str]) -> int:
+        """A member's message in a group (docs/group-chats.md): ``(pass)`` is never shown; a reply
+        that @mentions members brings them in."""
+        from .groups import is_pass
+        if role == "assistant" and is_pass(text):
+            if draft_id:  # never shown (drafts wait until they can't be a pass), but tidy up anyway
+                await self._broadcast_ephemeral(self._envelope(
+                    "chat.draft", {"draft_id": draft_id, "text": "", "discard": True, "speaker": speaker},
+                    profile_id=chat))
+            return 0
+        seq = self.store.append_event(chat, "chat.message", {"role": role, "text": text, "speaker": speaker})
+        await self._broadcast(self.store.get_event(seq), draft_id=draft_id)
+        if role == "assistant" and self.groups is not None:
+            self._spawn(self.groups.agent_said(member_chat, seq, text))
         return seq
 
     async def _follow_reply(self, profile_id: str, key: str, text: str, final: bool, seq: Optional[int] = None) -> None:
@@ -329,7 +368,8 @@ class Gateway:
 
     async def publish_card(self, profile_id: str, role: str, text: str, card: dict) -> int:
         """Save an approval or question card as a chat message and send it to every phone."""
-        seq = self.store.append_event(profile_id, "chat.message", {"role": role, "text": text, "card": card})
+        chat, speaker = self._phone(profile_id)
+        seq = self.store.append_event(chat, "chat.message", self._said({"role": role, "text": text, "card": card}, speaker))
         await self._broadcast(self.store.get_event(seq))
         return seq
 
@@ -347,8 +387,9 @@ class Gateway:
 
     async def publish_helpers(self, profile_id: str, text: str, delegation: dict) -> int:
         """A Delegated card (docs/delegation.md), saved as a chat message and sent to every phone."""
-        seq = self.store.append_event(profile_id, "chat.message",
-                                      {"role": "delegation", "text": text, "delegation": delegation})
+        chat, speaker = self._phone(profile_id)
+        seq = self.store.append_event(chat, "chat.message",
+                                      self._said({"role": "delegation", "text": text, "delegation": delegation}, speaker))
         await self._broadcast(self.store.get_event(seq))
         return seq
 
@@ -372,6 +413,14 @@ class Gateway:
 
     async def publish_draft(self, profile_id: str, draft_id: str, text: str) -> None:
         """Live text of a reply being written (full text so far). Not stored or replayed."""
+        chat, speaker = self._phone(profile_id)
+        if speaker is not None:
+            from .groups import may_be_pass
+            if may_be_pass(text):
+                return  # perhaps a (pass): shown once it can't be
+            await self._broadcast_ephemeral(self._envelope(
+                "chat.draft", {"draft_id": draft_id, "text": text, "speaker": speaker}, profile_id=chat))
+            return
         if text and self.voice_replies is not None:
             # Voice or text is decided before phones see the first words, so a phone never
             # starts reading a voice reply with the iPhone voice (owner, 2026-11-13: both at once).
@@ -389,7 +438,10 @@ class Gateway:
         data: dict[str, Any] = {"active": active}
         if active and status:
             data["status"] = status
-        await self._broadcast_ephemeral(self._envelope("chat.typing", data, profile_id=profile_id))
+        chat, speaker = self._phone(profile_id)
+        if speaker:
+            data["speaker"] = speaker
+        await self._broadcast_ephemeral(self._envelope("chat.typing", data, profile_id=chat))
 
     async def _broadcast_ephemeral(self, payload: str) -> None:
         for conn in list(self._conns):
@@ -410,7 +462,7 @@ class Gateway:
             voice_key=ev.payload.get("voice_key"), spoken_text=ev.payload.get("spoken_text"),
             artifact=ev.payload.get("artifact"), about=ev.payload.get("about"),
             review=ev.payload.get("review"), session=self._session_of(ev),
-            delegation=ev.payload.get("delegation")),
+            delegation=ev.payload.get("delegation"), speaker=ev.payload.get("speaker")),
             profile_id=ev.profile_id)
         for conn in list(self._conns):
             if not conn.authed:
@@ -531,6 +583,8 @@ class Gateway:
         elif type_ == "voice.timing":
             if self.voice_replies is not None:
                 self.voice_replies.phone_timing(env.get("profile_id"), data)
+        elif type_ in ("groups.list", "group.create", "group.update", "group.delete"):
+            await self._groups_request(conn, msg_id, type_, data)
         elif type_ == "delegation.stop":
             await self._delegation_stop(conn, msg_id, env.get("profile_id"), data)
         elif type_ == "prompt.respond":
@@ -641,6 +695,10 @@ class Gateway:
             ack["rev"] = rev_now
             ack["message_times"] = True  # messages carry "at" (docs/agents-home.md)
             ack["read"] = {p["profile_id"]: self.store.read_marker(p["profile_id"]) for p in profiles}
+            if self.groups is not None:
+                for group in self.groups.list():
+                    key = self.groups.key(group["group_id"])
+                    ack["read"][key] = self.store.read_marker(key)
         # Hold the connection lock so live broadcasts queue behind the replay.
         async with conn.lock:
             conn.sent_rev = max([rev_now] + [e.rev for e in replay])
@@ -650,9 +708,10 @@ class Gateway:
 
     async def _chat_send(self, conn: _Conn, msg_id: Optional[str],
                          profile_id: Any, data: dict) -> None:
-        known = {p["profile_id"] for p in self._profiles()}
-        if not isinstance(profile_id, str) or profile_id not in known:
-            raise _Reject("UNKNOWN_PROFILE", "Unknown profile", True, False, msg_id)
+        profile_id = self._known_profile(profile_id, msg_id)
+        group = self.groups.group_for_key(profile_id) if self.groups is not None else None
+        if group is not None and data.get("voice"):
+            raise _Reject("UNAVAILABLE", "Voice notes aren't available in group chats yet", True, False, msg_id)
         text = data.get("text")
         from .artifacts import clean_review
         review = clean_review(data.get("review")) if isinstance(data.get("about"), dict) else None
@@ -688,6 +747,12 @@ class Gateway:
         seq = self.store.append_event(profile_id, "chat.message", payload)
         # Every phone gets it, the sender too: client_id tells it which bubble now has this seq.
         await self._broadcast(self.store.get_event(seq))
+        if group is not None:
+            # A group: every addressed member gets its turn (docs/group-chats.md).
+            attachments = [{"path": str(self.files.path_of(row)), "name": row["name"], "mime": row["mime"]}  # type: ignore[union-attr]
+                           for row in files]
+            self._spawn(self.groups.user_said(profile_id, seq, text, attachments))
+            return
         if self.prompts is not None:  # a typed /approve or reply answers waiting cards
             await self.prompts.user_message(profile_id, text)
         attachments = [{"path": str(self.files.path_of(row)), "name": row["name"], "mime": row["mime"]}  # type: ignore[union-attr]
@@ -711,6 +776,9 @@ class Gateway:
         task.add_done_callback(self._tasks.discard)
 
     def _known_profile(self, profile_id: Any, msg_id: Optional[str]) -> str:
+        """An agent's id, or a group's chat (docs/group-chats.md)."""
+        if self.groups is not None and self.groups.group_for_key(profile_id) is not None:
+            return profile_id
         known = {p["profile_id"] for p in self._profiles()}
         if not isinstance(profile_id, str) or profile_id not in known:
             raise _Reject("UNKNOWN_PROFILE", "Unknown profile", True, False, msg_id)
@@ -735,7 +803,8 @@ class Gateway:
                                        voice_problem=e.payload.get("voice_problem"), voice_key=e.payload.get("voice_key"),
                                        spoken_text=e.payload.get("spoken_text"), artifact=e.payload.get("artifact"),
                                        about=e.payload.get("about"), review=e.payload.get("review"),
-                                       session=self._session_of(e))
+                                       session=self._session_of(e), delegation=e.payload.get("delegation"),
+                                       speaker=e.payload.get("speaker"))
                     for e in events]
         await self._send(conn, self._envelope(
             "history.page", {"messages": messages, "has_more": has_more},
@@ -857,6 +926,8 @@ class Gateway:
             else:
                 profile_id = data.get("profile_id")
                 backup = await self._profile_admin.delete(profile_id, data.get("confirm"))
+                if self.groups is not None:
+                    await self.groups.agent_removed(profile_id)  # it leaves its groups (docs/group-chats.md)
                 ack = self._envelope("profile.delete.ack",
                                      {"status": "ok", "profile_id": profile_id, "backup": backup},
                                      msg_id=msg_id)
@@ -951,8 +1022,9 @@ class Gateway:
 
     async def publish_files(self, profile_id: str, files: list[dict], text: str = "") -> int:
         """Files from the agent, as one chat message (with its caption, if any)."""
-        seq = self.store.append_event(profile_id, "chat.message",
-                                      {"role": "assistant", "text": text, "files": files})
+        chat, speaker = self._phone(profile_id)
+        seq = self.store.append_event(chat, "chat.message",
+                                      self._said({"role": "assistant", "text": text, "files": files}, speaker))
         await self._broadcast(self.store.get_event(seq))
         return seq
 
@@ -986,6 +1058,34 @@ class Gateway:
                 result = {"session_id": session_id}
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
+    # ---- group chats (docs/group-chats.md) -------------------------------------
+
+    async def _groups_request(self, conn: _Conn, msg_id: Optional[str], type_: str, data: dict) -> None:
+        from .groups import GroupError
+        if self.groups is None:
+            raise _Reject("UNAVAILABLE", "Group chats aren't available on this Hermes instance", True, False, msg_id)
+        try:
+            if type_ == "groups.list":
+                result: dict[str, Any] = {"groups": self.groups.list()}
+            elif type_ == "group.create":
+                result = {"group": await self.groups.create(data.get("name"), data.get("members"))}
+            elif type_ == "group.update":
+                result = {"group": await self.groups.update(data.get("group_id"), data.get("name"), data.get("members"))}
+            else:
+                result = {"group_id": await self.groups.delete(data.get("group_id"))}
+        except GroupError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id))
+
+    async def publish_groups_changed(self, groups: list[dict]) -> None:
+        """Phones show the new list of groups (not stored)."""
+        await self._broadcast_ephemeral(self._envelope("groups.changed", {"groups": groups}))
+        if self.groups_changed is not None:
+            try:
+                self.groups_changed()  # members' chats get their routes (docs/group-chats.md)
+            except Exception:
+                log.debug("Lekora: group change not passed on", exc_info=True)
+
     # ---- helpers (docs/delegation.md) ------------------------------------------
 
     async def _delegation_stop(self, conn: _Conn, msg_id: Optional[str], profile_id: Any, data: dict) -> None:
@@ -1007,7 +1107,8 @@ class Gateway:
 
     async def publish_artifact_message(self, profile_id: str, payload: dict) -> int:
         """An artifact made or changed, as a card in the chat."""
-        seq = self.store.append_event(profile_id, "chat.message", payload)
+        chat, speaker = self._phone(profile_id)
+        seq = self.store.append_event(chat, "chat.message", self._said(dict(payload), speaker))
         await self._broadcast(self.store.get_event(seq))
         return seq
 

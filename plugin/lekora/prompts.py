@@ -235,7 +235,7 @@ class Prompts:
         if not isinstance(card_id, str):
             raise PromptError("UNKNOWN_CARD", "No such card")
         live = self._live.get(card_id)
-        if live is None or live.chat_id != profile_id:
+        if live is None or self._phone_key(live.chat_id) != profile_id:
             stored = self._stored_card(profile_id, card_id)
             if stored is None:
                 raise PromptError("UNKNOWN_CARD", "No such card")
@@ -417,6 +417,11 @@ class Prompts:
         self._live.pop(live.card["id"], None)
         live.card = dict(live.card, status=status, **extra)
         await self._gw().update_card(live.seq, live.card)
+
+    def _phone_key(self, chat_id: str) -> str:
+        gw = self._gw()
+        phone_key = getattr(gw, "phone_key", None) if gw is not None else None
+        return phone_key(chat_id) if callable(phone_key) else chat_id
 
     def _stored_card(self, profile_id: str, card_id: str) -> Optional[dict]:
         for event in self._gw().store.events_for_profile(profile_id):

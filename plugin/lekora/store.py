@@ -100,6 +100,20 @@ CREATE TABLE IF NOT EXISTS artifact_versions (
 );
 """
 
+# Group chats (docs/group-chats.md): a name and member agents; ``seen`` is, per member, the last
+# message of the group it has been given (so it gets only what's new).
+GROUPS = """
+CREATE TABLE IF NOT EXISTS groups (
+    group_id     TEXT PRIMARY KEY,
+    instance_id  TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    members_json TEXT NOT NULL,
+    seen_json    TEXT NOT NULL DEFAULT '{}',
+    created_at   TEXT,
+    updated_at   TEXT
+);
+"""
+
 # The app's own settings per agent (docs/voice.md: voice, speed, speak replies), kept on the
 # Hermes instance so a new phone gets them too (AGENTS.md rule 3).
 APP_SETTINGS = """
@@ -209,6 +223,7 @@ class Store:
             self._db.executescript(FILES)
             self._db.executescript(APP_SETTINGS)
             self._db.executescript(ARTIFACTS)
+            self._db.executescript(GROUPS)
             # The version last shown as a card (changes made outside the tools get one too).
             columns = {r[1] for r in self._db.execute("PRAGMA table_info(artifacts)")}
             if "announced" not in columns:
@@ -705,6 +720,63 @@ class Store:
                                  (self.instance_id, profile_id))
             self._db.commit()
             return cur.rowcount
+
+    # ---- group chats (docs/group-chats.md) ------------------------------------
+
+    @staticmethod
+    def _group(row) -> dict:
+        return {"group_id": row["group_id"], "name": row["name"], "members": json.loads(row["members_json"]),
+                "seen": json.loads(row["seen_json"] or "{}"), "created_at": row["created_at"]}
+
+    def list_groups(self) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute("SELECT * FROM groups WHERE instance_id = ? ORDER BY created_at, group_id",
+                                    (self.instance_id,)).fetchall()
+        return [self._group(r) for r in rows]
+
+    def get_group(self, group_id: str) -> Optional[dict]:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM groups WHERE instance_id = ? AND group_id = ?",
+                                   (self.instance_id, group_id)).fetchone()
+        return self._group(row) if row else None
+
+    def add_group(self, group_id: str, name: str, members: list[str]) -> None:
+        now = _iso(self._clock())
+        with self._lock:
+            self._db.execute("INSERT INTO groups (group_id, instance_id, name, members_json, created_at, updated_at) "
+                             "VALUES (?, ?, ?, ?, ?, ?)", (group_id, self.instance_id, name, json.dumps(members), now, now))
+            self._db.commit()
+
+    def update_group(self, group_id: str, *, name: Optional[str] = None, members: Optional[list[str]] = None,
+                     seen: Optional[dict] = None) -> None:
+        sets, args = ["updated_at = ?"], [_iso(self._clock())]
+        for column, value in (("name", name), ("members_json", None if members is None else json.dumps(members)),
+                              ("seen_json", None if seen is None else json.dumps(seen))):
+            if value is not None:
+                sets.append(f"{column} = ?")
+                args.append(value)
+        with self._lock:
+            self._db.execute(f"UPDATE groups SET {', '.join(sets)} WHERE instance_id = ? AND group_id = ?",
+                             (*args, self.instance_id, group_id))
+            self._db.commit()
+
+    def delete_group(self, group_id: str, chat_key: str) -> None:
+        """The group and its saved messages."""
+        with self._lock:
+            self._db.execute("DELETE FROM groups WHERE instance_id = ? AND group_id = ?", (self.instance_id, group_id))
+            self._db.execute("DELETE FROM events WHERE instance_id = ? AND profile_id = ?", (self.instance_id, chat_key))
+            self._db.execute("DELETE FROM read_markers WHERE instance_id = ? AND profile_id = ?",
+                             (self.instance_id, chat_key))
+            self._db.commit()
+
+    def messages_after(self, chat_key: str, after_seq: int, limit: int) -> list[Event]:
+        """A chat's newest ``limit`` messages after ``after_seq``, oldest first."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM (SELECT * FROM events WHERE instance_id = ? AND profile_id = ? "
+                "AND event_type = 'chat.message' AND seq > ? ORDER BY seq DESC LIMIT ?) ORDER BY seq",
+                (self.instance_id, chat_key, int(after_seq), int(limit))).fetchall()
+        return [self._event(r) for r in rows]
 
     # ---- artifacts (docs/artifacts.md) ----------------------------------------
 

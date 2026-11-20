@@ -1,0 +1,22 @@
+# Group chats (Phase 7, feature 2)
+
+## What the user sees
+- **Groups** sit with the agents on the home screen. **New Group**: a name and two or more agents (any agents: all are equal). A group's settings rename it, add or remove agents at any time, or delete it (confirmed first).
+- In a group the user writes as usual. **@name** talks to one or a few agents (autocompletes from the members); **no @mention, or @all / @everyone, is everyone** (owner, 2026-11-19, Hermes' own rule). Each agent's reply is a bubble with its name, and live typing shows who is writing. Agents answer at the same time.
+- **One shared conversation:** every agent sees what the user and the other agents said since its last turn. An agent with nothing to add stays quiet. An agent can **@mention** another member to bring it in.
+- Everything a one-to-one chat has works in a group (owner, 2026-11-19): streaming replies, approval and question cards, artifacts, files both ways, Delegated cards. Hearing replies and calls stay one-to-one for now.
+
+## How it works (plugin)
+- Lekora runs the group itself (owner's choice over Hermes' hosted rooms, 2026-11-19, because Lekora's tools and streaming work only in Lekora chats). Each member has its own Hermes chat for the group, `g.<group id>.<profile>`, routed to that profile in memory like every Lekora chat (no Hermes config written); it keeps that agent's own memory of the group.
+- **Turns:** a user message goes to every addressed member at once. Each gets what was said since its last turn (up to 30 messages, the newest last) and then the new message, as one message from the user. A reply that is exactly `(pass)` is dropped and never shown. A reply that @mentions another member hands that member the conversation (it gets the same catch-up). **Loop guard:** per user message, at most 3 rounds of agents bringing each other in and 10 agent messages; a new user message starts fresh.
+- **No added instruction (AGENTS.md rule 7).** Each delivered message starts with a factual header (the group's name, the agent's own @handle, the other members and the user) followed by the catch-up and the new message: the conversation itself, not behaviour. Without an instruction, agents may not know about `(pass)` or bringing others in with @mentions; a per-turn group instruction (as for Personality Voice and calls) needs the owner's approval as a rule 7 exception first (asked 2026-11-19, pending).
+- Every record carries `instance_id` and `profile_id`: a group's saved messages use `group:<id>` as their chat, and each agent's message also carries `speaker` (its profile_id). Groups are saved in Lekora's store with their members, so they survive re-setup and new phones.
+- Deleting an agent removes it from its groups (a group left with fewer than two members stays, read-only, until the user adds someone or deletes it).
+
+## Protocol
+See docs/protocol.md §23.
+
+## Limits
+- Hearing replies (voice mode) and hands-free calls aren't available in groups yet.
+- Past chats (earlier conversations) are per agent; a group is one continuous conversation.
+- Agents see each other's words, not each other's tool output.

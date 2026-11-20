@@ -196,6 +196,7 @@ class LekoraAdapter(BasePlatformAdapter):
         self._cfg = LekoraConfig.from_extra(getattr(config, "extra", {}) or {})
         self._service: Optional[LekoraService] = None
         self._router = ProfileRouter(lambda: self.gateway_runner, PLATFORM_NAME)
+        self._router.extra_chats = lambda: self._groups().member_chats() if self._groups() is not None else []
         self._live = LiveReplies(
             lambda: self._service.gateway if self._service is not None else None,
             cursor=lambda: hermes_streaming.cursor_of(self.gateway_runner))
@@ -203,6 +204,20 @@ class LekoraAdapter(BasePlatformAdapter):
         # must not become that agent's home channel either: its job output would be lost.
         if named_profile_in_scope(getattr(self, "_owner_profile", None)) is None:
             self._set_in_memory_home_channel(config)
+
+    def _groups(self):
+        gateway = self._service.gateway if self._service is not None else None
+        return getattr(gateway, "groups", None) if gateway is not None else None
+
+    def _agent_of(self, chat_id: str) -> str:
+        """The profile a Lekora chat belongs to: itself, or a group member's (docs/group-chats.md)."""
+        groups = self._groups()
+        parsed = groups.parse_chat(chat_id) if groups is not None else None
+        return parsed[1] if parsed else chat_id
+
+    def group_chats_changed(self) -> None:
+        """Groups changed: their members' chats get (or lose) their in-memory routes."""
+        self.offered_profiles()
 
     def offered_profiles(self) -> list[dict]:
         """Profiles for the phone, refreshing the in-memory routes on every call (each
@@ -340,7 +355,8 @@ class LekoraAdapter(BasePlatformAdapter):
             origin = getattr(entry, "origin", None)
             name = self._user_name()
             # A named agent's messages carry its profile (its route); the default agent's carry none.
-            profile = None if profile_id == DEFAULT_PROFILE_ID else profile_id
+            agent = self._agent_of(profile_id)
+            profile = None if agent == DEFAULT_PROFILE_ID else agent
             if origin is None or (getattr(origin, "user_name", None) == name
                                   and getattr(origin, "profile", None) == profile):
                 return False
@@ -472,7 +488,7 @@ class LekoraAdapter(BasePlatformAdapter):
         source = self.build_source(
             chat_id=profile_id, chat_name=profile_id, chat_type="dm",
             user_id="lekora-owner", user_name=self._user_name())
-        check_routed(source, profile_id)
+        check_routed(source, self._agent_of(profile_id))
         self._sync_chat_origin(profile_id)
         event = MessageEvent(
             # Said aloud in a hands-free call: a voice turn, as Hermes treats a voice message

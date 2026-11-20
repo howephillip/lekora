@@ -38,6 +38,8 @@ class ProfileRouter:
         self._platform = platform
         self._route_factory = route_factory
         self._last_problem: Optional[str] = None
+        # More Lekora chats to route: (chat id, profile), e.g. members' chats of groups (docs/group-chats.md).
+        self.extra_chats: Callable[[], list[tuple[str, str]]] = lambda: []
 
     def _problem(self, reason: str) -> bool:
         if reason != self._last_problem:  # log each distinct problem once, not per message
@@ -48,8 +50,13 @@ class ProfileRouter:
     def sync(self, profile_ids: Iterable[str]) -> bool:
         """Make sure every named profile in ``profile_ids`` has a Lekora route.
         Returns False when routing to named profiles is not possible."""
+        profile_ids = list(profile_ids)
         named = [p for p in profile_ids if p != DEFAULT_PROFILE_ID]
-        if not named:
+        try:
+            extra = [(c, p) for c, p in self.extra_chats() if p != DEFAULT_PROFILE_ID and p in profile_ids]
+        except Exception:
+            extra = []
+        if not named and not extra:
             self._last_problem = None
             return True
         runner = self._runner()
@@ -65,6 +72,8 @@ class ProfileRouter:
             factory = self._route_factory or _hermes_route_factory()
             desired = [factory(name=f"{ROUTE_PREFIX}{p}", platform=self._platform, chat_id=p, profile=p)
                        for p in named]
+            desired += [factory(name=f"{ROUTE_PREFIX}{c}", platform=self._platform, chat_id=c, profile=p)
+                        for c, p in extra]
             for route in desired:  # self-check: the shape Hermes' matcher relies on
                 if not (callable(getattr(route, "matches", None)) and hasattr(route, "specificity")):
                     raise TypeError("ProfileRoute has an unexpected shape")

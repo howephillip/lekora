@@ -146,3 +146,38 @@ def test_real_hermes_matcher_routes_each_chat_to_its_profile(hermes_routing):
     assert resolve("work") == "work"
     assert resolve("default") is None          # default owns the adapter: no route needed
     assert match_profile_route(routes, platform="telegram", chat_id="bruce", adapter_profile=None) is None
+
+
+def test_group_members_chats_are_routed_to_their_profiles():
+    """docs/group-chats.md: each member has its own Lekora chat for the group."""
+    r = runner()
+    router = make_router(r)
+    router.extra_chats = lambda: [("g.g1.bruce", "bruce"), ("g.g1.default", "default"), ("g.g1.gone", "gone")]
+    router.offered(profiles("default", "bruce"))
+    assert lekora_routes(r) == [("lekora-auto-bruce", "bruce", "bruce"), ("lekora-auto-g.g1.bruce", "g.g1.bruce", "bruce")]
+
+
+def test_a_default_only_group_needs_no_route():
+    r = runner()
+    router = make_router(r)
+    router.extra_chats = lambda: [("g.g1.default", "default")]
+    assert router.offered(profiles("default")) == profiles("default")
+    assert lekora_routes(r) == []
+
+
+def test_real_hermes_matcher_routes_group_members_chats(hermes_routing):
+    """A group member's own chat reaches that member, never another (docs/group-chats.md)."""
+    ProfileRoute, match_profile_route = hermes_routing
+    r = runner()
+    router = ProfileRouter(lambda: r, "lekora", route_factory=ProfileRoute)
+    router.extra_chats = lambda: [("g.g1a2b3.bruce", "bruce"), ("g.g1a2b3.work", "work"), ("g.g1a2b3.default", "default")]
+    router.offered(profiles("default", "bruce", "work"))
+
+    def resolve(chat_id):
+        hit = match_profile_route(r.config.profile_routes, platform="lekora", chat_id=chat_id, adapter_profile=None)
+        return hit.profile if hit else None
+
+    assert resolve("g.g1a2b3.bruce") == "bruce"
+    assert resolve("g.g1a2b3.work") == "work"
+    assert resolve("g.g1a2b3.default") is None  # the default agent owns the adapter
+    assert resolve("bruce") == "bruce"

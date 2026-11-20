@@ -459,3 +459,12 @@ No `profile_id`: boards are shared by every agent on the instance. `board` is a 
 ## 22. Delegation (spec: `delegation.md`)
 - A Delegated card is a `chat.message` with `role: "delegation"`, `text` (a one-line summary for anything that can't draw the card) and `delegation` `{status: working|done, helpers: [item]}` (`working` while any item is open). An item: `{id, parent? (the item that delegated it), goal, agent? (profile_id of who does it; absent for a sub-agent), task?, board? (board handoffs), status: waiting|working|finishing|blocked|done|failed|stopped|timed_out, doing? (what's happening now), steps, started_at, ended_at?, summary? (what came back, up to 4000 characters)}` (times ISO 8601 UTC). Updated in place: same `seq`, new `rev`, at most once a second.
 - `delegation.stop` `{seq, helper_id?}` → `delegation.stop.result` `{stopped: [id]}`: a working sub-agent is interrupted; a running board task's worker is stopped (it waits as blocked, like the Board's Stop). No `helper_id`: everything stoppable on that card. Errors `UNKNOWN_CARD` (finished, or nothing to stop), `UNAVAILABLE`.
+
+## 23. Group chats (spec: `group-chats.md`)
+A group's chat key is `group:<group_id>`; it is used as `profile_id` on every message of the group, both ways.
+- `groups.list` `{}` → `groups.list.result` `{groups: [group]}`. A group: `{group_id, name, members: [profile_id], created_at}`.
+- `group.create` `{name, members}` (2+ known agents) → `group.create.result` `{group}`. `group.update` `{group_id, name?, members?}` → `{group}`. `group.delete` `{group_id}` → `{group_id}` (its messages are deleted too).
+- `groups.changed` (plugin → phones, not stored): `{groups}` after any change.
+- `chat.send` with `profile_id: "group:<id>"`: the user's message to the group (text and files as usual). `chat.message`, `chat.draft` and `chat.typing` for a group carry `speaker` (the agent's profile_id) on agent messages. `history.fetch`, `chat.read`, `prompt.respond`, `artifacts.*` and `file.*` take the group key like an agent's id.
+- `hello.ack` `read` includes each group's key.
+- Errors: `UNKNOWN_GROUP`, `INVALID_GROUP` (name missing, fewer than two members, unknown agent).
