@@ -169,3 +169,17 @@ def test_lekoras_tools_reach_every_agent_whatever_its_own_tool_list(tmp_path, mo
     offered = {d["function"]["name"] for d in get_tool_definitions(
         enabled_toolsets=agents_list, quiet_mode=True, skip_tool_search_assembly=True)}
     assert {TOOL_NAME, "lekora_create_artifact", "lekora_update_artifact"} <= offered
+
+
+def test_a_tool_in_hermes_shared_slot_reaches_another_profile(tmp_path):
+    """Lekora's tools are also put in Hermes' shared slot, so agents whose config doesn't enable the
+    plugin still have them (owner, 2026-11-20)."""
+    from tools.registry import registry
+    schema = {"name": "lekora_probe_shared", "description": "x", "parameters": {"type": "object", "properties": {}}}
+    registry.register(name="lekora_probe_shared", toolset="hermes-lekora", schema=schema,
+                      handler=lambda a, **k: "{}", scope=str(tmp_path / "default-home"))
+    other = str(tmp_path / "another-agent-home")
+    assert "lekora_probe_shared" not in registry._merged_tools(other)  # a plugin's own slot: one profile only
+    registry.register(name="lekora_probe_shared", toolset="hermes-lekora", schema=schema,
+                      handler=lambda a, **k: "{}", scope=None)
+    assert "lekora_probe_shared" in registry._merged_tools(other)

@@ -285,3 +285,41 @@ async def test_starting_a_group_needs_a_real_agent(gw, store, groups):
     ws, _ = await phone(gw, store)
     got = await ask(ws, store, "group.start", {"from": "assistant", "members": ["nobody"]})
     assert got["type"] == "error" and got["data"]["code"] == "INVALID_GROUP"
+
+
+# ---- details and shared artifacts (owner, 2026-11-20) ---------------------------------
+
+async def test_group_details_show_each_members_side_and_totals(gw, store, groups):
+    gid, key = await group_key(groups)
+    sides = {f"g.{gid}.assistant": {"model": {"model": "m-a"}, "title": "Trip ideas",
+                                    "usage": {"cost_usd": 0.12, "input_tokens": 1000, "output_tokens": 200,
+                                              "context_tokens": 5000, "context_length": 200000}},
+             f"g.{gid}.coder": {"model": {"model": "m-c"}, "title": None,
+                                "usage": {"cost_usd": 0.03, "input_tokens": 300, "output_tokens": 50}}}
+
+    class Settings:
+        def read(self, chat):
+            return sides[chat]
+    gw.settings = Settings()
+    ws, _ = await phone(gw, store)
+    got = await ask(ws, store, "group.details", {"group_id": gid})
+    data = got["data"]
+    assert [m["profile_id"] for m in data["members"]] == MEMBERS
+    assert data["members"][0]["title"] == "Trip ideas" and data["members"][0]["model"] == "m-a"
+    assert data["members"][0]["usage"]["context_tokens"] == 5000
+    assert data["totals"] == {"cost_usd": 0.15, "input_tokens": 1300, "output_tokens": 250}
+
+
+async def test_the_others_are_given_an_artifacts_id_to_work_on_it(gw, store, groups, turns):
+    gid, key = await group_key(groups)
+    gw.artifacts = Artifacts(store, gw.publish_artifact_message, gw.publish_artifact_changed)
+    gw.artifacts.key = gw.phone_key
+    made = await gw.artifacts.create(f"g.{gid}.coder", "Game", "html", "<p>v1</p>")
+    ws, _ = await phone(gw, store)
+    await ws.send(env(store, "chat.send", {"text": "@assistant improve the game"}, profile_id=key, msg_id="m1"))
+    await settle()
+    caught_up = turns.to("assistant")[0][2]
+    assert f'created the artifact "Game" (artifact_id {made["artifact_id"]}, version 1)' in caught_up
+    # And the other member can change it from its own chat of the group.
+    await gw.artifacts.update(f"g.{gid}.assistant", made["artifact_id"], "<p>v2</p>")
+    assert gw.artifacts.read(key, made["artifact_id"])["content"] == "<p>v2</p>"

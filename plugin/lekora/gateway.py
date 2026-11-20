@@ -583,7 +583,7 @@ class Gateway:
         elif type_ == "voice.timing":
             if self.voice_replies is not None:
                 self.voice_replies.phone_timing(env.get("profile_id"), data)
-        elif type_ in ("groups.list", "group.create", "group.update", "group.delete", "group.start"):
+        elif type_ in ("groups.list", "group.create", "group.update", "group.delete", "group.start", "group.details"):
             await self._groups_request(conn, msg_id, type_, data)
         elif type_ == "delegation.stop":
             await self._delegation_stop(conn, msg_id, env.get("profile_id"), data)
@@ -1069,6 +1069,9 @@ class Gateway:
                 result: dict[str, Any] = {"groups": self.groups.list()}
             elif type_ == "group.create":
                 result = {"group": await self.groups.create(data.get("name"), data.get("members"))}
+            elif type_ == "group.details":
+                read = self.settings.read if self.settings is not None else (lambda chat: {})
+                result = await self.groups.details(data.get("group_id"), read)
             elif type_ == "group.start":
                 group, made = await self.groups.start_from(data.get("from"), data.get("members"))
                 result = {"group": group, "created": made}

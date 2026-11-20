@@ -373,7 +373,7 @@ def run_tool(name: str, args: dict, *, platform: str, chat_id: str, service: Opt
             return _result(True, message=f"Saved \"{made['title']}\" as version {made['version']}.", **made)
         if name == "lekora_read_artifact":
             got = service.read(chat_id, args.get("artifact_id"), args.get("version"))
-            history = [{"version": v["version"], "by": "the user" if v["author"] == "user" else "you",
+            history = [{"version": v["version"], "by": "the user" if v["author"] == "user" else "an agent",
                         "note": v.get("note")} for v in got.pop("versions")]
             return _result(True, **got, versions=history)
         if name == "lekora_list_artifacts":

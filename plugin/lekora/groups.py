@@ -205,6 +205,29 @@ class Groups:
                 payload["speaker"] = from_profile
             self.store.append_event(key, "chat.message", payload, created_at=event.created_at)  # their own times
 
+    async def details(self, group_id: Any, read: Callable[[str], dict]) -> dict:
+        """Each member's side of the group, from Hermes (``read``: a chat's settings, as for a
+        one-to-one chat): model, Hermes' title, context and tokens, cost; and the totals."""
+        group = self._require(group_id)
+
+        def member(profile_id: str) -> dict:
+            try:
+                got = read(self.chat(group["group_id"], profile_id)) or {}
+            except Exception:
+                log.debug("Lekora: couldn't read %s's side of group %s", profile_id, group["group_id"], exc_info=True)
+                got = {}
+            usage = got.get("usage") or {}
+            return {"profile_id": profile_id, "model": (got.get("model") or {}).get("model"),
+                    "title": got.get("title"), "usage": usage}
+
+        members = await asyncio.gather(*(asyncio.to_thread(member, p) for p in group["members"]))
+        totals: dict[str, Any] = {}
+        for key in ("cost_usd", "input_tokens", "output_tokens"):
+            values = [m["usage"].get(key) for m in members if isinstance(m["usage"].get(key), (int, float))]
+            if values:
+                totals[key] = round(sum(values), 6) if key == "cost_usd" else int(sum(values))
+        return {"group": self.wire(group), "members": list(members), "totals": totals}
+
     async def delete(self, group_id: Any) -> str:
         group = self._require(group_id)
         await asyncio.to_thread(self.store.delete_group, group["group_id"], self.key(group["group_id"]))
@@ -325,7 +348,10 @@ class Groups:
         if payload.get("files"):
             extras.append("sent " + ", ".join(f.get("name", "a file") for f in payload["files"]))
         if payload.get("artifact"):
-            extras.append(f'shared the artifact "{payload["artifact"].get("title", "")}"')
+            # Its id, so the others can read or change it with the artifact tools.
+            shown = payload["artifact"]
+            extras.append(f'{shown.get("action") or "shared"} the artifact "{shown.get("title", "")}" '
+                          f'(artifact_id {shown.get("artifact_id")}, version {shown.get("version")})')
         if not text and not extras:
             return None
         if len(text) > LINE_LIMIT:

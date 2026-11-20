@@ -255,7 +255,7 @@ class LekoraAdapter(BasePlatformAdapter):
         source = self.build_source(chat_id=profile_id, chat_name=profile_id, chat_type="dm",
                                    user_id="lekora-owner", user_name=self._user_name())
         root = Path(self._cfg.hermes_root) if self._cfg.hermes_root else None
-        return read_settings(self.gateway_runner, source, profile_home(profile_id, root))
+        return read_settings(self.gateway_runner, source, profile_home(self._agent_of(profile_id), root))
 
     def _user_name(self) -> str:
         """Who the agents are talking to: the name chosen in the app (docs/your-name.md).
@@ -788,6 +788,23 @@ async def _draft_llm(instructions: str, text: str) -> Any:
     return result.parsed
 
 
+def _register_tool(ctx, **tool) -> None:
+    """A Lekora tool for every agent, not only the profile whose config enables the plugin.
+
+    Hermes keeps a plugin's tools in that profile's own slot, so agents whose config doesn't list
+    Lekora had none of its tools (owner, 2026-11-20: they couldn't make or change artifacts, even in
+    a group). Each tool is also put in Hermes' shared slot, which every profile sees; ``check_fn``
+    still offers it only in Lekora chats. Nothing is written to any agent's config (rule 8).
+    Hermes internals (``tools.registry``): re-check after Hermes upgrades."""
+    ctx.register_tool(**tool)
+    try:
+        from tools.registry import registry
+        if registry.get_entry(tool["name"], scope=None) is None:
+            registry.register(scope=None, **tool)
+    except Exception:
+        logger.info("Lekora: %s is only available to the agents that enable the Lekora plugin", tool["name"])
+
+
 def register(ctx) -> None:
     global _PLUGIN_CTX
     _PLUGIN_CTX = ctx
@@ -819,14 +836,14 @@ def register(ctx) -> None:
         check = no_cache_check_fn(_lekora_session)  # per chat: never reuse another platform's answer
     except ImportError:
         check = _lekora_session
-    ctx.register_tool(name=TOOL_NAME, toolset=TOOLSET, schema=TOOL_SCHEMA, handler=_send_file_handler,
-                      check_fn=check, description=TOOL_SCHEMA["description"], emoji="📎")
+    _register_tool(ctx, name=TOOL_NAME, toolset=TOOLSET, schema=TOOL_SCHEMA, handler=_send_file_handler,
+                   check_fn=check, description=TOOL_SCHEMA["description"], emoji="📎")
     # Artifacts: pages, documents and code the user opens, edits and shares (docs/artifacts.md).
     from .artifacts import SCHEMAS as ARTIFACT_SCHEMAS
     for schema in ARTIFACT_SCHEMAS:
-        ctx.register_tool(name=schema["name"], toolset=TOOLSET, schema=schema,
-                          handler=_artifact_handler(schema["name"]), check_fn=check,
-                          description=schema["description"], emoji="🧩")
+        _register_tool(ctx, name=schema["name"], toolset=TOOLSET, schema=schema,
+                       handler=_artifact_handler(schema["name"]), check_fn=check,
+                       description=schema["description"], emoji="🧩")
     # Delegation shown as a live tree in the chat (docs/delegation.md): watching only.
     from . import hermes_delegation
     hermes_delegation.register(ctx, _helpers_target)

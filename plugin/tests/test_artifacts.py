@@ -85,7 +85,7 @@ async def test_the_agents_tools(fgw, store):
     updated = await run("lekora_update_artifact", {"artifact_id": made["artifact_id"], "content": PAGE + "<p>2</p>"})
     assert updated["version"] == 2
     read = await run("lekora_read_artifact", {"artifact_id": made["artifact_id"]})
-    assert read["content"].endswith("<p>2</p>") and read["versions"][0]["by"] == "you"
+    assert read["content"].endswith("<p>2</p>") and read["versions"][0]["by"] == "an agent"
     listed = await run("lekora_list_artifacts", {})
     assert listed["artifacts"][0]["artifact_id"] == made["artifact_id"]
     assert not (await run("lekora_list_artifacts", {}, platform="telegram"))["success"], "only in Lekora chats"
