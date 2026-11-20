@@ -621,6 +621,14 @@ final class FakeHost: @unchecked Sendable {
                                         "members": members, "created_at": "2026-11-19T10:00:00Z"]
             groups.append(group)
             send(type: "group.create.result", id: id, data: ["group": group], on: connection)
+        case "group.details":
+            send(type: "group.details.result", id: id, data: [
+                "group": groups.first ?? [:],
+                "members": [["profile_id": "coder", "model": "openrouter/fast-model", "title": "Launch plan",
+                             "usage": ["input_tokens": 12000, "output_tokens": 2100, "context_tokens": 6000,
+                                       "context_length": 200000, "cost_usd": 0.12]],
+                            ["profile_id": "writer", "usage": [:]]],
+                "totals": ["cost_usd": 0.12, "input_tokens": 12000, "output_tokens": 2100]], on: connection)
         case "group.start":
             let members = [data["from"] as? String ?? ""] + (data["members"] as? [String] ?? [])
             if let existing = groups.first(where: { Set($0["members"] as? [String] ?? []) == Set(members) }) {

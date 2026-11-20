@@ -16,6 +16,8 @@ struct GroupEditorView: View {
     @State private var saving = false
     @State private var failure: String?
     @State private var confirmingDelete = false
+    @State private var details: GroupDetails?
+    @State private var loadingDetails = false
 
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty && members.count >= 2 && !saving
@@ -56,6 +58,9 @@ struct GroupEditorView: View {
                         Text(failure).foregroundStyle(LK.Palette.danger)
                     }
                 }
+                if group != nil {
+                    detailsSection
+                }
                 if let group {
                     Section {
                         Button("Delete Group", role: .destructive) { confirmingDelete = true }
@@ -90,6 +95,62 @@ struct GroupEditorView: View {
                 members = group?.members ?? []
             }
         }
+    }
+
+    // MARK: - Details (owner, 2026-11-20): each agent's side of the group, from Hermes
+
+    @ViewBuilder
+    private var detailsSection: some View {
+        Section {
+            if let details {
+                LabeledContent("Cost", value: LKUsageText.cost(details.totals.cost_usd) ?? "—")
+                LabeledContent("Tokens", value: LKUsageText.tokens(in: details.totals.input_tokens,
+                                                                   out: details.totals.output_tokens) ?? "—")
+                ForEach(details.members) { member in
+                    memberRow(member)
+                }
+            } else if loadingDetails {
+                HStack { ProgressView(); Text("Asking Hermes…").foregroundStyle(.secondary) }
+            } else {
+                Text("Details are shown once the group is connected.").foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Details")
+        } footer: {
+            Text("Each agent has its own side of the group in Hermes, with its own context and cost. Totals add them up.")
+        }
+        .task(id: group?.group_id) { await loadDetails() }
+    }
+
+    private func memberRow(_ member: GroupDetails.Member) -> some View {
+        HStack(alignment: .top, spacing: LK.Spacing.md) {
+            LKAgentAvatar(id: member.profile_id, palette: gateway.avatarPalettes[member.profile_id], size: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(gateway.agentName(member.profile_id)).font(LK.Typography.headline)
+                    Spacer()
+                    Text(LKUsageText.cost(member.usage?.cost_usd) ?? "—")
+                        .font(LK.Typography.subheadline.monospacedDigit())
+                }
+                if let title = member.title, !title.isEmpty {
+                    Text("“\(title)”").font(LK.Typography.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Text([member.model?.components(separatedBy: "/").last,
+                      LKUsageText.context(member.usage),
+                      LKUsageText.tokens(in: member.usage?.input_tokens, out: member.usage?.output_tokens)]
+                        .compactMap { $0 }.joined(separator: " · "))
+                    .font(LK.Typography.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func loadDetails() async {
+        guard let group else { return }
+        loadingDetails = true
+        defer { loadingDetails = false }
+        details = try? await gateway.groupDetails(group.group_id)
     }
 
     private func toggle(_ id: String) {
@@ -210,5 +271,28 @@ struct LKMentionSuggestions: View {
             }
             .padding(.horizontal, LK.Spacing.lg)
         }
+    }
+}
+
+/// Usage in words: "$0.15", "12k in · 2k out", "3% of 200k context".
+enum LKUsageText {
+    static func cost(_ usd: Double?) -> String? {
+        guard let usd else { return nil }
+        return usd < 0.01 ? (usd == 0 ? "$0" : "<$0.01") : String(format: "$%.2f", usd)
+    }
+
+    static func tokens(in input: Int?, out output: Int?) -> String? {
+        guard input != nil || output != nil else { return nil }
+        return "\(short(input ?? 0)) in · \(short(output ?? 0)) out"
+    }
+
+    static func context(_ usage: ChatSettingsData.Usage?) -> String? {
+        guard let used = usage?.context_tokens, let total = usage?.context_length, total > 0 else { return nil }
+        return "\(Int((Double(used) / Double(total) * 100).rounded()))% of \(short(total)) context"
+    }
+
+    static func short(_ n: Int) -> String {
+        n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1_000_000)
+            : n >= 1000 ? "\(Int((Double(n) / 1000).rounded()))k" : "\(n)"
     }
 }

@@ -137,4 +137,23 @@ final class GroupChatTests: XCTestCase {
         let sent = host.received(type: "group.start").compactMap { $0["data"] as? [String: Any] }
         XCTAssertEqual(sent.first?["from"] as? String, "default")
     }
+
+    // MARK: - Details (owner, 2026-11-20)
+
+    func testGroupDetailsArrive() async throws {
+        let gateway = try await connected()
+        let details = try await gateway.groupDetails("g1")
+        XCTAssertEqual(details.members.map(\.profile_id), ["coder", "writer"])
+        XCTAssertEqual(details.members.first?.title, "Launch plan")
+        XCTAssertEqual(details.totals.cost_usd, 0.12)
+        XCTAssertEqual(LKUsageText.context(details.members.first?.usage), "3% of 200k context")
+    }
+
+    func testUsageWords() {
+        XCTAssertEqual(LKUsageText.cost(0.153), "$0.15")
+        XCTAssertEqual(LKUsageText.cost(0.004), "<$0.01")
+        XCTAssertNil(LKUsageText.cost(nil))
+        XCTAssertEqual(LKUsageText.tokens(in: 12_400, out: 950), "12k in · 950 out")
+        XCTAssertEqual(LKUsageText.short(2_500_000), "2.5M")
+    }
 }

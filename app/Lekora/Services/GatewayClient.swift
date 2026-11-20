@@ -536,6 +536,12 @@ public final class GatewayClient: ObservableObject {
         return started
     }
 
+    /// Each member's side of a group, from Hermes (model, title, context, tokens, cost).
+    public func groupDetails(_ groupId: String) async throws -> GroupDetails {
+        try await request(type: "group.details", data: GroupIdRequest(group_id: groupId),
+                          reply: GroupDetails.self, timeout: 20)
+    }
+
     public func deleteGroup(_ groupId: String) async throws {
         _ = try await request(type: "group.delete", data: GroupDeleteRequest(group_id: groupId),
                               reply: GroupIdResult.self, timeout: 15)

@@ -15,6 +15,10 @@ public struct AgentsHomeView: View {
     /// The computer an agent is being added to / whose agents are being managed.
     @State private var addingAgentOn: GatewayClient?
     @State private var newGroupOn: GatewayClient?
+    /// Swiped to delete, waiting for the confirmation (rule 8: confirm before any delete).
+    @State private var pendingDelete: HomeDelete?
+    @State private var deletingName: String?
+    @State private var deleteFailure: String?
     @State private var managingAgentsOn: GatewayClient?
     @State private var showingComputers = false
     @State private var editingName = false
@@ -93,6 +97,21 @@ public struct AgentsHomeView: View {
 
     private func withSheets<V: View>(_ content: V) -> some View {
         content
+            .confirmationDialog(pendingDelete?.title ?? "", isPresented: Binding(get: { pendingDelete != nil },
+                                                                              set: { if !$0 { pendingDelete = nil } }),
+                                titleVisibility: .visible, presenting: pendingDelete) { item in
+                Button(item.button, role: .destructive) { delete(item) }
+            } message: { item in
+                Text(item.message)
+            }
+            .alert("Couldn't delete", isPresented: Binding(get: { deleteFailure != nil }, set: { if !$0 { deleteFailure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deleteFailure ?? "")
+            }
+            .overlay {
+                if let deletingName { LKBlockingProgress("Deleting \(deletingName)…") }
+            }
             .sheet(item: $addingAgentOn) { client in
                 AddAgentView(gateway: client, instanceName: name(of: client)) { created in
                     // The new agent is switched on and becomes the current chat.
@@ -274,6 +293,30 @@ public struct AgentsHomeView: View {
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets(top: LK.Spacing.xs, leading: LK.Spacing.sm,
                                   bottom: LK.Spacing.xs, trailing: LK.Spacing.lg))
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            // The default agent owns Hermes itself: it can't be deleted.
+            if profile.profile_id != "default" {
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    pendingDelete = .agent(client, profile)
+                }
+                .disabled(!isConnected(client))
+            }
+        }
+    }
+
+    private func delete(_ item: HomeDelete) {
+        deletingName = item.name
+        Task {
+            defer { deletingName = nil }
+            do {
+                switch item {
+                case .group(let client, let group): try await client.deleteGroup(group.group_id)
+                case .agent(let client, let profile): _ = try await client.deleteProfile(profile.profile_id)
+                }
+            } catch {
+                deleteFailure = error.localizedDescription
+            }
+        }
     }
 
     /// A host's group chats, as rows (docs/group-chats.md).
@@ -291,6 +334,12 @@ public struct AgentsHomeView: View {
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: LK.Spacing.xs, leading: LK.Spacing.sm,
                                       bottom: LK.Spacing.xs, trailing: LK.Spacing.lg))
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    pendingDelete = .group(client, group)
+                }
+                .disabled(!isConnected(client))
+            }
         }
     }
 
@@ -373,6 +422,42 @@ public struct AgentsHomeView: View {
             line.removeFirst(prefix.count)
         }
         return line.prefix(1).uppercased() + line.dropFirst()
+    }
+}
+
+/// A row swiped to delete on the Agents screen, waiting for its confirmation.
+enum HomeDelete: Identifiable {
+    case group(GatewayClient, GroupData)
+    case agent(GatewayClient, ProfileData)
+
+    var id: String {
+        switch self {
+        case .group(_, let group): return "group:" + group.group_id
+        case .agent(_, let profile): return "agent:" + profile.profile_id
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .group(_, let group): return group.name
+        case .agent(_, let profile): return profile.name
+        }
+    }
+
+    var title: String { "Delete \(name)?" }
+    var button: String {
+        switch self {
+        case .group: return "Delete Group"
+        case .agent(_, let profile): return "Delete \(profile.name)"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .group: return "Its messages are deleted on every phone. The agents in it stay."
+        case .agent(_, let profile):
+            return "This deletes the \(profile.name) agent on your Hermes instance, including its settings, memory and chats. A backup is saved on the Hermes instance first."
+        }
     }
 }
 

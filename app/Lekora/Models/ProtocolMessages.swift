@@ -1032,6 +1032,25 @@ struct GroupCreateRequest: Codable { let name: String; let members: [String] }
 struct GroupUpdateRequest: Codable { let group_id: String; let name: String?; let members: [String]? }
 struct GroupDeleteRequest: Codable { let group_id: String }
 struct GroupStartRequest: Codable { let from: String; let members: [String] }
+struct GroupIdRequest: Codable { let group_id: String }
+
+/// A group's members' sides as Hermes sees them: model, its title, context, tokens and cost.
+public struct GroupDetails: Codable, Equatable, Sendable {
+    public struct Member: Codable, Equatable, Sendable, Identifiable {
+        public let profile_id: String
+        public let model: String?
+        public let title: String?
+        public let usage: ChatSettingsData.Usage?
+        public var id: String { profile_id }
+    }
+    public struct Totals: Codable, Equatable, Sendable {
+        public let cost_usd: Double?
+        public let input_tokens: Int?
+        public let output_tokens: Int?
+    }
+    public let members: [Member]
+    public let totals: Totals
+}
 struct GroupStartResult: Codable { let group: GroupData; let created: Bool }
 
 // MARK: - Unpairing ("Forget Host")
