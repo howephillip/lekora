@@ -288,8 +288,8 @@ class LekoraService:
         bridge = self._bridge
         self.gateway.groups = Groups(
             self._store, lambda: gateway._profiles(),
-            deliver=lambda chat, profile, text, message_id, files: bridge.deliver_to_agent(
-                chat, text, message_id, files or None),
+            deliver=lambda chat, profile, text, message_id, files, note: bridge.deliver_to_agent(
+                chat, text, message_id, files or None, instructions=note),
             changed=gateway.publish_groups_changed,
             user_name=lambda: self._store.get_user_name() or "The user")
         routes = getattr(self._bridge, "group_chats_changed", None)

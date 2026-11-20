@@ -17,9 +17,11 @@ class Turns:
 
     def __init__(self):
         self.given = []  # (hermes chat, profile, text, files)
+        self.notes = {}  # profile -> its group instruction
 
-    async def __call__(self, chat, profile, text, message_id, files):
+    async def __call__(self, chat, profile, text, message_id, files, note):
         self.given.append((chat, profile, text, files))
+        self.notes[profile] = note
 
     def to(self, profile):
         return [t for t in self.given if t[1] == profile]
@@ -231,3 +233,15 @@ async def test_a_new_member_starts_from_now(gw, store, groups, turns):
         assert "Sam: @writer hello" in turns.to("writer")[0][2]
     finally:
         PROFILES.pop()
+
+
+async def test_each_member_is_told_it_is_in_a_group(gw, store, groups, turns):
+    """Only in groups (owner, 2026-11-20): the per-turn chat instruction, never the user's message."""
+    gid, key = await group_key(groups)
+    ws, _ = await phone(gw, store)
+    await ws.send(env(store, "chat.send", {"text": "hi all"}, profile_id=key, msg_id="m1"))
+    await settle()
+    note = turns.notes["coder"]
+    assert note.startswith('GROUP CHAT (Lekora): you are @coder in the group chat "Trip" with @assistant (Hermes Assistant) and Sam')
+    assert "(pass)" in note and "@assistant" in note
+    assert "GROUP CHAT" not in turns.to("coder")[0][2]  # the message itself stays the conversation

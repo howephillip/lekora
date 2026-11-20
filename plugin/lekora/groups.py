@@ -32,8 +32,17 @@ EVERYONE = {"all", "everyone"}
 PASS = "(pass)"
 _MENTION = re.compile(r"@([A-Za-z0-9][A-Za-z0-9._-]*)")
 
-# (Hermes chat id, profile id, text, message id, files) -> None: hands a turn to an agent
-Deliver = Callable[[str, str, str, str, list], Awaitable[None]]
+# (Hermes chat id, profile id, text, message id, files, group instruction) -> None: hands a turn to an agent
+Deliver = Callable[[str, str, str, str, list, str], Awaitable[None]]
+
+# Only in group chats (owner, 2026-11-20; AGENTS.md rule 7 exception): Hermes' per-turn chat
+# instruction (system prompt, never the user's message) saying it's a group and how to take part.
+GROUP_NOTE = (
+    'GROUP CHAT (Lekora): you are @{me} in the group chat "{name}" with {others} and {user} (the user). '
+    "Each message you receive starts with what the others said since your last turn, then the newest message. "
+    "Reply when you're addressed or have something useful to add. If you have nothing to add, reply with exactly "
+    "(pass) and nothing else: it isn't shown. To bring another member in, @mention them by handle (for example "
+    "@{example}). Don't repeat what someone else already said.")
 
 
 class GroupError(Exception):
@@ -234,9 +243,17 @@ class Groups:
         text = await asyncio.to_thread(self.catch_up, group["group_id"], member, upto)
         try:
             await self.deliver(self.chat(group["group_id"], member), member, text,
-                               f"lekora-group-{uuid.uuid4().hex[:12]}", files)
+                               f"lekora-group-{uuid.uuid4().hex[:12]}", files, self.note(group, member))
         except Exception:
             log.exception("Lekora: couldn't give %s its turn in group %s", member, group["group_id"])
+
+    def note(self, group: dict, member: str) -> str:
+        """The group instruction for ``member`` (see GROUP_NOTE)."""
+        names = self._names()
+        others = [m for m in group["members"] if m != member]
+        return GROUP_NOTE.format(me=member, name=group["name"], user=self._user_name() or "The user",
+                                 others=", ".join(f"@{m} ({names.get(m, m)})" for m in others),
+                                 example=others[0] if others else member)
 
     def catch_up(self, group_id: str, member: str, upto: int) -> str:
         """What ``member`` is handed: who's here, then what was said since its last turn (its own
