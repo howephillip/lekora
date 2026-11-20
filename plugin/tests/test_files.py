@@ -282,3 +282,79 @@ async def test_service_keeps_agent_files_in_lekora_files(tmp_path, fake_hermes_r
         assert str(svc.gateway.files.path_of(row)).startswith(str(fake_hermes_root / "lekora-files"))
     finally:
         await svc.stop()
+
+
+# ---- files that are artifacts, audio that plays (docs/artifacts.md, docs/files.md) -----------
+
+@pytest.fixture
+async def svc(tmp_path, fake_hermes_root):
+    from lekora.plugin import LekoraConfig, LekoraService
+    from tests.test_plugin import FakeHermes
+    cfg = LekoraConfig(db_path=str(tmp_path / "lekora.db"), listen_host="127.0.0.1",
+                       hermes_root=str(fake_hermes_root),
+                       profiles=[{"profile_id": "coder", "name": "Coder", "avatar": "terminal"}])
+    service = LekoraService(FakeHermes(), cfg, hermes_version="0.22.5")
+    await service.start()
+    yield service
+    await service.stop()
+
+
+async def test_a_web_page_the_agent_sends_opens_as_an_artifact(svc, tmp_path):
+    page = tmp_path / "guinness-counter.html"
+    page.write_text("<!doctype html><h1>Pints: 0</h1>")
+    seq, note = await svc.agent_file("coder", page, "The counter itself", "guinness-counter.html")
+    event = svc.store.get_event(seq)
+    assert event.payload["text"] == "The counter itself" and "files" not in event.payload
+    shown = event.payload["artifact"]
+    assert (shown["kind"], shown["title"], shown["action"]) == ("html", "Guinness counter", "created")
+    assert shown["artifact_id"] in note and "lekora_update_artifact" in note
+    assert svc.gateway.artifacts.read("coder", shown["artifact_id"])["content"] == "<!doctype html><h1>Pints: 0</h1>"
+
+
+@pytest.mark.parametrize("name,kind,language", [
+    ("calc.py", "code", "python"), ("notes.md", "markdown", None), ("logo.svg", "svg", None),
+    ("calc-bundle.txt", "text", None), ("flow.mmd", "mermaid", None)])
+async def test_documents_code_and_text_open_as_artifacts(svc, tmp_path, name, kind, language):
+    made = tmp_path / name
+    made.write_text("print(1)\n" if kind == "code" else "<svg/>" if kind == "svg" else "Some words\n")
+    seq, _ = await svc.agent_file("coder", made)
+    shown = svc.store.get_event(seq).payload["artifact"]
+    assert shown["kind"] == kind and shown.get("language") == language
+
+
+async def test_other_files_stay_files(svc, tmp_path):
+    for made, data in ((tmp_path / "report.pdf", b"%PDF-1.4"), (tmp_path / "data.bin.txt", b"\xff\xfe\x00bad"),
+                       (tmp_path / "empty.html", b"   ")):
+        made.write_bytes(data)
+        seq, note = await svc.agent_file("coder", made)
+        payload = svc.store.get_event(seq).payload
+        assert payload["files"][0]["name"] == made.name and "artifact" not in payload and note is None
+
+
+async def test_audio_the_iphone_cant_play_is_converted_when_it_can_be(svc, tmp_path, monkeypatch):
+    import lekora.playable_audio as pa
+    song = tmp_path / "jingle.ogg"
+    song.write_bytes(b"OggS" + b"\0" * 32)
+    converted = tmp_path / "out" / "jingle-iphone.m4a"
+
+    def fake_playable(path):
+        converted.parent.mkdir(exist_ok=True)
+        converted.write_bytes(b"\0\0\0\x18ftypM4A ")
+        return converted
+    monkeypatch.setattr(pa, "playable", fake_playable)
+    seq, _ = await svc.agent_file("coder", song, "", "jingle.ogg")
+    sent = svc.store.get_event(seq).payload["files"][0]
+    assert sent["name"] == "jingle.m4a" and sent["kind"] == "audio"
+    assert song.read_bytes().startswith(b"OggS")  # the agent's own file is left alone
+
+
+async def test_audio_that_cant_be_converted_is_still_sent(svc, tmp_path, monkeypatch):
+    import lekora.playable_audio as pa
+
+    def refuse(path):
+        raise pa.UnplayableAudio("no ffmpeg")
+    monkeypatch.setattr(pa, "playable", refuse)
+    song = tmp_path / "jingle.ogg"
+    song.write_bytes(b"OggS" + b"\0" * 32)
+    seq, _ = await svc.agent_file("coder", song)
+    assert svc.store.get_event(seq).payload["files"][0]["name"] == "jingle.ogg"

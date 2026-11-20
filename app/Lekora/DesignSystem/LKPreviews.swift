@@ -87,3 +87,13 @@ private final class PreviewCredentialStore: CredentialStore {
     }
 }
 #endif
+
+#Preview("Audio file") {
+    VStack(spacing: LK.Spacing.md) {
+        LKAudioFileBubble(ChatFile(file_id: "f1", name: "intro-jingle.mp3", mime: "audio/mpeg", size: 412_000, kind: "audio"),
+                          fromUser: false, isPlaying: true, progress: 0.35, loading: false, onToggle: {}, onSeek: { _ in })
+        LKAudioFileBubble(ChatFile(file_id: "f2", name: "meeting-recording.m4a", mime: "audio/mp4", size: 8_400_000, kind: "audio"),
+                          fromUser: false, isPlaying: false, progress: 0, loading: false, onToggle: {}, onSeek: { _ in })
+    }
+    .padding()
+}

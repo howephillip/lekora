@@ -292,3 +292,76 @@ struct LKAttachmentChip: View {
         }
     }
 }
+
+/// An audio file in the chat (not a voice note): plays right here (docs/files.md). Tap the bar to jump.
+public struct LKAudioFileBubble: View {
+    private let file: ChatFile
+    private let fromUser: Bool
+    private let isPlaying: Bool
+    private let progress: Double
+    private let loading: Bool
+    private let onToggle: () -> Void
+    private let onSeek: (Double) -> Void
+
+    public init(_ file: ChatFile, fromUser: Bool, isPlaying: Bool, progress: Double, loading: Bool,
+                onToggle: @escaping () -> Void, onSeek: @escaping (Double) -> Void) {
+        self.file = file
+        self.fromUser = fromUser
+        self.isPlaying = isPlaying
+        self.progress = progress
+        self.loading = loading
+        self.onToggle = onToggle
+        self.onSeek = onSeek
+    }
+
+    public var body: some View {
+        HStack {
+            if fromUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
+            HStack(spacing: LK.Spacing.md) {
+                Button(action: onToggle) {
+                    ZStack {
+                        Circle().fill(LK.Palette.accent)
+                        if loading {
+                            ProgressView().tint(LK.Palette.onAccent)
+                        } else {
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(LK.Palette.onAccent)
+                        }
+                    }
+                    .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isPlaying ? "Pause \(file.name)" : "Play \(file.name)")
+                VStack(alignment: .leading, spacing: LK.Spacing.xs) {
+                    Text(file.name)
+                        .font(LK.Typography.subheadline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.quaternary)
+                            Capsule().fill(LK.Palette.accent)
+                                .frame(width: max(0, min(1, progress)) * geometry.size.width)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { point in
+                            onSeek(max(0, min(1, point.x / max(geometry.size.width, 1))))
+                        }
+                    }
+                    .frame(height: 4)
+                    .accessibilityHidden(true)
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file))
+                        .font(LK.Typography.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(minWidth: 160)
+            }
+            .padding(LK.Spacing.md)
+            .background(LK.Surface.raised, in: RoundedRectangle(cornerRadius: LK.Radius.bubble, style: .continuous))
+            .frame(maxWidth: 320, alignment: fromUser ? .trailing : .leading)
+            if !fromUser { Spacer(minLength: LK.Size.bubbleSideMargin) }
+        }
+    }
+}
+

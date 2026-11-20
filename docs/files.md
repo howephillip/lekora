@@ -30,3 +30,6 @@ Send photos and files to an agent, and get files back, in any chat. Owner's deci
 - **Plugin** (`tests/test_files.py`): upload in pieces, size and order checks, too large, wrong agent, reading back, chat.send with files (payload, dispatch, other phones), agent files published, usage, stale uploads cleaned, deleting an agent's files, the tool (outside Lekora, missing file, success).
 - **App** (`FilesTests`): upload then send, progress, failure, too large refused locally, download and cache, file messages decode and survive the cache, usage.
 - **Simulator** with the real plugin and a stand-in Hermes that echoes files back: photo, document, both directions, preview, instance storage line.
+
+## Audio files play in the chat (owner, 2026-11-19)
+- An audio file from an agent (not a voice note) shows as a player: play/pause, a bar to tap to jump, its name and size. Formats the iPhone can't play (Ogg/Opus, WebM…) are converted to AAC on the Hermes machine when it has ffmpeg (as Hermes voice replies are); without ffmpeg it is sent as it is and can still be opened as a file. The agent's own file is never changed.

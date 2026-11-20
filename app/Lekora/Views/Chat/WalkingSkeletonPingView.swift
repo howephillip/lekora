@@ -468,11 +468,28 @@ public struct WalkingSkeletonPingView: View {
                         .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
                     fileOnlyStatus(for: entry)
                 } else if let files = entry.files, !files.isEmpty {
-                    LKMessageFiles(files, fromUser: entry.role == .user, opening: openingFile,
-                                   load: { file in try? await gateway.fileURL(for: file) },
-                                   open: openFile)
-                        .offset(x: -timeReveal)
-                        .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
+                    // Audio files play right here; everything else shows as files (docs/files.md).
+                    ForEach(files.filter { $0.kind == "audio" }) { file in
+                        let id = "\(entry.id)-\(file.id)"
+                        LKAudioFileBubble(file, fromUser: entry.role == .user,
+                                          isPlaying: player.currentId == id && player.isPlaying,
+                                          progress: player.currentId == id ? player.progress : 0,
+                                          loading: loadingVoice == id,
+                                          onToggle: { toggleAudio(id: id, file: file) },
+                                          onSeek: { fraction in
+                                              if let url = gateway.cachedFileURL(file) { player.seek(id: id, url: url, to: fraction) }
+                                          })
+                            .offset(x: -timeReveal)
+                            .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
+                    }
+                    let others = files.filter { $0.kind != "audio" }
+                    if !others.isEmpty {
+                        LKMessageFiles(others, fromUser: entry.role == .user, opening: openingFile,
+                                       load: { file in try? await gateway.fileURL(for: file) },
+                                       open: openFile)
+                            .offset(x: -timeReveal)
+                            .modifier(TimeReveal(date: entry.date, reveal: timeReveal, width: Self.timeRevealWidth))
+                    }
                 }
                 if entry.voice != nil || (isVoiceReply(entry) && !(spokenParts(entry).isEmpty && voiceProblem(entry) != nil)) {
                     EmptyView()
@@ -748,6 +765,19 @@ public struct WalkingSkeletonPingView: View {
         Task {
             defer { loadingVoice = nil }
             if let url = try? await gateway.fileURL(for: file) { player.toggle(id: entry.id, url: url) }
+        }
+    }
+
+    /// An audio file (not a voice note): downloaded once, then played like a voice note.
+    private func toggleAudio(id: String, file: ChatFile) {
+        if let url = gateway.cachedFileURL(file) {
+            player.toggle(id: id, url: url)
+            return
+        }
+        loadingVoice = id
+        Task {
+            defer { loadingVoice = nil }
+            if let url = try? await gateway.fileURL(for: file) { player.toggle(id: id, url: url) }
         }
     }
 

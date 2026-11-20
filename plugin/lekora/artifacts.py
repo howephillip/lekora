@@ -78,6 +78,41 @@ def _kind(value: Any) -> str:
     return kind
 
 
+# A file an agent sends that an artifact can show: its kind (and language, for code), by extension.
+FILE_KINDS = {".html": "html", ".htm": "html", ".svg": "svg", ".md": "markdown", ".markdown": "markdown",
+              ".mmd": "mermaid", ".mermaid": "mermaid", ".txt": "text"}
+CODE_LANGUAGES = {".py": "python", ".js": "javascript", ".mjs": "javascript", ".ts": "typescript",
+                  ".jsx": "javascript", ".tsx": "typescript", ".swift": "swift", ".go": "go", ".rs": "rust",
+                  ".java": "java", ".kt": "kotlin", ".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp",
+                  ".hpp": "cpp", ".cs": "csharp", ".rb": "ruby", ".php": "php", ".sh": "bash", ".bash": "bash",
+                  ".zsh": "bash", ".css": "css", ".scss": "scss", ".sql": "sql", ".json": "json",
+                  ".yaml": "yaml", ".yml": "yaml", ".toml": "toml", ".xml": "xml", ".lua": "lua", ".r": "r",
+                  ".dart": "dart", ".scala": "scala", ".pl": "perl", ".ex": "elixir", ".hs": "haskell"}
+
+
+def from_file(path: Any, name: Optional[str] = None) -> Optional[dict]:
+    """``{title, kind, language, content}`` when an artifact can show this file (a web page,
+    document, diagram, code or text in UTF-8, up to the artifact size); else None (docs/artifacts.md)."""
+    from pathlib import Path
+    path = Path(path)
+    shown = Path(name or path.name)
+    suffix = shown.suffix.lower() or path.suffix.lower()
+    kind = FILE_KINDS.get(suffix) or ("code" if suffix in CODE_LANGUAGES else None)
+    if kind is None:
+        return None
+    try:
+        if path.stat().st_size > MAX_CONTENT * 4:
+            return None
+        content = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not content.strip() or len(content) > MAX_CONTENT or "\x00" in content:
+        return None
+    title = shown.stem.replace("_", " ").replace("-", " ").strip() or shown.name
+    return {"title": title[:1].upper() + title[1:], "kind": kind,
+            "language": CODE_LANGUAGES.get(suffix) if kind == "code" else None, "content": content}
+
+
 # (profile, payload) -> seq: a chat message (a card) saved and sent to the phones
 Publish = Callable[[str, dict], Awaitable[int]]
 # (profile, card) -> None: tell open phones an artifact changed
@@ -96,11 +131,11 @@ class Artifacts:
             raise ArtifactError("UNKNOWN_ARTIFACT", "There's no artifact with that id in this chat.")
         return row
 
-    async def _announce(self, profile_id: str, row: dict, role: str, action: str) -> int:
+    async def _announce(self, profile_id: str, row: dict, role: str, action: str, text: str = "") -> int:
         latest = self.store.artifact_version(row["artifact_id"])
         shown = {**card(row, latest["content"] if latest else None), "action": action}
         self.store.set_announced(row["artifact_id"], row["version"])
-        seq = await self._publish(profile_id, {"role": role, "text": "", "artifact": shown})
+        seq = await self._publish(profile_id, {"role": role, "text": text, "artifact": shown})
         if self._changed is not None:
             await self._changed(profile_id, card(row))
         return seq
@@ -115,6 +150,17 @@ class Artifacts:
         row = self.store.get_artifact(artifact_id)
         await self._announce(profile_id, row, "assistant", "created")
         return card(row)
+
+    async def create_from_file(self, profile_id: str, made: dict, caption: str = "") -> tuple[int, dict]:
+        """A file the agent sent, shown as an artifact (``from_file``), with its caption."""
+        title, kind, content = _title(made["title"]), _kind(made["kind"]), _content(made["content"])
+        language = made.get("language") if kind == "code" else None
+        artifact_id = "art_" + uuid.uuid4().hex[:16]
+        await asyncio.to_thread(self.store.add_artifact, artifact_id, profile_id, title, kind, language,
+                                content, "agent")
+        row = self.store.get_artifact(artifact_id)
+        seq = await self._announce(profile_id, row, "assistant", "created", text=caption or "")
+        return seq, card(row)
 
     async def update(self, profile_id: str, artifact_id: Any, content: Any, *, note: Any = None,
                      title: Any = None, author: str = "agent", base: Optional[int] = None) -> dict:

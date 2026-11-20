@@ -9,6 +9,8 @@ lives in ``hermes_adapter.py`` and implements that bridge.
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import shutil
 
 import logging
 import re
@@ -105,6 +107,24 @@ class LekoraConfig:
                 for p in profiles
             ]
         return cfg
+
+
+def _playable_copy(path: Path, name: Optional[str], mime: Optional[str]) -> tuple[Path, Optional[str]]:
+    """An agent's audio file as the iPhone can play it (docs/files.md); anything else as it is."""
+    from .files import guess_mime
+    from .playable_audio import UnplayableAudio, playable
+    if not guess_mime(name or path.name, mime).startswith("audio/"):
+        return path, name
+    import tempfile
+    copy = Path(tempfile.mkdtemp(prefix="lekora-audio-")) / path.name
+    try:
+        shutil.copyfile(path, copy)
+        done = playable(copy)
+    except (OSError, UnplayableAudio, subprocess.SubprocessError):
+        return path, name  # sent as it is: the phone offers it as a file
+    if done == copy:
+        return path, name
+    return done, (Path(name).stem + done.suffix) if name else None
 
 
 class LekoraService:
@@ -380,11 +400,32 @@ class LekoraService:
     async def handle_agent_file(self, profile_id: str, path: Path, caption: str = "",
                                 name: Optional[str] = None, mime: Optional[str] = None) -> int:
         """A file from the agent: a copy is kept and sent to every phone; returns its seq."""
+        return (await self.agent_file(profile_id, path, caption, name, mime))[0]
+
+    async def agent_file(self, profile_id: str, path: Path, caption: str = "",
+                         name: Optional[str] = None, mime: Optional[str] = None) -> tuple[int, Optional[str]]:
+        """``handle_agent_file``, plus a note for the agent when it became an artifact."""
         if self.gateway is None or self.gateway.files is None:
             raise RuntimeError("Lekora is not running")
         files = self.gateway.files
+        # Something an artifact can show (a web page, document, code…) opens as one, not as a file to
+        # download (docs/artifacts.md, "Files that are artifacts").
+        from .artifacts import from_file
+        made = await asyncio.to_thread(from_file, Path(path), name) if self.gateway.artifacts is not None else None
+        if made is not None:
+            try:
+                seq, shown = await self.gateway.artifacts.create_from_file(profile_id, made, caption or "")
+                note = (f"Shown to the user as an artifact they can open, edit and share "
+                                       f"(artifact_id {shown['artifact_id']}, \"{shown['title']}\"); "
+                                       "change it with lekora_update_artifact or lekora_edit_artifact.")
+                return seq, note
+            except Exception:
+                logging.getLogger(__name__).warning("Lekora: couldn't show %s as an artifact; sending the file",
+                                                    Path(path).name, exc_info=True)
+        # Audio plays in the chat: a format iPhone can't play is converted when ffmpeg is here.
+        path, name = await asyncio.to_thread(_playable_copy, Path(path), name, mime)
         described = await asyncio.to_thread(files.add_agent_file, profile_id, Path(path), name, mime)
-        return await self.gateway.publish_files(profile_id, [described], caption or "")
+        return await self.gateway.publish_files(profile_id, [described], caption or ""), None
 
     def _models_service(self):
         """Model picker details: OpenRouter's catalog (cached next to lekora.db) and routing."""

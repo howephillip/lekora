@@ -108,7 +108,8 @@ TOOL_SCHEMA = {
     "description": (
         "Send a file to the user in this Lekora chat: a photo, PDF, document, spreadsheet, audio, "
         "video, code or any other file on this machine. Use it whenever the user asks for a file or "
-        "you made one for them. Up to 100 MB."),
+        "you made one for them. Up to 100 MB. Web pages, documents, diagrams, code and text open "
+        "as artifacts the user can view, edit and share; audio plays in the chat."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -151,8 +152,9 @@ def send_file_tool(args: dict, *, platform: str, chat_id: str,
     name = args.get("name") or None
     future = asyncio.run_coroutine_threadsafe(deliver(chat_id, path, caption, name), loop)
     try:
-        future.result(timeout=timeout)
+        note = future.result(timeout=timeout)
     except Exception as exc:
         reason = getattr(exc, "reason", None) or str(exc) or type(exc).__name__
         return tool_result(False, f"Couldn't send the file: {reason}")
-    return tool_result(True, f"Sent {name or Path(path).name} to the user")
+    sent = f"Sent {name or Path(path).name} to the user"
+    return tool_result(True, f"{sent}. {note}" if isinstance(note, str) and note else sent)

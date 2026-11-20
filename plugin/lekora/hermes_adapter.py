@@ -593,11 +593,12 @@ class LekoraAdapter(BasePlatformAdapter):
             return await self._send_local_file(chat_id, local, caption)
         return await super().send_animation(chat_id, animation_url, caption, reply_to, metadata)
 
-    async def _tool_deliver(self, chat_id: str, path: str, caption: str, name: Optional[str]) -> None:
-        """For the lekora_send_file tool (on the gateway's loop); raises with a reason."""
+    async def _tool_deliver(self, chat_id: str, path: str, caption: str, name: Optional[str]) -> Optional[str]:
+        """For the lekora_send_file tool (on the gateway's loop); raises with a reason. Returns a
+        note for the agent when the file was shown as an artifact."""
         if self._service is None:
             raise RuntimeError("Lekora is not running")
-        await self._service.handle_agent_file(chat_id, Path(path), caption, name)
+        return (await self._service.agent_file(chat_id, Path(path), caption, name))[1]
 
     # -- agent -> phone ------------------------------------------------------
     async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None,
