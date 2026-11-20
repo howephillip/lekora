@@ -1,8 +1,8 @@
 # Delegation shown as a tree (Phase 7, feature 1)
 
 ## What the user sees
-- When an agent delegates from a Lekora chat, a **Delegated** card ("Lauren delegated") appears in that chat. Two kinds of delegation, one card:
-  - **Handing work to another agent** (owner, 2026-11-19: this is how the owner's agents delegate). The agent gives a task to another agent on Hermes' board (`kanban_create` with an assignee, e.g. Lauren → Ashlyn). The row shows who has it, the task, and where it's at: **Waiting to start**, working (what's happening now, e.g. "Picked up by ashlyn"), **Blocked** (with Hermes' reason), **Done**, or **Stopped** (archived). If that agent hands part of it on (Ashlyn → Carl), it branches under it.
+- When an agent delegates from a Lekora chat, a **Delegated** card ("<agent> delegated") appears in that chat. Two kinds of delegation, one card:
+  - **Handing work to another agent** (owner, 2026-11-19: the common way agents delegate to each other in Hermes). The agent gives a task to another agent on Hermes' board (`kanban_create` with an assignee, e.g. Assistant → Researcher). The row shows who has it, the task, and where it's at: **Waiting to start**, working (what's happening now, e.g. "Picked up by researcher"), **Blocked** (with Hermes' reason), **Done**, or **Stopped** (archived). If that agent hands part of it on (Researcher → Coder), it branches under it.
   - **Sub-agents**: copies of the agent Hermes' `delegate_task` makes. They show as "Sub-agent", with what each is doing, steps and time.
 - Tap a row for the whole task and what came back, **Open in Board** (board tasks) and **Stop** (a running board task's worker, as the Board's Stop; or a working sub-agent). **Stop All** when more than one can be stopped.
 - **The chat is never blocked (owner, 2026-11-19).** The card only shows. The agent stays free to talk while the work runs; results reach it the way Hermes already delivers them (board updates and sub-agent results wake the agent), and it tells the user in the chat.
@@ -18,5 +18,5 @@
 - `delegation.stop {seq, helper_id?}` → `delegation.stop.result {stopped: [ids]}`.
 
 ## Limits
-- Board rows show Hermes' last history line ("Picked up by ashlyn", "Blocked: …"), not the worker's every step.
+- Board rows show Hermes' last history line ("Picked up by researcher", "Blocked: …"), not the worker's every step.
 - A sub-agent's per-step text and token counts are not shown.

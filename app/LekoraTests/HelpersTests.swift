@@ -106,13 +106,13 @@ final class HelpersTests: XCTestCase {
         let working = HelpersTree.Helper(id: "a", goal: "g", status: "working", doing: "Web search", steps: 3,
                                          started_at: "2026-11-19T08:00:00Z")
         XCTAssertEqual(LKDelegationText.detail(working, now: start + 83), "Web search · 3 steps · 1m 23s")
-        let done = HelpersTree.Helper(id: "b", goal: "g", agent: "carl", task: "t_b", status: "done",
+        let done = HelpersTree.Helper(id: "b", goal: "g", agent: "coder", task: "t_b", status: "done",
                                       started_at: "2026-11-19T08:00:00Z", ended_at: "2026-11-19T08:00:09Z")
         XCTAssertEqual(LKDelegationText.detail(done, now: start + 999), "Done · 9s")
-        let blocked = HelpersTree.Helper(id: "c", goal: "g", agent: "ashlyn", task: "t_c", status: "blocked",
+        let blocked = HelpersTree.Helper(id: "c", goal: "g", agent: "researcher", task: "t_c", status: "blocked",
                                          doing: "Blocked: needs permission", started_at: "2026-11-19T08:00:00Z")
         XCTAssertEqual(LKDelegationText.detail(blocked, now: start), "Blocked: needs permission")
-        let waiting = HelpersTree.Helper(id: "d", goal: "g", agent: "dian", task: "t_d", status: "waiting")
+        let waiting = HelpersTree.Helper(id: "d", goal: "g", agent: "writer", task: "t_d", status: "waiting")
         XCTAssertEqual(LKDelegationText.detail(waiting, now: start), "Waiting to start")
         XCTAssertEqual(LKDelegationText.summary(HelpersTree(status: "working", helpers: [working, done, blocked])),
                        "2 of 3 still going · 1 blocked")
@@ -121,7 +121,7 @@ final class HelpersTests: XCTestCase {
         XCTAssertEqual(LKDelegationText.summary(HelpersTree(status: "done", helpers: [done, failed])),
                        "All 2 finished, 1 didn't make it")
         XCTAssertEqual(LKDelegationText.who(working, nameFor: { $0 }), "Sub-agent")
-        XCTAssertEqual(LKDelegationText.who(done, nameFor: { $0.capitalized }), "Carl")
+        XCTAssertEqual(LKDelegationText.who(done, nameFor: { $0.capitalized }), "Coder")
     }
 
     func testOnlyRunningWorkCanBeStopped() {

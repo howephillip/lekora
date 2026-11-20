@@ -65,8 +65,8 @@ def test_register_only_watches():
 
 def test_new_tasks_carry_the_chat_and_the_task_that_made_them(boards):
     top, _ = boards.created_since("default", None)
-    first = _create(boards, "Fix screen capture", "ashlyn", session="20261119_lekora")
-    child = _create(boards, "Check permissions", "carl", creator=first)
+    first = _create(boards, "Fix the nightly backups", "researcher", session="20261119_lekora")
+    child = _create(boards, "Check permissions", "coder", creator=first)
     _, rows = boards.created_since("default", top)
     by_id = {r["id"]: r for r in rows}
     assert by_id[first]["session_id"] == "20261119_lekora" and by_id[first]["created_by"] == "default"
@@ -74,9 +74,9 @@ def test_new_tasks_carry_the_chat_and_the_task_that_made_them(boards):
 
 
 def test_following_a_task(boards):
-    task_id = _create(boards, "Fix screen capture", "ashlyn", session="s")
+    task_id = _create(boards, "Fix the nightly backups", "researcher", session="s")
     row = boards.follow("default", [task_id, "t_gone"])
-    assert row[0]["title"] == "Fix screen capture" and row[0]["assignee"] == "ashlyn"
+    assert row[0]["title"] == "Fix the nightly backups" and row[0]["assignee"] == "researcher"
     assert row[0]["status"] in ("ready", "todo", "running") and row[0]["doing"]
     assert row[1] == {"id": "t_gone", "status": "archived"}
 
@@ -93,11 +93,11 @@ def test_the_kanban_create_hook_reads_a_real_answer(monkeypatch):
     import lekora.hermes_delegation as hd
     monkeypatch.setattr(hd, "_lekora_chat", lambda: "default")
     hooks = Hooks(lambda: (D(), loop))
-    hooks.post_tool_call(tool_name="kanban_create", args={"title": "Fix it", "assignee": "ashlyn"},
+    hooks.post_tool_call(tool_name="kanban_create", args={"title": "Fix it", "assignee": "researcher"},
                          result=json.dumps({"ok": True, "task_id": "t_1", "status": "running"}), task_id="")
     loop.run_until_complete(asyncio.sleep(0.05))
     loop.close()
-    assert seen and seen[0]["task_id"] == "t_1" and seen[0]["assignee"] == "ashlyn" and seen[0]["chat_id"] == "default"
+    assert seen and seen[0]["task_id"] == "t_1" and seen[0]["assignee"] == "researcher" and seen[0]["chat_id"] == "default"
 
 
 def test_hermes_running_list_and_stop():

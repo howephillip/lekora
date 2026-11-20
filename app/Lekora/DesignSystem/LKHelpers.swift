@@ -308,20 +308,20 @@ public enum LKDelegationText {
     let now = Date()
     func at(_ ago: TimeInterval) -> String { (now - ago).formatted(.iso8601) }
     let tree = HelpersTree(status: "working", helpers: [
-        .init(id: "t_1", goal: "M1 MacBook: make screen capture and input work from Linux", agent: "ashlyn",
+        .init(id: "t_1", goal: "Get the staging server's backups working again", agent: "researcher",
               task: "t_1", board: "default", status: "blocked",
-              doing: "Blocked: needs Screen Recording permission for the screen-sharing agent", started_at: at(900)),
-        .init(id: "t_2", parent: "t_1", goal: "Check the TCC database for the ARD agent", agent: "carl",
-              task: "t_2", board: "default", status: "working", doing: "Picked up by carl", started_at: at(240)),
-        .init(id: "t_3", goal: "Deploy the Benefits page", agent: "carl", task: "t_3", board: "default",
-              status: "done", started_at: at(3000), ended_at: at(600), summary: "Live at /benefits"),
-        .init(id: "sa-0", goal: "Compare hotels near Shinjuku station", status: "working", doing: "Web search",
+              doing: "Blocked: needs the user to approve access to the backup bucket", started_at: at(900)),
+        .init(id: "t_2", parent: "t_1", goal: "Check which backup jobs failed this week", agent: "coder",
+              task: "t_2", board: "default", status: "working", doing: "Picked up by coder", started_at: at(240)),
+        .init(id: "t_3", goal: "Publish the pricing page", agent: "coder", task: "t_3", board: "default",
+              status: "done", started_at: at(3000), ended_at: at(600), summary: "Live at /pricing"),
+        .init(id: "sa-0", goal: "Compare three hotels near the venue", status: "working", doing: "Web search",
               steps: 6, started_at: at(83)),
-        .init(id: "t_4", goal: "Write the release notes", agent: "dian", task: "t_4", status: "waiting",
+        .init(id: "t_4", goal: "Write the release notes", agent: "writer", task: "t_4", status: "waiting",
               started_at: at(20)),
     ])
     return ScrollView {
-        LKDelegationCard(tree, agentName: "Lauren", nameFor: { $0.capitalized }, stop: { _ in },
+        LKDelegationCard(tree, agentName: "Assistant", nameFor: { $0.capitalized }, stop: { _ in },
                          taskView: { _, task in AnyView(Text(task)) })
             .padding()
     }

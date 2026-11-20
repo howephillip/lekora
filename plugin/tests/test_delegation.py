@@ -266,37 +266,37 @@ def board_helpers(gw, store, board, tick):
 async def test_a_task_handed_to_another_agent_shows_in_the_chat_it_came_from(gw, store, board, board_helpers):
     await board_helpers.board_tick()  # where the board's history is now
     ws = await phone(gw, store)
-    board.add("t_1", "Fix the Mac's screen capture", "ashlyn")
+    board.add("t_1", "Fix the nightly backups", "researcher")
     await board_helpers.board_tick()
     card = cards(await drain(ws))[-1]
     assert card["role"] == "delegation"
     h = card["delegation"]["helpers"][0]
     assert (h["task"], h["agent"], h["goal"], h["status"], h["board"]) == (
-        "t_1", "ashlyn", "Fix the Mac's screen capture", "waiting", "default")
-    assert card["text"] == "Delegated 1 task to ashlyn (1 open)"
+        "t_1", "researcher", "Fix the nightly backups", "waiting", "default")
+    assert card["text"] == "Delegated 1 task to researcher (1 open)"
 
 
 async def test_tasks_from_elsewhere_are_not_shown(gw, store, board, board_helpers):
     await board_helpers.board_tick()
     ws = await phone(gw, store)
-    board.add("t_cli", "From the terminal", "ashlyn", session=None)
-    board.add("t_other", "Another chat", "ashlyn", session="sess-telegram")
+    board.add("t_cli", "From the terminal", "researcher", session=None)
+    board.add("t_other", "Another chat", "researcher", session="sess-telegram")
     await board_helpers.board_tick()
     assert cards(await drain(ws)) == []
 
 
 async def test_progress_blocked_and_done_follow_the_board(gw, store, board, board_helpers):
     await board_helpers.board_tick()
-    board.add("t_1", "Fix it", "ashlyn")
+    board.add("t_1", "Fix it", "researcher")
     await board_helpers.board_tick()
     ws = await phone(gw, store)
-    board.tasks["t_1"].update(status="running", doing="Picked up by ashlyn")
+    board.tasks["t_1"].update(status="running", doing="Picked up by researcher")
     await board_helpers.board_tick()
-    assert cards(await drain(ws))[-1]["delegation"]["helpers"][0]["doing"] == "Picked up by ashlyn"
-    board.tasks["t_1"].update(status="blocked", doing="Blocked: needs the user to grant permission")
+    assert cards(await drain(ws))[-1]["delegation"]["helpers"][0]["doing"] == "Picked up by researcher"
+    board.tasks["t_1"].update(status="blocked", doing="Blocked: needs the user to approve access")
     await board_helpers.board_tick()
     h = cards(await drain(ws))[-1]["delegation"]["helpers"][0]
-    assert (h["status"], h["doing"]) == ("blocked", "Blocked: needs the user to grant permission")
+    assert (h["status"], h["doing"]) == ("blocked", "Blocked: needs the user to approve access")
     board.tasks["t_1"].update(status="done", summary="Granted and verified", completed_at=1_800_000_300)
     await board_helpers.board_tick()
     card = cards(await drain(ws))[-1]
@@ -307,22 +307,22 @@ async def test_progress_blocked_and_done_follow_the_board(gw, store, board, boar
 
 async def test_a_delegated_agents_own_handoff_branches_under_it(gw, store, board, board_helpers):
     await board_helpers.board_tick()
-    board.add("t_1", "Plan the trip", "ashlyn")
+    board.add("t_1", "Plan the trip", "researcher")
     await board_helpers.board_tick()
     ws = await phone(gw, store)
-    board.add("t_2", "Book flights", "carl", session=None, created_by="ashlyn", creator="t_1")
+    board.add("t_2", "Book flights", "coder", session=None, created_by="researcher", creator="t_1")
     await board_helpers.board_tick()
     h = cards(await drain(ws))[-1]["delegation"]["helpers"]
-    assert [(x["id"], x.get("parent"), x["agent"]) for x in h] == [("t_1", None, "ashlyn"), ("t_2", "t_1", "carl")]
+    assert [(x["id"], x.get("parent"), x["agent"]) for x in h] == [("t_1", None, "researcher"), ("t_2", "t_1", "coder")]
 
 
 async def test_handoffs_close_together_share_a_card(gw, store, board, board_helpers, tick):
     await board_helpers.board_tick()
-    board.add("t_1", "A", "ashlyn")
-    board.add("t_2", "B", "carl")
+    board.add("t_1", "A", "researcher")
+    board.add("t_2", "B", "coder")
     await board_helpers.board_tick()
     tick.now += 600
-    board.add("t_3", "C", "carl")
+    board.add("t_3", "C", "coder")
     await board_helpers.board_tick()
     seqs = {ev.seq for ev in store.events_for_profile("assistant")}
     assert len(seqs) == 2
@@ -331,8 +331,8 @@ async def test_handoffs_close_together_share_a_card(gw, store, board, board_help
 async def test_the_hook_shows_it_straight_away_and_the_board_doesnt_repeat_it(gw, store, board, board_helpers):
     await board_helpers.board_tick()
     ws = await phone(gw, store)
-    await board_helpers.handed_off(chat_id="assistant", task_id="t_1", title="Fix it", assignee="ashlyn", turn="turn-1")
-    board.add("t_1", "Fix it", "ashlyn")
+    await board_helpers.handed_off(chat_id="assistant", task_id="t_1", title="Fix it", assignee="researcher", turn="turn-1")
+    board.add("t_1", "Fix it", "researcher")
     await board_helpers.board_tick()
     got = cards(await drain(ws))
     assert len({c["seq"] for c in got}) == 1 and len(got[-1]["delegation"]["helpers"]) == 1
@@ -340,8 +340,8 @@ async def test_the_hook_shows_it_straight_away_and_the_board_doesnt_repeat_it(gw
 
 async def test_stop_a_running_task_stops_its_worker(gw, store, board, board_helpers):
     await board_helpers.board_tick()
-    board.add("t_1", "Fix it", "ashlyn")
-    board.add("t_2", "Wait", "carl")
+    board.add("t_1", "Fix it", "researcher")
+    board.add("t_2", "Wait", "coder")
     await board_helpers.board_tick()
     board.tasks["t_1"]["status"] = "running"
     await board_helpers.board_tick()
@@ -352,12 +352,12 @@ async def test_stop_a_running_task_stops_its_worker(gw, store, board, board_help
 
 async def test_board_tasks_are_followed_again_after_a_restart(gw, store, board, board_helpers, tick):
     await board_helpers.board_tick()
-    board.add("t_1", "Fix it", "ashlyn")
+    board.add("t_1", "Fix it", "researcher")
     await board_helpers.board_tick()
     restarted = Delegations(store, gw.publish_helpers, gw.update_helpers, boards=board,
                             chat_for=lambda s, b: None, clock=tick, every=0)
     assert await restarted.resume() == 1
-    assert store.working_helper_cards()  # still open: Ashlyn's task lives on in Hermes
+    assert store.working_helper_cards()  # still open: Researcher's task lives on in Hermes
     board.tasks["t_1"].update(status="done", summary="Fixed")
     await restarted.board_tick()
     assert store.working_helper_cards() == []
