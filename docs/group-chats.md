@@ -3,6 +3,7 @@
 ## What the user sees
 - **Groups** sit with the agents on the home screen. **New Group**: a name and two or more agents (any agents: all are equal). A group's settings rename it, add or remove agents at any time, or delete it (confirmed first).
 - In a group the user writes as usual. **@name** talks to one or a few agents (autocompletes from the members); **no @mention, or @all / @everyone, is everyone** (owner, 2026-11-19, Hermes' own rule). Each agent's reply is a bubble with its name, and live typing shows who is writing. Agents answer at the same time.
+- **@mention in a one-to-one chat (owner, 2026-11-20):** typing "@" in an agent's chat suggests the other agents. Sending a message that @mentions any of them asks "Start a group with Lauren and Ashlyn?": **Start Group** reuses the group with exactly those agents or makes one ("Lauren & Ashlyn"), adds a note "From your chat with Lauren" and that chat's last 5 messages (with their own times), opens it and sends the message there; **Send to Lauren Only** sends it as it is. The one-to-one chat stays as it was.
 - **One shared conversation:** every agent sees what the user and the other agents said since its last turn. An agent with nothing to add stays quiet. An agent can **@mention** another member to bring it in.
 - Everything a one-to-one chat has works in a group (owner, 2026-11-19): streaming replies, approval and question cards, artifacts, files both ways, Delegated cards. Hearing replies and calls stay one-to-one for now.
 

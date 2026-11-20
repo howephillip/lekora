@@ -160,6 +160,22 @@ enum LKMentionMatcher {
         return out
     }
 
+    /// The agents a message @mentions (by id, or name without spaces), in the order written.
+    static func mentioned(in text: String, among profiles: [ProfileData]) -> [String] {
+        var handles: [String: String] = [:]
+        for profile in profiles {
+            handles[profile.profile_id.lowercased()] = profile.profile_id
+            handles[profile.name.filter { !$0.isWhitespace }.lowercased()] = profile.profile_id
+        }
+        var found: [String] = []
+        let words = text.split(whereSeparator: { $0.isWhitespace })
+        for word in words where word.hasPrefix("@") {
+            let handle = word.dropFirst().lowercased().trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+            if let id = handles[handle], !found.contains(id) { found.append(id) }
+        }
+        return found
+    }
+
     /// The text with the "@word" being written completed to "@handle ".
     static func complete(_ text: String, with handle: String) -> String {
         guard let at = text.lastIndex(of: "@") else { return text }

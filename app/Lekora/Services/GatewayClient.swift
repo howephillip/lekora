@@ -526,6 +526,16 @@ public final class GatewayClient: ObservableObject {
         return changed
     }
 
+    /// @mentioning agents in a one-to-one chat (owner, 2026-11-20): the group of that agent and them
+    /// (reused when one has exactly them), which starts with the chat's last few messages.
+    @discardableResult
+    public func startGroup(from profileId: String, with members: [String]) async throws -> GroupData {
+        let started = try await request(type: "group.start", data: GroupStartRequest(from: profileId, members: members),
+                                        reply: GroupStartResult.self, timeout: 20).group
+        applyGroups(groups.filter { $0.group_id != started.group_id } + [started])
+        return started
+    }
+
     public func deleteGroup(_ groupId: String) async throws {
         _ = try await request(type: "group.delete", data: GroupDeleteRequest(group_id: groupId),
                               reply: GroupIdResult.self, timeout: 15)

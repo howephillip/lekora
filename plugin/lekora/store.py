@@ -480,8 +480,9 @@ class Store:
     session_tagger: Optional[Callable[[str], Optional[str]]] = None
 
     def append_event(
-        self, profile_id: str, event_type: str, payload: dict[str, Any]
+        self, profile_id: str, event_type: str, payload: dict[str, Any], created_at: Optional[str] = None
     ) -> int:
+        """``created_at``: keep a copied message's own time (default: now)."""
         if event_type == "chat.message" and "session" not in payload and self.session_tagger is not None:
             try:
                 session = self.session_tagger(profile_id)
@@ -494,7 +495,7 @@ class Store:
                 "INSERT INTO events (instance_id, profile_id, event_type, "
                 "payload_json, created_at, rev) VALUES (?,?,?,?,?,?)",
                 (self.instance_id, profile_id, event_type,
-                 json.dumps(payload), _iso(self._clock()), self._next_rev()),
+                 json.dumps(payload), created_at or _iso(self._clock()), self._next_rev()),
             )
             self._db.commit()
             return int(cur.lastrowid)

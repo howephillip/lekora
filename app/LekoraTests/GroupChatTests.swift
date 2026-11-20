@@ -115,4 +115,26 @@ final class GroupChatTests: XCTestCase {
         timeline.applyIncoming(seq: 6, profileId: "group:g1", role: "assistant", text: "Second", draftId: "d1", speaker: "atlas")
         XCTAssertEqual(timeline.entries(for: "group:g1").map(\.seq), [5, 6])
     }
+
+    // MARK: - Starting a group from a one-to-one chat (owner, 2026-11-20)
+
+    func testMentionsInAMessageAreFound() {
+        let profiles = [ProfileData(profile_id: "coder", name: "Coder", avatar: "x"),
+                        ProfileData(profile_id: "writer", name: "Writer Bot", avatar: "x")]
+        XCTAssertEqual(LKMentionMatcher.mentioned(in: "@Coder, and @WriterBot what do you think?", among: profiles),
+                       ["coder", "writer"])
+        XCTAssertEqual(LKMentionMatcher.mentioned(in: "email me@coder.com", among: profiles), [])
+        XCTAssertEqual(LKMentionMatcher.mentioned(in: "@nobody hi", among: profiles), [])
+    }
+
+    func testStartingAGroupMakesOneOrReusesIt() async throws {
+        let gateway = try await connected()
+        let started = try await gateway.startGroup(from: "default", with: ["writer"])
+        XCTAssertEqual(Set(started.members), ["default", "writer"])
+        XCTAssertNotNil(gateway.group(for: started.key))
+        let reused = try await gateway.startGroup(from: "coder", with: ["writer"])
+        XCTAssertEqual(reused.group_id, "g1")  // Launch already has exactly Coder and Writer
+        let sent = host.received(type: "group.start").compactMap { $0["data"] as? [String: Any] }
+        XCTAssertEqual(sent.first?["from"] as? String, "default")
+    }
 }

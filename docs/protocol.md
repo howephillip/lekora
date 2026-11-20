@@ -464,6 +464,7 @@ No `profile_id`: boards are shared by every agent on the instance. `board` is a 
 A group's chat key is `group:<group_id>`; it is used as `profile_id` on every message of the group, both ways.
 - `groups.list` `{}` → `groups.list.result` `{groups: [group]}`. A group: `{group_id, name, members: [profile_id], created_at}`.
 - `group.create` `{name, members}` (2+ known agents) → `group.create.result` `{group}`. `group.update` `{group_id, name?, members?}` → `{group}`. `group.delete` `{group_id}` → `{group_id}` (its messages are deleted too).
+- `group.start` `{from, members}` (an agent's id, and the agents @mentioned in its chat) → `{group, created}`: the group with exactly those agents (made when there's none, named after them), which then gets a system message "From your chat with <name>" and that chat's last 5 user/agent messages (`copied_from`, original times).
 - `groups.changed` (plugin → phones, not stored): `{groups}` after any change.
 - `chat.send` with `profile_id: "group:<id>"`: the user's message to the group (text and files as usual). `chat.message`, `chat.draft` and `chat.typing` for a group carry `speaker` (the agent's profile_id) on agent messages. `history.fetch`, `chat.read`, `prompt.respond`, `artifacts.*` and `file.*` take the group key like an agent's id.
 - `hello.ack` `read` includes each group's key.

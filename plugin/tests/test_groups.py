@@ -245,3 +245,43 @@ async def test_each_member_is_told_it_is_in_a_group(gw, store, groups, turns):
     assert note.startswith('GROUP CHAT (Lekora): you are @coder in the group chat "Trip" with @assistant (Hermes Assistant) and Sam')
     assert "(pass)" in note and "@assistant" in note
     assert "GROUP CHAT" not in turns.to("coder")[0][2]  # the message itself stays the conversation
+
+
+# ---- starting a group from a one-to-one chat (owner, 2026-11-20) ---------------------
+
+async def test_mentioning_in_a_one_to_one_starts_a_group_with_its_last_five_messages(gw, store, groups, turns):
+    for i in range(7):
+        store.append_event("assistant", "chat.message", {"role": "user", "text": f"question {i}"})
+        store.append_event("assistant", "chat.message", {"role": "assistant", "text": f"answer {i}"})
+    ws, _ = await phone(gw, store)
+    got = await ask(ws, store, "group.start", {"from": "assistant", "members": ["coder"]})
+    group = got["data"]["group"]
+    assert got["data"]["created"] is True and group["members"] == ["assistant", "coder"]
+    assert group["name"] == "Hermes Assistant & Coder"
+    key = groups.key(group["group_id"])
+    saved = [e.payload for e in store.events_for_profile(key)]
+    assert saved[0] == {"role": "system", "text": "From your chat with Hermes Assistant"}
+    assert [p["text"] for p in saved[1:]] == ["answer 4", "question 5", "answer 5", "question 6", "answer 6"]
+    assert saved[1]["speaker"] == "assistant" and saved[2].get("speaker") is None
+    originals = {e.payload["text"]: e.created_at for e in store.events_for_profile("assistant")}
+    copies = store.events_for_profile(key)
+    assert all(e.created_at == originals[e.payload["text"]] for e in copies[1:])  # their own times
+    # The new member is handed them with the next message.
+    await ws.send(env(store, "chat.send", {"text": "@coder what do you think?"}, profile_id=key, msg_id="m1"))
+    await settle()
+    caught_up = turns.to("coder")[0][2]
+    assert "Sam: question 6" in caught_up and "@assistant (Hermes Assistant): answer 6" in caught_up
+
+
+async def test_starting_again_reuses_the_group_with_exactly_those_agents(gw, store, groups):
+    store.append_event("assistant", "chat.message", {"role": "user", "text": "hello"})
+    first, made = await groups.start_from("assistant", ["coder"])
+    again, made_again = await groups.start_from("assistant", ["coder"])
+    assert made and not made_again and first["group_id"] == again["group_id"]
+    assert len(store.list_groups()) == 1
+
+
+async def test_starting_a_group_needs_a_real_agent(gw, store, groups):
+    ws, _ = await phone(gw, store)
+    got = await ask(ws, store, "group.start", {"from": "assistant", "members": ["nobody"]})
+    assert got["type"] == "error" and got["data"]["code"] == "INVALID_GROUP"

@@ -621,6 +621,15 @@ final class FakeHost: @unchecked Sendable {
                                         "members": members, "created_at": "2026-11-19T10:00:00Z"]
             groups.append(group)
             send(type: "group.create.result", id: id, data: ["group": group], on: connection)
+        case "group.start":
+            let members = [data["from"] as? String ?? ""] + (data["members"] as? [String] ?? [])
+            if let existing = groups.first(where: { Set($0["members"] as? [String] ?? []) == Set(members) }) {
+                send(type: "group.start.result", id: id, data: ["group": existing, "created": false], on: connection)
+                return
+            }
+            let group: [String: Any] = ["group_id": "g\(groups.count + 1)", "name": "Started", "members": members]
+            groups.append(group)
+            send(type: "group.start.result", id: id, data: ["group": group, "created": true], on: connection)
         case "group.update":
             let gid = data["group_id"] as? String ?? ""
             guard let index = groups.firstIndex(where: { $0["group_id"] as? String == gid }) else {

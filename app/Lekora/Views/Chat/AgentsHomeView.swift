@@ -177,7 +177,8 @@ public struct AgentsHomeView: View {
                                     profileName: client.group(for: key.profileId)?.name
                                         ?? client.profiles.first { $0.profile_id == key.profileId }?.name ?? "",
                                     unreadElsewhere: unreadElsewhere(than: client),
-                                    computerName: hosts.hasSeveral ? name(of: client) : nil)
+                                    computerName: hosts.hasSeveral ? name(of: client) : nil,
+                                    openChat: { chat in path = [AgentKey(instanceId: key.instanceId, profileId: chat)] })
                 .onAppear { client.switchToProfile(key.profileId) }
         }
     }

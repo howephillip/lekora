@@ -13,12 +13,24 @@ public struct WalkingSkeletonPingView: View {
         group?.name ?? gateway.activeProfile?.name ?? fallbackProfileName
     }
 
+    private var groupOfferTitle: String {
+        let names = [profileName] + (groupOffer ?? []).map(gateway.agentName)
+        let list = names.count == 2 ? names.joined(separator: " and ")
+            : names.dropLast().joined(separator: ", ") + " and " + (names.last ?? "")
+        return "Start a group with \(list)?"
+    }
+
     /// A group chat (docs/group-chats.md): one-to-one controls (voice, calls, model) don't apply.
     private var group: GroupData? {
         gateway.group(for: gateway.activeProfileId)
     }
 
     @State private var editingGroup = false
+    /// Agents @mentioned in a one-to-one chat: offered a group with them (owner, 2026-11-20).
+    @State private var groupOffer: [String]?
+    @State private var startingGroup = false
+    /// Opens another chat (a group just started from this one).
+    private var openChat: (String) -> Void
 
     /// In a group, the agent's name above its messages where the speaker changes.
     private var speakerLabels: Set<String> {
@@ -96,7 +108,8 @@ public struct WalkingSkeletonPingView: View {
     private let computerName: String?
 
     public init(gateway: GatewayClient, instanceName: String, profileName: String, unreadElsewhere: Int = 0,
-                computerName: String? = nil) {
+                computerName: String? = nil, openChat: @escaping (String) -> Void = { _ in }) {
+        self.openChat = openChat
         self.gateway = gateway
         self.instanceName = instanceName
         self.fallbackProfileName = profileName
@@ -223,10 +236,12 @@ public struct WalkingSkeletonPingView: View {
             .lkScreenBackground()
             .safeAreaBar(edge: .bottom) {
                 VStack(spacing: LK.Spacing.sm) {
-                    // In a group, "@": its members (docs/group-chats.md).
-                    if let group {
-                        let members = group.members.compactMap { id in gateway.profiles.first { $0.profile_id == id } }
+                    // "@": a group's members; in a one-to-one chat, the other agents (to start a group).
+                    if isConnected {
+                        let members = group.map { group in group.members.compactMap { id in gateway.profiles.first { $0.profile_id == id } } }
+                            ?? gateway.profiles.filter { $0.profile_id != gateway.activeProfileId }
                         let mentions = LKMentionMatcher.suggestions(for: draft, members: members)
+                            .filter { group != nil || $0.handle != "all" }
                         if !mentions.isEmpty {
                             LKMentionSuggestions(suggestions: mentions, pick: { handle in
                                 draft = LKMentionMatcher.complete(draft, with: handle)
@@ -355,6 +370,17 @@ public struct WalkingSkeletonPingView: View {
                     await gateway.loadChats(for: gateway.activeProfileId)
                     await gateway.loadCommands(for: gateway.activeProfileId)
                 }
+            }
+            .confirmationDialog(groupOfferTitle, isPresented: Binding(get: { groupOffer != nil },
+                                                                     set: { if !$0 { groupOffer = nil } }),
+                                titleVisibility: .visible) {
+                if let members = groupOffer {
+                    Button("Start Group") { startGroup(with: members) }
+                    Button("Send to \(profileName) Only") { sendNow() }
+                    Button("Cancel", role: .cancel) {}
+                }
+            } message: {
+                Text("A group chat with them that starts with your recent messages here (up to 5). This chat stays as it is.")
             }
             .sheet(isPresented: $editingGroup) {
                 if let group { GroupEditorView(gateway: gateway, group: group) }
@@ -1220,6 +1246,40 @@ public struct WalkingSkeletonPingView: View {
 
 
     private func send() {
+        guard canSend else { return }
+        // @mentioning other agents in a one-to-one chat: ask about a group first (owner, 2026-11-20).
+        if group == nil, attachments.isEmpty, isConnected {
+            let others = gateway.profiles.filter { $0.profile_id != gateway.activeProfileId }
+            let mentioned = LKMentionMatcher.mentioned(in: draft, among: others)
+            if !mentioned.isEmpty {
+                groupOffer = mentioned
+                return
+            }
+        }
+        sendNow()
+    }
+
+    /// Starts (or reuses) the group of this agent and the ones mentioned, then sends the message there.
+    private func startGroup(with members: [String]) {
+        let text = draft
+        let from = gateway.activeProfileId
+        startingGroup = true
+        Task {
+            defer { startingGroup = false }
+            do {
+                let started = try await gateway.startGroup(from: from, with: members)
+                draft = ""
+                gateway.drafts[from] = nil
+                gateway.switchToProfile(started.key)
+                await gateway.sendMessage(text)
+                openChat(started.key)
+            } catch {
+                attachmentProblem = error.localizedDescription
+            }
+        }
+    }
+
+    private func sendNow() {
         guard canSend else { return }
         if !attachments.isEmpty {
             sendWithAttachments(draft)

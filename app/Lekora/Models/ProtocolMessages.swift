@@ -1031,6 +1031,8 @@ struct GroupIdResult: Codable { let group_id: String }
 struct GroupCreateRequest: Codable { let name: String; let members: [String] }
 struct GroupUpdateRequest: Codable { let group_id: String; let name: String?; let members: [String]? }
 struct GroupDeleteRequest: Codable { let group_id: String }
+struct GroupStartRequest: Codable { let from: String; let members: [String] }
+struct GroupStartResult: Codable { let group: GroupData; let created: Bool }
 
 // MARK: - Unpairing ("Forget Host")
 /// Sent on a fresh socket without `hello`: carries its own credentials.

@@ -583,7 +583,7 @@ class Gateway:
         elif type_ == "voice.timing":
             if self.voice_replies is not None:
                 self.voice_replies.phone_timing(env.get("profile_id"), data)
-        elif type_ in ("groups.list", "group.create", "group.update", "group.delete"):
+        elif type_ in ("groups.list", "group.create", "group.update", "group.delete", "group.start"):
             await self._groups_request(conn, msg_id, type_, data)
         elif type_ == "delegation.stop":
             await self._delegation_stop(conn, msg_id, env.get("profile_id"), data)
@@ -1069,6 +1069,12 @@ class Gateway:
                 result: dict[str, Any] = {"groups": self.groups.list()}
             elif type_ == "group.create":
                 result = {"group": await self.groups.create(data.get("name"), data.get("members"))}
+            elif type_ == "group.start":
+                group, made = await self.groups.start_from(data.get("from"), data.get("members"))
+                result = {"group": group, "created": made}
+                # The copied messages reach every phone (they're the group's first messages).
+                for ev in self.store.messages_after(self.groups.key(group["group_id"]), 0, 50)[-20:]:
+                    await self._broadcast(ev)
             elif type_ == "group.update":
                 result = {"group": await self.groups.update(data.get("group_id"), data.get("name"), data.get("members"))}
             else:

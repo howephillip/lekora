@@ -25,6 +25,7 @@ CHAT_PREFIX = "g."
 MIN_MEMBERS = 2
 MAX_NAME = 60
 CATCH_UP = 30            # messages given at most, newest last
+CONTEXT_MESSAGES = 5     # a one-to-one chat's messages a group started from it begins with (owner, 2026-11-20)
 LINE_LIMIT = 2000        # characters of one message in a catch-up
 MAX_ROUNDS = 3           # agents bringing each other in, per user message
 MAX_AGENT_MESSAGES = 10  # agent messages per user message
@@ -167,6 +168,42 @@ class Groups:
         await asyncio.to_thread(self.store.update_group, group["group_id"], name=name, members=members, seen=seen)
         await self._announce()
         return self.wire(self._require(group["group_id"]))
+
+    async def start_from(self, from_profile: Any, mentioned: Any) -> tuple[dict, bool]:
+        """@mentioning agents in a one-to-one chat (owner, 2026-11-20): the group of that agent and the
+        mentioned ones (an existing group with exactly them, else a new one), which then gets the last
+        few messages of the one-to-one chat as context. Returns ``(group, made)``."""
+        names = self._names()
+        if not isinstance(from_profile, str) or from_profile not in names:
+            raise GroupError("INVALID_GROUP", "Unknown agent")
+        if not isinstance(mentioned, list) or not mentioned:
+            raise GroupError("INVALID_GROUP", "Mention an agent to start a group")
+        members = list(dict.fromkeys([from_profile, *mentioned]))
+        _, members = self._clean("group", members)
+        group = next((g for g in self.store.list_groups() if set(g["members"]) == set(members)), None)
+        made = group is None
+        if made:
+            title = [names.get(m, m) for m in members]
+            name = " & ".join(title) if len(title) == 2 else ", ".join(title[:-1]) + " & " + title[-1]
+            group = self._require((await self.create(name, members))["group_id"])
+        await asyncio.to_thread(self._bring_context, group, from_profile, names.get(from_profile, from_profile))
+        return self.wire(self._require(group["group_id"])), made
+
+    def _bring_context(self, group: dict, from_profile: str, from_name: str) -> None:
+        """The one-to-one chat's last messages, copied into the group after a note saying where from."""
+        key = self.key(group["group_id"])
+        recent = [e for e in self.store.messages_after(from_profile, 0, CONTEXT_MESSAGES * 4)
+                  if e.payload.get("role") in ("user", "assistant") and str(e.payload.get("text") or "").strip()]
+        recent = recent[-CONTEXT_MESSAGES:]
+        if not recent:
+            return
+        self.store.append_event(key, "chat.message", {"role": "system", "text": f"From your chat with {from_name}"},
+                                created_at=recent[0].created_at)
+        for event in recent:
+            payload = {"role": event.payload["role"], "text": event.payload["text"], "copied_from": from_profile}
+            if event.payload["role"] == "assistant":
+                payload["speaker"] = from_profile
+            self.store.append_event(key, "chat.message", payload, created_at=event.created_at)  # their own times
 
     async def delete(self, group_id: Any) -> str:
         group = self._require(group_id)
