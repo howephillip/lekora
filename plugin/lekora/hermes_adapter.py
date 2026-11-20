@@ -28,7 +28,7 @@ from gateway.platforms.event import MessageEvent, MessageType
 
 from . import hermes_streaming
 from .hermes_files import TOOL_NAME, TOOL_SCHEMA, TOOLSET, inbound_media, send_file_tool
-from .hermes_routes import ProfileRouter, check_routed
+from .hermes_routes import DEFAULT_PROFILE_ID, ProfileRouter, check_routed
 from .prompts import CARD_MESSAGE_PREFIX, Resolvers
 from .streaming import LiveReplies
 from .plugin import LekoraAlreadyRunning, LekoraConfig, LekoraService, UnsupportedHermesVersion
@@ -323,6 +323,42 @@ class LekoraAdapter(BasePlatformAdapter):
         source = runner._normalize_source_for_session_key(source)
         return runner._session_key_for_source(source)
 
+    def _sync_chat_origin(self, profile_id: str) -> bool:
+        """Hermes saves who sent a chat's first message as the chat's origin and keeps it through
+        every New Chat. It hands finished background work (sub-agents, processes) back to the agent
+        only when that origin matches the sender of the user's messages, so an origin saved before
+        the user chose their name (or tagged with the default profile, which its messages never
+        carry) made every such result bounce (docs/delegation.md). Keep the origin in step with
+        what Lekora sends. Hermes internals: re-check on upgrades."""
+        runner = self.gateway_runner
+        key = self._session_key_for(profile_id)
+        store = getattr(runner, "session_store", None) if runner is not None else None
+        if not key or store is None:
+            return False
+        try:
+            entry = store.lookup_by_session_key(key)
+            origin = getattr(entry, "origin", None)
+            name = self._user_name()
+            # A named agent's messages carry its profile (its route); the default agent's carry none.
+            profile = None if profile_id == DEFAULT_PROFILE_ID else profile_id
+            if origin is None or (getattr(origin, "user_name", None) == name
+                                  and getattr(origin, "profile", None) == profile):
+                return False
+            with store._lock:
+                origin.user_name = name
+                origin.profile = profile
+            store._save_entry(key)
+            logger.info("Lekora: %s's chat now carries the user's name, so finished work can reach it", profile_id)
+            return True
+        except Exception:
+            logger.debug("Lekora: couldn't update %s's chat origin", profile_id, exc_info=True)
+            return False
+
+    def sync_chat_origins(self) -> None:
+        """Every agent's chat (at start, and when the user's name changes)."""
+        for profile in self.offered_profiles():
+            self._sync_chat_origin(profile["profile_id"])
+
     def _current_session_for(self, profile_id: str) -> Optional[str]:
         """The Hermes conversation this chat is on now (in memory; docs/chats.md). Read only."""
         runner = self.gateway_runner
@@ -437,6 +473,7 @@ class LekoraAdapter(BasePlatformAdapter):
             chat_id=profile_id, chat_name=profile_id, chat_type="dm",
             user_id="lekora-owner", user_name=self._user_name())
         check_routed(source, profile_id)
+        self._sync_chat_origin(profile_id)
         event = MessageEvent(
             # Said aloud in a hands-free call: a voice turn, as Hermes treats a voice message
             # (it may run on the agent's voice-chat model, `auxiliary.voice_chat`; docs/voice.md §3).
@@ -498,6 +535,7 @@ class LekoraAdapter(BasePlatformAdapter):
         self._mark_connected()
         logger.info("Lekora: listening on port %s", port)
         self._wire_plugin_handlers(None)
+        self.sync_chat_origins()  # finished background work can reach every agent (docs/delegation.md)
         return True
 
     async def disconnect(self) -> None:

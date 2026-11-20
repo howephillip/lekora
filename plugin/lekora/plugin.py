@@ -289,6 +289,8 @@ class LekoraService:
                 agent_name=lambda pid: next((p["name"] for p in gateway._profiles() if p["profile_id"] == pid), pid))
             self._schedules_watch = asyncio.create_task(self.gateway.schedules.watch(active=gateway.phones_connected))
         self.gateway.prompts = self.prompts
+        sync = getattr(self._bridge, "sync_chat_origins", None)
+        self.gateway.name_changed = sync if callable(sync) else None
         # "/model … --global" and friends, from the model picker: handed to Hermes like a typed command.
         self.prompts.send_command = lambda chat_id, text: self._bridge.deliver_to_agent(
             chat_id, text, "lekora-" + uuid.uuid4().hex[:12])

@@ -102,7 +102,8 @@ class Gateway:
         # An agent's tools in Lekora chats (docs/agent-tools.md); set by LekoraService.
         self.tools: Optional[Any] = None
         self.artifacts: Optional[Any] = None   # Artifacts (docs/artifacts.md)
-        self.delegations: Optional[Any] = None  # Helpers cards (docs/delegation.md)
+        self.delegations: Optional[Any] = None  # Delegated cards (docs/delegation.md)
+        self.name_changed: Optional[Callable[[], None]] = None  # set by the service
         self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
         self.schedules: Optional[Any] = None   # Schedules: agents' Hermes cron jobs (docs/scheduler.md)
         self.chats: Optional[Any] = None       # ChatSessions: past chats (docs/chats.md)
@@ -1220,6 +1221,11 @@ class Gateway:
         if len(name) > MAX_USER_NAME or any(ord(c) < 32 for c in name):
             raise _Reject("INVALID_NAME", f"Use up to {MAX_USER_NAME} characters", True, False, msg_id)
         self.store.set_user_name(name)
+        if self.name_changed is not None:
+            try:
+                self.name_changed()  # Hermes' saved chat senders follow the new name (docs/delegation.md)
+            except Exception:
+                log.debug("Lekora: name change not passed on", exc_info=True)
         await self._send(conn, self._envelope("user.name.set.result", {"user_name": name}, msg_id=msg_id))
         payload = self._envelope("instance.changed", {"instance_name": self.store.get_instance_name(),
                                                       "user_name": name})

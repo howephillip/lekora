@@ -13,6 +13,10 @@
 - **Sub-agents**, from Hermes' official hooks: `subagent_start` (row), `post_tool_call` with a sub-agent's id (`sa-…`: a step, and "doing now"), `subagent_stop` (ending, report, duration; Hermes fires it when the batch ends, so in between a sub-agent shows **Finishing**). Hermes' running list refreshes them every second while any work.
 - Card updates are sent at most once a second. Nothing is written to Hermes config and no tools are added: Lekora only watches.
 
+## Results reach the agent (fix, 2026-11-19)
+- Hermes hands finished background work (sub-agent results, process completions) back to the agent as a new turn only when the chat's saved origin (the sender of its first message, kept through every New Chat) matches the sender of the user's messages. Lekora chats saved before the user chose a name (and the default agent's, tagged with a profile its messages never carry) failed that check (`admission_conflict`), so results were retried and then dropped, and the agent never heard them.
+- Lekora now keeps each chat's origin in step with what it sends (the user's name; the agent's profile, none for the default agent): at start, before every message, and when the user's name changes. Hermes internals (`SessionStore` entry origin): re-check after Hermes upgrades.
+
 ## Protocol
 - A Delegated card is a `chat.message` with `role: "delegation"` and a `delegation` object (docs/protocol.md §22), updated in place (same `seq`, new `rev`).
 - `delegation.stop {seq, helper_id?}` → `delegation.stop.result {stopped: [ids]}`.

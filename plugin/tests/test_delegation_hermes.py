@@ -103,3 +103,48 @@ def test_the_kanban_create_hook_reads_a_real_answer(monkeypatch):
 def test_hermes_running_list_and_stop():
     assert HermesHelpers.running() == []
     assert HermesHelpers.interrupt("sa-0-nothere") is False
+
+
+def test_a_chat_started_under_the_old_name_follows_the_users_name(tmp_path, monkeypatch):
+    """Hermes hands finished background work back only to a matching sender; a chat saved before
+    the user chose a name must carry the name Lekora sends now (docs/delegation.md)."""
+    from types import SimpleNamespace
+
+    from gateway.config import GatewayConfig, Platform
+    from gateway.session import SessionSource, SessionStore
+
+    from lekora.hermes_adapter import LekoraAdapter
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    store = SessionStore(tmp_path / "sessions", GatewayConfig())
+    old = SessionSource(platform=Platform.TELEGRAM, chat_id="default", chat_name="default", chat_type="dm",
+                        user_id="lekora-owner", user_name="Lekora", profile="default")
+    entry = store.get_or_create_session(old)
+    me = SimpleNamespace(gateway_runner=SimpleNamespace(session_store=store),
+                         _session_key_for=lambda profile_id: entry.session_key, _user_name=lambda: "Sam")
+    assert LekoraAdapter._sync_chat_origin(me, "default") is True
+    origin = store.lookup_by_session_key(entry.session_key).origin
+    assert (origin.user_name, origin.profile) == ("Sam", None)  # the default agent's messages carry no profile
+    assert LekoraAdapter._sync_chat_origin(me, "default") is False  # already in step
+    reloaded = SessionStore(tmp_path / "sessions", GatewayConfig())
+    assert reloaded.lookup_by_session_key(entry.session_key).origin.user_name == "Sam"  # saved
+
+
+def test_a_named_agents_chat_keeps_its_profile(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from gateway.config import GatewayConfig, Platform
+    from gateway.session import SessionSource, SessionStore
+
+    from lekora.hermes_adapter import LekoraAdapter
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    store = SessionStore(tmp_path / "sessions", GatewayConfig())
+    entry = store.get_or_create_session(SessionSource(
+        platform=Platform.TELEGRAM, chat_id="coder", chat_name="coder", chat_type="dm",
+        user_id="lekora-owner", user_name="Lekora", profile="coder"))
+    me = SimpleNamespace(gateway_runner=SimpleNamespace(session_store=store),
+                         _session_key_for=lambda profile_id: entry.session_key, _user_name=lambda: "Sam")
+    assert LekoraAdapter._sync_chat_origin(me, "coder") is True
+    origin = store.lookup_by_session_key(entry.session_key).origin
+    assert (origin.user_name, origin.profile) == ("Sam", "coder")
