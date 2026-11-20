@@ -102,7 +102,10 @@ def transcript_from_echo(content: str) -> Optional[str]:
 # ---- the lekora_send_file tool -------------------------------------------------------
 
 TOOL_NAME = "lekora_send_file"
-TOOLSET = "lekora"
+# Lekora's own tools join Hermes' Lekora platform set ("hermes-lekora"), which every agent's
+# Lekora chats include, so they never depend on an agent's own tool list (owner, 2026-11-20:
+# agents whose list lacked the separate "lekora" set couldn't make artifacts or send files).
+TOOLSET = "hermes-lekora"
 TOOL_SCHEMA = {
     "name": TOOL_NAME,
     "description": (

@@ -150,3 +150,22 @@ def test_a_named_agents_chat_keeps_its_profile(tmp_path, monkeypatch):
     assert LekoraAdapter._sync_chat_origin(me, "coder") is True
     origin = store.lookup_by_session_key(entry.session_key).origin
     assert (origin.user_name, origin.profile) == ("Sam", "coder")
+
+
+def test_lekoras_tools_reach_every_agent_whatever_its_own_tool_list(tmp_path, monkeypatch):
+    """Registered into Hermes' Lekora platform set, Lekora's tools are offered to an agent whose
+    Lekora tool list never named the separate "lekora" set (docs/artifacts.md, docs/files.md)."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    from model_tools import get_tool_definitions
+    from tools.registry import registry
+
+    from lekora.artifacts import SCHEMAS, TOOLSET as ARTIFACTS_SET
+    from lekora.hermes_files import TOOL_NAME, TOOL_SCHEMA, TOOLSET as FILES_SET
+    registry.register(name=TOOL_NAME, toolset=FILES_SET, schema=TOOL_SCHEMA, handler=lambda a, **k: "{}")
+    for schema in SCHEMAS:
+        registry.register(name=schema["name"], toolset=ARTIFACTS_SET, schema=schema, handler=lambda a, **k: "{}")
+    # An agent's saved Lekora list as on the owner's instance (2026-11-20): no "lekora" entry.
+    agents_list = ["clarify", "file", "hermes-lekora", "memory"]
+    offered = {d["function"]["name"] for d in get_tool_definitions(
+        enabled_toolsets=agents_list, quiet_mode=True, skip_tool_search_assembly=True)}
+    assert {TOOL_NAME, "lekora_create_artifact", "lekora_update_artifact"} <= offered

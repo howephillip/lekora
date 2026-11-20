@@ -252,7 +252,10 @@ class Artifacts:
 
 # ---- the agent's tools ----------------------------------------------------------------
 
-TOOLSET = "lekora"
+# Lekora's own tools join Hermes' Lekora platform set ("hermes-lekora"), which every agent's
+# Lekora chats include, so they never depend on an agent's own tool list (owner, 2026-11-20:
+# agents whose list lacked the separate "lekora" set couldn't make artifacts or send files).
+TOOLSET = "hermes-lekora"
 
 CREATE_SCHEMA = {
     "name": "lekora_create_artifact",
