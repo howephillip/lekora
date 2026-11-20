@@ -57,13 +57,17 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
     public var session: String?
     /// For `.helpers` entries.
     public var delegation: HelpersTree?
+    /// In a group chat: which agent said it (docs/group-chats.md).
+    public var speaker: String?
 
     public init(id: String, profileId: String, role: Role, text: String, seq: Int? = nil,
                 status: Status = .sent, date: Date? = nil, card: PromptCard? = nil, files: [ChatFile]? = nil,
                 voice: VoiceDetails? = nil, transcript: String? = nil, spoken: [ChatFile]? = nil,
                 voicing: String? = nil, voiceProblem: String? = nil, voiceKey: String? = nil,
                 spokenText: String? = nil, artifact: ArtifactCard? = nil, about: ArtifactCard? = nil,
-                review: [ReviewComment]? = nil, session: String? = nil, delegation: HelpersTree? = nil) {
+                review: [ReviewComment]? = nil, session: String? = nil, delegation: HelpersTree? = nil,
+                speaker: String? = nil) {
+        self.speaker = speaker
         self.delegation = delegation
         self.session = session
         self.review = review
@@ -132,7 +136,8 @@ public struct ChatTimeline: Equatable {
                           voicing: message.voicing, voiceProblem: message.voice_problem,
                           voiceKey: message.voice_key, spokenText: message.spoken_text,
                           artifact: message.artifact, about: message.about, review: message.review,
-                          session: message.session, delegation: message.delegation, isPage: true)
+                          session: message.session, delegation: message.delegation, speaker: message.speaker,
+                          isPage: true)
         }
         if !hasMore { completeProfiles.insert(profileId) }
     }
@@ -166,7 +171,7 @@ public struct ChatTimeline: Equatable {
     }
 
     /// Live text of a reply being written. Empty text drops the bubble.
-    public mutating func applyDraft(draftId: String, profileId: String, text: String) {
+    public mutating func applyDraft(draftId: String, profileId: String, text: String, speaker: String? = nil) {
         if let index = entries.firstIndex(where: { $0.id == draftId }) {
             guard entries[index].status == .streaming else { return }  // already saved: ignore late drafts
             if text.isEmpty {
@@ -178,7 +183,7 @@ public struct ChatTimeline: Equatable {
         }
         guard !text.isEmpty else { return }
         entries.append(ChatEntry(id: draftId, profileId: profileId, role: .agent, text: text,
-                                 status: .streaming, date: Date()))
+                                 status: .streaming, date: Date(), speaker: speaker))
     }
 
     /// Live bubbles are previews: after a reconnect the host's replay is the truth.
@@ -215,7 +220,7 @@ public struct ChatTimeline: Equatable {
                                        voiceKey: String? = nil, spokenText: String? = nil,
                                        artifact: ArtifactCard? = nil, about: ArtifactCard? = nil,
                                        review: [ReviewComment]? = nil, session: String? = nil,
-                                       delegation: HelpersTree? = nil, isPage: Bool = false) {
+                                       delegation: HelpersTree? = nil, speaker: String? = nil, isPage: Bool = false) {
         if let index = entries.firstIndex(where: { $0.seq == seq }) {
             // Seen before (replay) — or a correction the agent made after saving it.
             if entries[index].text != text { entries[index].text = text }
@@ -233,14 +238,16 @@ public struct ChatTimeline: Equatable {
             if let review, entries[index].review == nil { entries[index].review = review }
             if let session, entries[index].session != session { entries[index].session = session }
             if let delegation, entries[index].delegation != delegation { entries[index].delegation = delegation }
+            if let speaker, entries[index].speaker != speaker { entries[index].speaker = speaker }
             return
         }
 
         // The saved version of a live reply: replace the bubble in place.
-        if let draftId, let index = entries.firstIndex(where: { $0.id == draftId }) {
+        if let draftId, let index = entries.firstIndex(where: { $0.id == draftId && $0.seq == nil }) {
             entries[index].seq = seq
             entries[index].text = text
             if let session { entries[index].session = session }
+            if let speaker { entries[index].speaker = speaker }
             if let files { entries[index].files = files }
             if let spoken { entries[index].spoken = spoken }
             if let voicing { entries[index].voicing = voicing }
@@ -296,7 +303,8 @@ public struct ChatTimeline: Equatable {
             about: about,
             review: review,
             session: session,
-            delegation: delegation
+            delegation: delegation,
+            speaker: speaker
         )
         entries.insert(entry, at: insertionIndex(for: seq))
     }

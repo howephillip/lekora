@@ -427,8 +427,10 @@ public struct ChatMessageData: Codable, Equatable {
     public let review: [ReviewComment]?
     /// The Hermes conversation it belongs to (docs/chats.md).
     public let session: String?
-    /// A Helpers card: the agent's helpers as a tree (docs/delegation.md).
+    /// A Delegated card: the agent's delegated work as a tree (docs/delegation.md).
     public let delegation: HelpersTree?
+    /// In a group chat: which agent said it (its profile id; docs/group-chats.md).
+    public let speaker: String?
 
     public init(seq: Int, role: String, text: String, draft_id: String? = nil,
                 rev: Int? = nil, client_id: String? = nil, at: String? = nil, card: PromptCard? = nil,
@@ -436,7 +438,8 @@ public struct ChatMessageData: Codable, Equatable {
                 spoken: [ChatFile]? = nil, voicing: String? = nil, voice_problem: String? = nil,
                 voice_key: String? = nil, spoken_text: String? = nil,
                 artifact: ArtifactCard? = nil, about: ArtifactCard? = nil, review: [ReviewComment]? = nil,
-                session: String? = nil, delegation: HelpersTree? = nil) {
+                session: String? = nil, delegation: HelpersTree? = nil, speaker: String? = nil) {
+        self.speaker = speaker
         self.delegation = delegation
         self.session = session
         self.review = review
@@ -988,13 +991,46 @@ public struct ChatReadData: Codable, Equatable {
 public struct ChatDraftData: Codable, Equatable {
     public let draft_id: String
     public let text: String
+    /// In a group chat: which agent is writing it.
+    public let speaker: String?
 }
 
 /// Whether an agent is working, and on what ("Searching the web…") when Hermes knows.
 public struct ChatTypingData: Codable, Equatable {
     public let active: Bool
     public let status: String?
+    /// In a group chat: which agent is working.
+    public let speaker: String?
 }
+
+// MARK: - Group chats (docs/group-chats.md)
+/// A group chat: a name and member agents. Its chat is `group:<group_id>`.
+public struct GroupData: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public let group_id: String
+    public let name: String
+    public let members: [String]
+    public let created_at: String?
+
+    public init(group_id: String, name: String, members: [String], created_at: String? = nil) {
+        self.group_id = group_id
+        self.name = name
+        self.members = members
+        self.created_at = created_at
+    }
+
+    public var id: String { group_id }
+    /// The group's chat: used where an agent's id would be.
+    public var key: String { GroupData.keyPrefix + group_id }
+    public static let keyPrefix = "group:"
+    public static func isKey(_ id: String) -> Bool { id.hasPrefix(keyPrefix) }
+}
+
+struct GroupsListData: Codable { let groups: [GroupData] }
+struct GroupResult: Codable { let group: GroupData }
+struct GroupIdResult: Codable { let group_id: String }
+struct GroupCreateRequest: Codable { let name: String; let members: [String] }
+struct GroupUpdateRequest: Codable { let group_id: String; let name: String?; let members: [String]? }
+struct GroupDeleteRequest: Codable { let group_id: String }
 
 // MARK: - Unpairing ("Forget Host")
 /// Sent on a fresh socket without `hello`: carries its own credentials.

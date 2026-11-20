@@ -203,6 +203,21 @@ final class FakeHost: @unchecked Sendable {
     var respondStatusOverride: String?
 
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+    /// Group chats (docs/group-chats.md), as the host lists them.
+    var groups: [[String: Any]] = []
+
+    /// Another phone changed the groups.
+    func announceGroups() {
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open { send(type: "groups.changed", data: ["groups": groups], on: connection) }
+    }
+
+    /// Something the host sends (not a reply), to every phone.
+    func push(type: String, data: [String: Any], profile: String? = nil) {
+        lock.lock(); let open = connections.filter { $0.state == .ready }; lock.unlock()
+        for connection in open { send(type: type, data: data, profileId: profile, on: connection) }
+    }
+
     /// Helpers cards' working helpers by seq, for delegation.stop (docs/delegation.md).
     var helpersStoppable: [Int: [String]] = [:]
 
@@ -593,6 +608,32 @@ final class FakeHost: @unchecked Sendable {
                 }
             }
             send(type: "prompt.respond.ack", id: id, data: ["card_id": cardId, "status": status], on: connection)
+
+        case "groups.list":
+            send(type: "groups.list.result", id: id, data: ["groups": groups], on: connection)
+        case "group.create":
+            let members = data["members"] as? [String] ?? []
+            guard members.count >= 2 else {
+                send(error: "INVALID_GROUP", reason: "A group needs at least two agents", id: id, on: connection, close: false)
+                return
+            }
+            let group: [String: Any] = ["group_id": "g\(groups.count + 1)", "name": data["name"] as? String ?? "",
+                                        "members": members, "created_at": "2026-11-19T10:00:00Z"]
+            groups.append(group)
+            send(type: "group.create.result", id: id, data: ["group": group], on: connection)
+        case "group.update":
+            let gid = data["group_id"] as? String ?? ""
+            guard let index = groups.firstIndex(where: { $0["group_id"] as? String == gid }) else {
+                send(error: "UNKNOWN_GROUP", reason: "That group doesn't exist any more", id: id, on: connection, close: false)
+                return
+            }
+            if let name = data["name"] as? String { groups[index]["name"] = name }
+            if let members = data["members"] as? [String] { groups[index]["members"] = members }
+            send(type: "group.update.result", id: id, data: ["group": groups[index]], on: connection)
+        case "group.delete":
+            let gid = data["group_id"] as? String ?? ""
+            groups.removeAll { $0["group_id"] as? String == gid }
+            send(type: "group.delete.result", id: id, data: ["group_id": gid], on: connection)
 
         case "delegation.stop":
             // Helpers (docs/delegation.md): every working helper on the card, or just the one asked.

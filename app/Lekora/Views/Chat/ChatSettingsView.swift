@@ -458,8 +458,12 @@ struct ChatHeaderTitle: View {
 
     var body: some View {
         HStack(spacing: LK.Spacing.sm) {
-            LKAgentAvatar(id: gateway.activeProfileId, palette: gateway.avatarPalettes[gateway.activeProfileId],
-                          size: 28, working: working)
+            if let group = gateway.group(for: gateway.activeProfileId) {
+                LKGroupAvatar(members: group.members, palettes: gateway.avatarPalettes, size: 30, working: working)
+            } else {
+                LKAgentAvatar(id: gateway.activeProfileId, palette: gateway.avatarPalettes[gateway.activeProfileId],
+                              size: 28, working: working)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 Text(profileName)
                     .font(.headline)

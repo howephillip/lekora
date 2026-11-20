@@ -39,6 +39,46 @@ public struct LKAgentAvatar: View {
     }
 }
 
+/// A group chat's picture: up to three of its members' bots together (docs/group-chats.md).
+public struct LKGroupAvatar: View {
+    private let members: [String]
+    private let palettes: [String: Int]
+    private let size: CGFloat
+    private let working: Bool
+
+    public init(members: [String], palettes: [String: Int] = [:], size: CGFloat = 40, working: Bool = false) {
+        self.members = members
+        self.palettes = palettes
+        self.size = size
+        self.working = working
+    }
+
+    public var body: some View {
+        let shown = Array(members.prefix(3))
+        let small = size * (shown.count > 2 ? 0.62 : 0.7)
+        ZStack {
+            ForEach(Array(shown.enumerated()), id: \.offset) { index, member in
+                LKAgentAvatar(id: member, palette: palettes[member], size: small, working: working)
+                    .offset(spot(index, of: shown.count, small: small))
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private func spot(_ index: Int, of count: Int, small: CGFloat) -> CGSize {
+        let shift = (size - small) / 2
+        switch (count, index) {
+        case (1, _): return .zero
+        case (2, 0): return CGSize(width: -shift, height: -shift * 0.6)
+        case (2, _): return CGSize(width: shift, height: shift * 0.6)
+        case (_, 0): return CGSize(width: 0, height: -shift)
+        case (_, 1): return CGSize(width: -shift, height: shift * 0.7)
+        default: return CGSize(width: shift, height: shift * 0.7)
+        }
+    }
+}
+
 /// The bot drawn at one moment of its animation.
 private struct LKBot: View {
     let look: LKAgentLook
@@ -405,9 +445,15 @@ public struct LKAgentRow: View {
         public var attention: String?
         /// The computer it's on, shown after the name once there are several (docs/multiple-instances.md).
         public var computer: String?
+        /// A group chat (docs/group-chats.md): its members' ids and colours, drawn together.
+        public var members: [String]?
+        public var memberPalettes: [String: Int]
 
         public init(id: String, palette: Int? = nil, name: String, preview: String, date: Date?,
-                    unread: Bool, working: String?, attention: String? = nil, computer: String? = nil) {
+                    unread: Bool, working: String?, attention: String? = nil, computer: String? = nil,
+                    members: [String]? = nil, memberPalettes: [String: Int] = [:]) {
+            self.members = members
+            self.memberPalettes = memberPalettes
             self.attention = attention
             self.computer = computer
             self.id = id
@@ -432,7 +478,12 @@ public struct LKAgentRow: View {
                 .fill(content.unread ? LK.Palette.accent : .clear)
                 .frame(width: 10, height: 10)
                 .accessibilityHidden(true)
-            LKAgentAvatar(id: content.id, palette: content.palette, size: 52, working: content.working != nil)
+            if let members = content.members {
+                LKGroupAvatar(members: members, palettes: content.memberPalettes, size: 52,
+                              working: content.working != nil)
+            } else {
+                LKAgentAvatar(id: content.id, palette: content.palette, size: 52, working: content.working != nil)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(content.name)

@@ -15,6 +15,8 @@ public struct ChatCache: Codable, Equatable {
     public var hostTracksRead: Bool
     /// The host's agents when last connected, so the chat can show before reconnecting.
     public var profiles: [ProfileData]
+    /// The host's group chats when last connected (docs/group-chats.md).
+    public var groups: [GroupData]? = nil
 
     /// Messages kept per agent; older ones load from the host when scrolling up.
     public static let messagesPerAgent = 300

@@ -77,6 +77,8 @@
 		CBE839B9D7A37E08849BC636 /* TaskEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A8C1B398840438D03B2828 /* TaskEditorView.swift */; };
 		CD269D6430AF35760012AFBC /* LKHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD269D6330AF35760012AFBC /* LKHelpers.swift */; };
 		CD269D6630AF36010012AFBC /* HelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD269D6530AF36010012AFBC /* HelpersTests.swift */; };
+		CD269D6830B00ECA0012AFBC /* GroupViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD269D6730B00ECA0012AFBC /* GroupViews.swift */; };
+		CD269D6A30B010510012AFBC /* GroupChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD269D6930B010510012AFBC /* GroupChatTests.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
 		D4773F09B9DF24077E513CD3 /* LKVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 753AC48F8DA7FC0783EFD2FF /* LKVoice.swift */; };
 		D5E75A6364A09E0D8E76A561 /* LKChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70D035010855C26CF7103C5 /* LKChat.swift */; };
@@ -176,7 +178,9 @@
 		C470A4130802C989DF00C676 /* CodeHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeHighlighter.swift; sourceTree = "<group>"; };
 		CA3009191A55C0F53236F945 /* AgentToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolsView.swift; sourceTree = "<group>"; };
 		CD269D6330AF35760012AFBC /* LKHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKHelpers.swift; sourceTree = "<group>"; };
-		CD269D6530AF36010012AFBC /* HelpersTests.swift */ = {isa = PBXFileReference; path = HelpersTests.swift; sourceTree = "<group>"; };
+		CD269D6530AF36010012AFBC /* HelpersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpersTests.swift; sourceTree = "<group>"; };
+		CD269D6730B00ECA0012AFBC /* GroupViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupViews.swift; sourceTree = "<group>"; };
+		CD269D6930B010510012AFBC /* GroupChatTests.swift */ = {isa = PBXFileReference; path = GroupChatTests.swift; sourceTree = "<group>"; };
 		D4796A331F35A27B4CBEA112 /* CodeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeEditorView.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		DD6AA398351F711D345961F7 /* LKAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKAgents.swift; sourceTree = "<group>"; };
@@ -318,6 +322,7 @@
 				84C49F382533B2B608146FCD /* StreamingTests.swift */,
 				5B80EC56CADDB2722443348C /* VoiceNoteTests.swift */,
 				CD269D6530AF36010012AFBC /* HelpersTests.swift */,
+				CD269D6930B010510012AFBC /* GroupChatTests.swift */,
 			);
 			path = LekoraTests;
 			sourceTree = "<group>";
@@ -360,6 +365,7 @@
 				08A479F6BED0C6CF4A2F8388 /* SideMenuView.swift */,
 				45AC25602609D1AD17992E2C /* VoicePickerView.swift */,
 				3323B82766C74CB95863F0C3 /* WalkingSkeletonPingView.swift */,
+				CD269D6730B00ECA0012AFBC /* GroupViews.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -467,6 +473,7 @@
 				40CC469576F60182124E5293 /* ChooseProfilesView.swift in Sources */,
 				8F762A349D250E2D30F8F4C7 /* CodeEditorView.swift in Sources */,
 				0D80E130B87CA3BFFB2FEF5C /* CodeHighlighter.swift in Sources */,
+				CD269D6830B00ECA0012AFBC /* GroupViews.swift in Sources */,
 				19CD1FCE42A84FF380DADE3B /* ComputersView.swift in Sources */,
 				3E26C6FC055625CF828F3902 /* DeviceName.swift in Sources */,
 				00B16B742ADD4928CD95DC71 /* DirectVoiceView.swift in Sources */,
@@ -528,6 +535,7 @@
 				1363F40BBFF1057B9703C171 /* CodeHighlighterTests.swift in Sources */,
 				674B661760762BB5D7C652D8 /* CopyPasteTests.swift in Sources */,
 				391E8D2FBE5FB23C6E493A93 /* EncryptionTests.swift in Sources */,
+				CD269D6A30B010510012AFBC /* GroupChatTests.swift in Sources */,
 				B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */,
 				F8F1AF8CED29B5EEA4DE0B4F /* FilesTests.swift in Sources */,
 				7016FE2A3587140FCFA0B20E /* HandsFreeTests.swift in Sources */,

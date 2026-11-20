@@ -14,6 +14,7 @@ public struct AgentsHomeView: View {
     @State private var path: [AgentKey] = []
     /// The computer an agent is being added to / whose agents are being managed.
     @State private var addingAgentOn: GatewayClient?
+    @State private var newGroupOn: GatewayClient?
     @State private var managingAgentsOn: GatewayClient?
     @State private var showingComputers = false
     @State private var editingName = false
@@ -100,6 +101,14 @@ public struct AgentsHomeView: View {
                     }
                 }
             }
+            .sheet(item: $newGroupOn) { client in
+                GroupEditorView(gateway: client, group: nil) { made in
+                    if let id = client.savedHost?.instanceId {
+                        client.switchToProfile(made.key)
+                        path = [AgentKey(instanceId: id, profileId: made.key)]
+                    }
+                }
+            }
             .sheet(item: $managingAgentsOn) { client in
                 ChooseProfilesView(gateway: client, mode: .edit)
             }
@@ -122,12 +131,17 @@ public struct AgentsHomeView: View {
             List {
                 switch layout {
                 case .recent:
+                    // Group chats first (docs/group-chats.md), then every agent by recency.
+                    ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
+                        groupButtons(on: client)
+                    }
                     ForEach(hosts.agentsByRecency, id: \.key) { item in
                         agentButton(item.key, client: item.client, profile: item.profile)
                     }
                 case .byComputer:
                     ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
                         Section {
+                            groupButtons(on: client)
                             ForEach(client.agentsByRecency) { profile in
                                 agentButton(AgentKey(instanceId: client.savedHost?.instanceId ?? "", profileId: profile.profile_id),
                                             client: client, profile: profile)
@@ -160,7 +174,8 @@ public struct AgentsHomeView: View {
     private func chat(for key: AgentKey) -> some View {
         if let client = hosts.client(for: key.instanceId) {
             WalkingSkeletonPingView(gateway: client, instanceName: name(of: client),
-                                    profileName: client.profiles.first { $0.profile_id == key.profileId }?.name ?? "",
+                                    profileName: client.group(for: key.profileId)?.name
+                                        ?? client.profiles.first { $0.profile_id == key.profileId }?.name ?? "",
                                     unreadElsewhere: unreadElsewhere(than: client),
                                     computerName: hosts.hasSeveral ? name(of: client) : nil)
                 .onAppear { client.switchToProfile(key.profileId) }
@@ -210,15 +225,23 @@ public struct AgentsHomeView: View {
                             .disabled(!isConnected(client))
                     }
                 }
+                Section("New Group On") {
+                    ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
+                        Button(name(of: client)) { newGroupOn = client }
+                            .disabled(!isConnected(client) || client.profiles.count < 2)
+                    }
+                }
             } label: {
-                Label("Add Agent", systemImage: "plus")
+                Label("Add", systemImage: "plus")
             }
             .disabled(connectedClients.isEmpty)
         } else {
-            Button {
-                addingAgentOn = hosts.clients.first
+            Menu {
+                Button("Add Agent", systemImage: "person.badge.plus") { addingAgentOn = hosts.clients.first }
+                Button("New Group", systemImage: "person.3") { newGroupOn = hosts.clients.first }
+                    .disabled((hosts.clients.first?.profiles.count ?? 0) < 2)
             } label: {
-                Label("Add Agent", systemImage: "plus")
+                Label("Add", systemImage: "plus")
             }
             .disabled(connectedClients.isEmpty)
         }
@@ -252,6 +275,46 @@ public struct AgentsHomeView: View {
                                   bottom: LK.Spacing.xs, trailing: LK.Spacing.lg))
     }
 
+    /// A host's group chats, as rows (docs/group-chats.md).
+    @ViewBuilder
+    private func groupButtons(on client: GatewayClient) -> some View {
+        ForEach(client.groups) { group in
+            let key = AgentKey(instanceId: client.savedHost?.instanceId ?? "", profileId: group.key)
+            Button {
+                open(key, on: client)
+            } label: {
+                LKAgentRow(groupRow(group, on: client))
+            }
+            .buttonStyle(.plain)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: LK.Spacing.xs, leading: LK.Spacing.sm,
+                                      bottom: LK.Spacing.xs, trailing: LK.Spacing.lg))
+        }
+    }
+
+    private func groupRow(_ group: GroupData, on gateway: GatewayClient) -> LKAgentRow.Content {
+        let last = gateway.timeline.entries(for: group.key).last { $0.role != .system }
+        var preview: String
+        if let last {
+            preview = LKChatText.preview(last.text)
+            if preview.isEmpty, let files = last.files { preview = LKFileText.preview(files) }
+            if last.role == .user {
+                preview = "You: " + preview
+            } else if let speaker = last.speaker {
+                preview = gateway.agentName(speaker) + ": " + preview
+            }
+        } else {
+            preview = group.members.map(gateway.agentName).joined(separator: ", ")
+        }
+        let working = gateway.agentActivity[group.key].map { Self.workingLine($0.status) }
+        let computer = hosts.hasSeveral && layout == .recent ? name(of: gateway) : nil
+        return LKAgentRow.Content(id: group.key, name: group.name, preview: preview, date: last?.date,
+                                  unread: gateway.hasUnread(group.key), working: working,
+                                  attention: gateway.openPrompt(for: group.key).map(LKPromptText.attention(for:)),
+                                  computer: computer, members: group.members, memberPalettes: gateway.avatarPalettes)
+    }
+
     private func open(_ key: AgentKey, on client: GatewayClient) {
         client.switchToProfile(key.profileId)
         path = [key]
@@ -261,6 +324,7 @@ public struct AgentsHomeView: View {
     private var openableKeys: Set<AgentKey> {
         Set(hosts.clients.flatMap { client in
             client.enabledProfiles.map { AgentKey(instanceId: client.savedHost?.instanceId ?? "", profileId: $0.profile_id) }
+                + client.groups.map { AgentKey(instanceId: client.savedHost?.instanceId ?? "", profileId: $0.key) }
         })
     }
 

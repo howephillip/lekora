@@ -137,6 +137,7 @@ public final class GatewayClient: ObservableObject {
         readMarkers = cache.read
         hostTracksRead = cache.hostTracksRead
         profiles = cache.profiles
+        groups = cache.groups ?? []
         activeProfileId = host.activeProfileId ?? cache.profiles.first?.profile_id ?? "default"
     }
 
@@ -157,7 +158,7 @@ public final class GatewayClient: ObservableObject {
         cacheStore.save(ChatCache(
             instanceId: host.instanceId, rev: currentRev, lastSeq: currentSeq,
             entries: kept.entries, completeProfiles: Array(kept.completeProfiles).sorted(),
-            read: readMarkers, hostTracksRead: hostTracksRead, profiles: profiles))
+            read: readMarkers, hostTracksRead: hostTracksRead, profiles: profiles, groups: groups))
     }
 
     /// True when a host is paired and some of its chats are known (shown while reconnecting).
@@ -480,6 +481,57 @@ public final class GatewayClient: ObservableObject {
         return ack
     }
 
+    // MARK: - Group chats (docs/group-chats.md)
+
+    /// This instance's group chats.
+    @Published public private(set) var groups: [GroupData] = []
+
+    public func group(for key: String) -> GroupData? {
+        groups.first { $0.key == key }
+    }
+
+    /// Groups whose members include at least two agents this phone knows.
+    public var openableGroups: [GroupData] { groups }
+
+    public func loadGroups() async {
+        guard let result = try? await request(type: "groups.list", data: EmptyData(),
+                                              reply: GroupsListData.self, timeout: 15) else { return }
+        applyGroups(result.groups)
+    }
+
+    private func applyGroups(_ list: [GroupData]) {
+        if groups != list { groups = list }
+        // Deleted groups: their chats go.
+        let keys = Set(list.map(\.key))
+        for gone in Set(timeline.entries.map(\.profileId)) where GroupData.isKey(gone) && !keys.contains(gone) {
+            timeline.removeEntries(for: gone)
+        }
+        cacheChanged()
+    }
+
+    @discardableResult
+    public func createGroup(name: String, members: [String]) async throws -> GroupData {
+        let made = try await request(type: "group.create", data: GroupCreateRequest(name: name, members: members),
+                                     reply: GroupResult.self, timeout: 15).group
+        applyGroups(groups.filter { $0.group_id != made.group_id } + [made])
+        return made
+    }
+
+    @discardableResult
+    public func updateGroup(_ groupId: String, name: String? = nil, members: [String]? = nil) async throws -> GroupData {
+        let changed = try await request(type: "group.update",
+                                        data: GroupUpdateRequest(group_id: groupId, name: name, members: members),
+                                        reply: GroupResult.self, timeout: 15).group
+        applyGroups(groups.map { $0.group_id == changed.group_id ? changed : $0 })
+        return changed
+    }
+
+    public func deleteGroup(_ groupId: String) async throws {
+        _ = try await request(type: "group.delete", data: GroupDeleteRequest(group_id: groupId),
+                              reply: GroupIdResult.self, timeout: 15)
+        applyGroups(groups.filter { $0.group_id != groupId })
+    }
+
     // MARK: - Delegation (docs/delegation.md)
 
     /// Stops one piece of delegated work on a Delegated card, or (nil) everything still running on it.
@@ -716,8 +768,8 @@ public final class GatewayClient: ObservableObject {
             timeline.dropUnfinishedReplies()
             // Agents deleted while this phone was away.
             let current = Set(ack.profiles.map(\.profile_id))
-            for gone in Set(timeline.entries.map(\.profileId)).subtracting(current) {
-                timeline.removeEntries(for: gone)
+            for gone in Set(timeline.entries.map(\.profileId)).subtracting(current) where !GroupData.isKey(gone) {
+                timeline.removeEntries(for: gone)  // a group's chat is checked when the groups arrive
             }
             if ack.replay == "recent" {
                 timeline.replaceSavedWithRecent()  // each agent's newest messages follow
@@ -736,6 +788,7 @@ public final class GatewayClient: ObservableObject {
             flushQueuedSends(on: wsTask)  // what was written while offline
             markActiveChatRead()
             cacheChanged()  // the agent list and change number may be new
+            Task { await self.loadGroups() }
         } catch let hostError as HostError where hostError.meansCredentialsInvalid {
             // The host no longer knows this phone: forget it so the wizard shows.
             forgetLocally()
@@ -905,8 +958,15 @@ public final class GatewayClient: ObservableObject {
         persistProfileChoice(host)
     }
 
-    /// Shows another chosen agent's conversation; new messages go to it.
+    /// Shows another chosen agent's conversation (or a group's); new messages go to it.
     public func switchToProfile(_ id: String) {
+        if GroupData.isKey(id) {
+            // A group isn't remembered as the chat to reopen: the agents list is.
+            guard groups.contains(where: { $0.key == id }) else { return }
+            activeProfileId = id
+            markActiveChatRead()
+            return
+        }
         guard var host = savedHost, enabledProfiles.contains(where: { $0.profile_id == id }) else { return }
         activeProfileId = id
         host.activeProfileId = id
@@ -1550,6 +1610,9 @@ public final class GatewayClient: ObservableObject {
             guard let envelope = try? decoder.decode(Envelope<InstanceNameData>.self, from: data) else { return }
             applyInstanceName(envelope.data.instance_name)
             if let name = envelope.data.user_name { userName = name }
+        case "groups.changed":
+            guard let envelope = try? decoder.decode(Envelope<GroupsListData>.self, from: data) else { return }
+            applyGroups(envelope.data.groups)
         case "profiles.changed":
             guard let envelope = try? decoder.decode(Envelope<ProfilesChangedData>.self, from: data) else { return }
             applyProfiles(envelope.data.profiles)
@@ -1579,7 +1642,8 @@ public final class GatewayClient: ObservableObject {
                 about: envelope.data.about,
                 review: envelope.data.review,
                 session: envelope.data.session,
-                delegation: envelope.data.delegation
+                delegation: envelope.data.delegation,
+                speaker: envelope.data.speaker
             )
             if let session = envelope.data.session, envelope.data.seq >= (timeline.newestSeq(for: profileId) ?? 0) {
                 // The newest message is in the current conversation (after New Chat, a resume, or Hermes' own reset).
@@ -1601,11 +1665,19 @@ public final class GatewayClient: ObservableObject {
             guard let envelope = try? decoder.decode(Envelope<ChatDraftData>.self, from: data) else { return }
             timeline.applyDraft(draftId: envelope.data.draft_id,
                                 profileId: envelope.profile_id ?? activeProfileId,
-                                text: envelope.data.text)
+                                text: envelope.data.text, speaker: envelope.data.speaker)
         case "chat.typing":
             guard let envelope = try? decoder.decode(Envelope<ChatTypingData>.self, from: data) else { return }
+            var status = envelope.data.status
+            if let speaker = envelope.data.speaker {
+                // A group: who is working ("Coder is searching the web…"; docs/group-chats.md).
+                let name = agentName(speaker)
+                let said = status?.trimmingCharacters(in: .whitespaces) ?? ""
+                status = said.hasPrefix("is ") || said.hasPrefix("has ") ? "\(name) \(said)"
+                    : said.isEmpty ? "\(name) is thinking…" : "\(name): \(said)"
+            }
             setActivity(envelope.profile_id ?? activeProfileId,
-                        active: envelope.data.active, status: envelope.data.status)
+                        active: envelope.data.active, status: status)
         case "error":
             guard let envelope = try? decoder.decode(Envelope<ErrorData>.self, from: data) else { return }
             // Errors about a chat.send reuse that message's id.

@@ -10,7 +10,28 @@ public struct WalkingSkeletonPingView: View {
     private let fallbackProfileName: String
 
     private var profileName: String {
-        gateway.activeProfile?.name ?? fallbackProfileName
+        group?.name ?? gateway.activeProfile?.name ?? fallbackProfileName
+    }
+
+    /// A group chat (docs/group-chats.md): one-to-one controls (voice, calls, model) don't apply.
+    private var group: GroupData? {
+        gateway.group(for: gateway.activeProfileId)
+    }
+
+    @State private var editingGroup = false
+
+    /// In a group, the agent's name above its messages where the speaker changes.
+    private var speakerLabels: Set<String> {
+        guard group != nil else { return [] }
+        var labels = Set<String>()
+        let timeLines = LKTime.separatorIds(for: messages)
+        var previous: String?
+        for entry in messages {
+            let speaker = entry.role == .user ? nil : entry.speaker
+            if let speaker, speaker != previous || timeLines.contains(entry.id) { labels.insert(entry.id) }
+            previous = entry.role == .user ? nil : (entry.speaker ?? previous)
+        }
+        return labels
     }
 
     @State private var draft: String = ""
@@ -202,8 +223,21 @@ public struct WalkingSkeletonPingView: View {
             .lkScreenBackground()
             .safeAreaBar(edge: .bottom) {
                 VStack(spacing: LK.Spacing.sm) {
+                    // In a group, "@": its members (docs/group-chats.md).
+                    if let group {
+                        let members = group.members.compactMap { id in gateway.profiles.first { $0.profile_id == id } }
+                        let mentions = LKMentionMatcher.suggestions(for: draft, members: members)
+                        if !mentions.isEmpty {
+                            LKMentionSuggestions(suggestions: mentions, pick: { handle in
+                                draft = LKMentionMatcher.complete(draft, with: handle)
+                                inputFocused = true
+                                focusRequests += 1
+                            }, palettes: gateway.avatarPalettes)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
                     // Typing "/": this agent's commands, from Hermes (docs/slash-commands.md).
-                    let suggestions = LKCommandMatcher.suggestions(
+                    let suggestions = group != nil ? [] : LKCommandMatcher.suggestions(
                         for: draft, commands: gateway.commands[gateway.activeProfileId] ?? [])
                     if !suggestions.isEmpty {
                         LKCommandSuggestions(suggestions) { picked in
@@ -222,7 +256,7 @@ public struct WalkingSkeletonPingView: View {
                     LKComposer("Message \(profileName)", text: $draft, canSend: canSend,
                                focus: $inputFocused, accessory: AnyView(attachMenu),
                                replacement: voiceBar, replacementID: voiceStage,
-                               action: showsMic ? AnyView(LKFieldMicButton(action: startRecording)) : nil,
+                               action: showsMic && group == nil ? AnyView(LKFieldMicButton(action: startRecording)) : nil,
                                onPaste: pasted, focusRequest: focusRequests,
                                onSend: send)
                         .id(composerID)
@@ -244,6 +278,7 @@ public struct WalkingSkeletonPingView: View {
                         unreadBadge
                     }
                 }
+                if group == nil {
                 // Hands-free conversation (docs/voice.md §3).
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -289,13 +324,14 @@ public struct WalkingSkeletonPingView: View {
                     }
                     .disabled(!isConnected)
                 }
+                }
                 ToolbarItem(placement: .title) {
-                    Button { showingSettings = true } label: {
+                    Button { if group != nil { editingGroup = true } else { showingSettings = true } } label: {
                         ChatHeaderTitle(gateway: gateway, profileName: profileName, computer: computerName, connection: subtitle,
                                         working: activity != nil)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Opens chat settings")
+                    .accessibilityHint(group != nil ? "Opens the group's name and members" : "Opens chat settings")
                 }
             }
             #endif
@@ -313,12 +349,15 @@ public struct WalkingSkeletonPingView: View {
             }
             // This agent's commands; again once connected, if the chat opened offline.
             .task(id: "\(gateway.activeProfileId)|\(isConnected)") {
-                if isConnected {
+                if isConnected, group == nil {
                     await gateway.loadVoiceSettings(for: gateway.activeProfileId)
                     await gateway.loadSettings(for: gateway.activeProfileId)
                     await gateway.loadChats(for: gateway.activeProfileId)
                     await gateway.loadCommands(for: gateway.activeProfileId)
                 }
+            }
+            .sheet(isPresented: $editingGroup) {
+                if let group { GroupEditorView(gateway: gateway, group: group) }
             }
             .sheet(isPresented: $showingSettings) {
                 ChatSettingsView(gateway: gateway, profileId: gateway.activeProfileId, agentName: profileName)
@@ -407,15 +446,27 @@ public struct WalkingSkeletonPingView: View {
 
     /// One message in the list: a time line before it if due, then its bubble(s).
     @ViewBuilder
-    private func messageRow(_ entry: ChatEntry, showsTime: Bool) -> some View {
+    private func messageRow(_ entry: ChatEntry, showsTime: Bool, showsSpeaker: Bool = false) -> some View {
             if showsTime, let date = entry.date {
                 LKTimeSeparator(date)
+            }
+            if let speaker = entry.speaker, showsSpeaker {
+                // Who's talking, in a group (docs/group-chats.md).
+                HStack(spacing: LK.Spacing.xs) {
+                    LKAgentAvatar(id: speaker, palette: gateway.avatarPalettes[speaker], size: 20)
+                    Text(gateway.agentName(speaker))
+                        .font(LK.Typography.captionStrong)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.top, LK.Spacing.xs)
+                .accessibilityElement(children: .combine)
             }
             if entry.role == .system {
                 LKSystemNotice(entry.text)
             } else if let tree = entry.delegation {
                 // Work the agent delegated, as a live tree (docs/delegation.md). It only shows: the chat stays free.
-                LKDelegationCard(tree, agentName: profileName, nameFor: gateway.agentName,
+                LKDelegationCard(tree, agentName: entry.speaker.map(gateway.agentName) ?? profileName, nameFor: gateway.agentName,
                                  stop: entry.seq.map { seq in
                                      { helperId in try await gateway.stopHelpers(profileId: entry.profileId, seq: seq, helperId: helperId) }
                                  },
@@ -423,7 +474,7 @@ public struct WalkingSkeletonPingView: View {
                                      AnyView(TaskDetailView(gateway: gateway, boardSlug: board, taskId: task, board: nil))
                                  })
             } else if let card = entry.card {
-                LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
+                LKPromptCard(card, agentName: entry.speaker.map(gateway.agentName) ?? profileName, actions: promptActions(for: card))
             } else if let artifact = entry.artifact {
                 // An artifact made or changed (docs/artifacts.md): a card that opens it.
                 artifactCard(artifact, entry: entry)
@@ -956,8 +1007,9 @@ public struct WalkingSkeletonPingView: View {
                     emptyState
                 }
                 let timeLines = LKTime.separatorIds(for: messages)
+                let speakerLabels = self.speakerLabels
                 ForEach(messages) { entry in
-                    messageRow(entry, showsTime: timeLines.contains(entry.id))
+                    messageRow(entry, showsTime: timeLines.contains(entry.id), showsSpeaker: speakerLabels.contains(entry.id))
                     .id(entry.id)
                 }
                 if showsTypingIndicator {
@@ -1122,7 +1174,9 @@ public struct WalkingSkeletonPingView: View {
                 .foregroundStyle(LK.Palette.accent.gradient)
             Text("Say hello to \(profileName)")
                 .font(LK.Typography.headline)
-            Text("Messages you send here go to your agent on \(instanceName).")
+            Text(group != nil
+                 ? "Messages you send here go to everyone in \(profileName). Use @name to talk to one agent."
+                 : "Messages you send here go to your agent on \(instanceName).")
                 .font(LK.Typography.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

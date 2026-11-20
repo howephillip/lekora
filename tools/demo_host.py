@@ -106,7 +106,7 @@ async def _stream(gw, pid, text, status=None, delay=0.05, lead=0.8):
     await gw.publish_typing(pid, True, status)
     await asyncio.sleep(lead)
     words = text.split(" ")
-    draft = "d" + str(abs(hash(text)) % 10**6)
+    draft = "d" + os.urandom(4).hex()
     for i in range(1, len(words) + 1):
         await gw.publish_draft(pid, draft, " ".join(words[:i]))
         await asyncio.sleep(delay)
@@ -143,8 +143,10 @@ class Demo:
     def settings_for(self, pid):
         return self.state.setdefault(pid, _settings_state())
 
-    async def deliver_to_agent(self, profile_id, text, message_id):
+    async def deliver_to_agent(self, profile_id, text, message_id, files=None, instructions=None, spoken=False):
         gw = self.svc.gateway
+        if profile_id.startswith("g."):
+            return await self._group_turn(profile_id, text)
         raw = text.strip()
         t = raw.lower()
         st = self.settings_for(profile_id)
@@ -167,6 +169,23 @@ class Demo:
         else:
             await _stream(gw, profile_id, "Sure, I'm on it. I'll gather what I need, draft a first version, and "
                           "check with you before anything is sent.", "Thinking…")
+
+    async def _group_turn(self, chat, text):
+        """A member's turn in a group chat (docs/group-chats.md): a short scripted reply."""
+        member = chat.rsplit(".", 1)[-1]
+        newest = text.strip().split("\n")[-1].lower()
+        lines = {
+            "scout": "I can look for places along the coast: quiet cafes, a good bakery and somewhere to park.",
+            "juniper": "I'll keep the notes: dates, budget and who's bringing what. @atlas, can you draft the plan?",
+            "atlas": "Here's a first idea: Saturday cliff walk and the pier at sunset, Sunday slow breakfast and home by four.",
+            "default": "I'll put it in your calendar once you're happy with the plan.",
+        }
+        if "@atlas" in newest and member != "atlas" and "can you draft" not in newest:
+            reply = "(pass)"
+        else:
+            reply = lines.get(member, "Sounds good to me.")
+        await asyncio.sleep({"scout": 0.3, "juniper": 0.9, "atlas": 1.5}.get(member, 0.6))
+        await _stream(self.svc.gateway, chat, reply, "Thinking…", lead=0.4)
 
     def follow_up(self, pid, text, status=None):
         asyncio.get_running_loop().create_task(_stream(self.svc.gateway, pid, text, status, lead=1.0))
@@ -311,6 +330,8 @@ async def main():
     saved = {}
     svc.gateway.models.routing = RoutingConfig(tmp / "backups", read=lambda path: saved.get(str(path), {}),
                                                write=lambda path, data: saved.__setitem__(str(path), data))
+    if not svc.store.list_groups():  # a group chat to try (docs/group-chats.md)
+        await svc.gateway.groups.create("Weekend trip", ["scout", "juniper", "atlas"])
     if not svc.store.fetch_events_since(0):  # a fresh store: seed the opening conversations
         for pid, msgs in SEED.items():
             for role, text in msgs:

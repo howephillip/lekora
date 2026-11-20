@@ -11,6 +11,14 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation, then group chats) has started.** Feature 1, helpers shown as a tree, is built and waiting for your phone check (below). Group chats come after it.
 
+## Built, waiting for your phone check: group chats (Phase 7, feature 2; spec: `docs/group-chats.md`)
+- **What you get:** **+ › New Group** on the Agents screen: a name and two or more agents. Groups sit at the top of the list with their members' bots together. In a group, **@name** talks to one or a few agents (suggestions appear as you type "@", Everyone first); **no @mention means everyone answers**. Each reply shows who said it; agents answer at the same time; typing shows who's working. Tap the group's name to rename it, change its agents or delete it.
+- **Shared conversation:** each agent gets what you and the others said since its last turn, then your message. A reply of "(pass)" is never shown, and an agent @mentioning another brings it in (at most 3 rounds and 10 agent messages per message of yours, so they can't loop).
+- **Works in groups:** streaming replies, approval and question cards, artifacts, files both ways, Delegated cards. **Not yet:** voice notes, hearing replies and calls (hidden in groups).
+- **Waiting on you (rule 7):** agents aren't told they're in a group, so they may not use "(pass)" or @mention each other on their own. That needs your OK for a group-chat instruction (like Personality Voice and calls); I couldn't add the exception to AGENTS.md myself.
+- **Tests:** plugin 438 pass (24 new); real Hermes routing for members' chats, on this Mac and your instance (23 pass); app 242 pass (9 new). Checked in the simulator against the demo host: groups list, New Group, @ suggestions, replies with names, group settings.
+- **Also fixed:** older messages loaded by scrolling up kept no Delegated cards; a reply re-using an id could replace an earlier one on the phone.
+
 ## Delegation shown as a tree (Phase 7, feature 1; spec: `docs/delegation.md`): cards confirmed working on your iPhone 2026-11-19; the files-as-artifacts and audio fixes below wait for your phone check
 - **Reworked after your first try (2026-11-19).** The first version only watched sub-agent copies, which your agents almost never use, so nothing showed. Your agents delegate by giving Board tasks to each other (Lauren → Ashlyn), so that's what the card follows now. The extra "ask another agent" tool is gone.
 - **What you'll see:** when an agent hands work to another agent, its chat shows a **"Lauren delegated"** card. Each task shows who has it, what it is, and where it's at: waiting, working (what's happening), blocked (with the reason), done, or stopped. If Ashlyn hands part on to Carl, it branches under her. Sub-agent copies show in the same card as "Sub-agent". Tap a row for the whole task and what came back, Open in Board, or Stop.
