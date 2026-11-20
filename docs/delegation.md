@@ -1,28 +1,22 @@
-# Helpers: delegation shown as a tree (Phase 7, feature 1)
+# Delegation shown as a tree (Phase 7, feature 1)
 
 ## What the user sees
-- When an agent hands parts of a job to **helpers** (Hermes' own subagents, `delegate_task`), a **Helpers card** appears in that agent's chat. One card per reply that used helpers.
-- The card is a tree: each helper is a row with what it was asked to do, what it is doing right now ("Searching the web"), how many steps it has taken and for how long. A helper that itself uses helpers has its own branch, indented under it.
-- Each row ends as **Done**, **Failed**, **Stopped** or **Timed out**. Tap a row to read the helper's full task and what it reported back.
-- **Stop** on a working row stops that helper; **Stop all** on the card stops every helper still working. Hermes stops them at their next step and the agent gets what they had so far.
-- **Asking another agent.** Agents get a Lekora tool, `lekora_ask_agent`, to hand a task to another of the user's agents (owner, 2026-11-19). That agent works in the background *as itself* (its own personality, model, tools and settings), shows in the tree as a branch with its name, and reports back to the agent that asked. Its own chat is untouched. Every agent can ask every other agent (rule 5).
-- The card updates live, survives reconnects and app restarts (it is a saved chat item), and is the same on every paired phone. Helpers left working when Hermes restarts show as **Stopped**.
+- When an agent delegates from a Lekora chat, a **Delegated** card ("Lauren delegated") appears in that chat. Two kinds of delegation, one card:
+  - **Handing work to another agent** (owner, 2026-11-19: this is how the owner's agents delegate). The agent gives a task to another agent on Hermes' board (`kanban_create` with an assignee, e.g. Lauren → Ashlyn). The row shows who has it, the task, and where it's at: **Waiting to start**, working (what's happening now, e.g. "Picked up by ashlyn"), **Blocked** (with Hermes' reason), **Done**, or **Stopped** (archived). If that agent hands part of it on (Ashlyn → Carl), it branches under it.
+  - **Sub-agents**: copies of the agent Hermes' `delegate_task` makes. They show as "Sub-agent", with what each is doing, steps and time.
+- Tap a row for the whole task and what came back, **Open in Board** (board tasks) and **Stop** (a running board task's worker, as the Board's Stop; or a working sub-agent). **Stop All** when more than one can be stopped.
+- **The chat is never blocked (owner, 2026-11-19).** The card only shows. The agent stays free to talk while the work runs; results reach it the way Hermes already delivers them (board updates and sub-agent results wake the agent), and it tells the user in the chat.
+- Handoffs from one chat within two minutes share a card. The card updates live, is the same on every phone, and survives reconnects and app restarts (a saved chat item). After a Hermes restart, board tasks are followed again (they live on in Hermes); sub-agents that were working show **Stopped**.
 
 ## How it works (plugin)
-- Hermes' official plugin hooks, nothing written to Hermes config:
-  - `subagent_start` (helper id, its parent helper, goal, parent session) creates the row. A first-level helper's chat comes from the Lekora session it was started in; a nested helper joins its parent's tree.
-  - `post_tool_call` with a helper's id (`sa-…`) counts a step and sets "doing now".
-  - `subagent_stop` (matched by the helper's session) sets the ending, the report and the duration. Hermes fires it when the whole batch ends, so while a helper is out of Hermes' list of running helpers but not yet reported, it shows **Finishing**.
-  - Once a second, while a tree is working, Hermes' list of running helpers refreshes "doing now" and the step count.
-- Updates to a card are sent at most once a second.
-- Stop uses Hermes' own `interrupt_subagent(helper id)`.
-- **Asking another agent:** Lekora registers a Hermes delegation backend, `lekora`, that runs a task as a named profile (Hermes' own profile routes: that profile's config, model, credentials, skills and SOUL). `lekora_ask_agent(agent, task, context?)` switches *only the calling session* to that backend for the one call (Hermes' per-session switch, in memory), calls Hermes' `delegate_task` with the agent named, then switches back. A first-level ask runs in the background like any helper; the answer comes back to the asking agent as a new turn. Asking itself or an unknown agent is refused with the list of agents.
+- **Board handoffs**, from the board itself (every 3 seconds): a new task whose origin is one of the agent's Lekora conversations (`session_id`, `created_by`) goes to that agent's chat; a task whose creator is a followed task (`creator_task_id` in its `created` event) goes under it. Followed tasks are re-read each time (status, assignee, last history line, result). The `post_tool_call` hook also catches a `kanban_create` from a Lekora chat the moment it happens. Tasks made elsewhere (terminal, other apps) aren't shown.
+- **Sub-agents**, from Hermes' official hooks: `subagent_start` (row), `post_tool_call` with a sub-agent's id (`sa-…`: a step, and "doing now"), `subagent_stop` (ending, report, duration; Hermes fires it when the batch ends, so in between a sub-agent shows **Finishing**). Hermes' running list refreshes them every second while any work.
+- Card updates are sent at most once a second. Nothing is written to Hermes config and no tools are added: Lekora only watches.
 
 ## Protocol
-- A Helpers card is a `chat.message` with `role: "helpers"` and a `delegation` object (docs/protocol.md §22). It is updated in place: same `seq`, new `rev`.
-- `delegation.stop {seq, helper_id?}` → `delegation.stop.result {stopped: [ids]}`. No `helper_id` stops every working helper on that card.
+- A Delegated card is a `chat.message` with `role: "delegation"` and a `delegation` object (docs/protocol.md §22), updated in place (same `seq`, new `rev`).
+- `delegation.stop {seq, helper_id?}` → `delegation.stop.result {stopped: [ids]}`.
 
 ## Limits
-- Live progress comes from Hermes' hooks and its running-helper list; Hermes' per-step text and token counts are not shown.
-- Helpers started by schedules or other apps are not shown (only Lekora chats).
-- If the user picked another delegation backend in Hermes, ordinary helpers keep using it; only `lekora_ask_agent` uses Lekora's.
+- Board rows show Hermes' last history line ("Picked up by ashlyn", "Blocked: …"), not the worker's every step.
+- A sub-agent's per-step text and token counts are not shown.

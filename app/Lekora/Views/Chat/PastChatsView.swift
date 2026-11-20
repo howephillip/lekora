@@ -161,7 +161,7 @@ struct PastChatView: View {
         if message.role == "system" {
             LKSystemNotice(message.text)
         } else if let tree = message.delegation {
-            LKHelpersCard(tree, agentName: agentName, nameFor: gateway.agentName, stop: nil)
+            LKDelegationCard(tree, agentName: agentName, nameFor: gateway.agentName, stop: nil)
         } else if let artifact = message.artifact {
             LKArtifactCard(artifact: artifact, fromUser: fromUser) {}
         } else if let review = message.review, !review.isEmpty {

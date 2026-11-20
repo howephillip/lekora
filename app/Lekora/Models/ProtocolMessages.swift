@@ -466,8 +466,8 @@ public struct ChatMessageData: Codable, Equatable {
     }
 }
 
-// MARK: - Helpers (docs/delegation.md)
-/// The helpers an agent used for one reply, as a tree.
+// MARK: - Delegation (docs/delegation.md)
+/// Work an agent delegated (board handoffs to other agents, and sub-agents), as a tree.
 public struct HelpersTree: Codable, Equatable, Hashable, Sendable {
     /// working | done
     public var status: String
@@ -479,17 +479,21 @@ public struct HelpersTree: Codable, Equatable, Hashable, Sendable {
     }
 
     public var isWorking: Bool { status == "working" }
-    public var workingCount: Int { helpers.filter(\.isWorking).count }
+    /// Still waiting, working or blocked.
+    public var openCount: Int { helpers.filter(\.isOpen).count }
 
-    /// One helper: a Hermes subagent, or another agent asked to help.
+    /// One piece of delegated work: a board task given to an agent, or a sub-agent copy.
     public struct Helper: Codable, Equatable, Hashable, Identifiable, Sendable {
         public let id: String
-        /// The helper that started this one (nil: the agent itself did).
+        /// The work that delegated this one (nil: the agent itself did).
         public let parent: String?
         public let goal: String
-        /// Another agent asked to help (its profile id); nil for the agent's own helpers.
+        /// Who does it (profile id); nil for a sub-agent copy of the agent.
         public let agent: String?
-        /// working | finishing | done | failed | stopped | timed_out
+        /// The board task (board handoffs), and its board.
+        public let task: String?
+        public let board: String?
+        /// waiting | working | finishing | blocked | done | failed | stopped | timed_out
         public var status: String
         /// What it's doing now ("Web search").
         public var doing: String?
@@ -499,9 +503,11 @@ public struct HelpersTree: Codable, Equatable, Hashable, Sendable {
         /// What it reported back.
         public var summary: String?
 
-        public init(id: String, parent: String? = nil, goal: String, agent: String? = nil, status: String,
-                    doing: String? = nil, steps: Int = 0, started_at: String? = nil, ended_at: String? = nil,
-                    summary: String? = nil) {
+        public init(id: String, parent: String? = nil, goal: String, agent: String? = nil, task: String? = nil,
+                    board: String? = nil, status: String, doing: String? = nil, steps: Int = 0,
+                    started_at: String? = nil, ended_at: String? = nil, summary: String? = nil) {
+            self.task = task
+            self.board = board
             self.id = id
             self.parent = parent
             self.goal = goal
@@ -514,7 +520,9 @@ public struct HelpersTree: Codable, Equatable, Hashable, Sendable {
             self.summary = summary
         }
 
-        public var isWorking: Bool { status == "working" || status == "finishing" }
+        public var isOpen: Bool { !["done", "failed", "stopped", "timed_out"].contains(status) }
+        /// Something to stop: a sub-agent at work, or a board task whose worker is running.
+        public var canStop: Bool { task == nil ? (status == "working" || status == "finishing") : status == "working" }
         public var startedDate: Date? { started_at.flatMap { try? Date($0, strategy: .iso8601) } }
         public var endedDate: Date? { ended_at.flatMap { try? Date($0, strategy: .iso8601) } }
     }

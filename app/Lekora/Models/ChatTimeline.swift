@@ -9,7 +9,7 @@ public struct ChatEntry: Identifiable, Equatable, Codable {
         case system
         /// An approval or question card from the agent (docs/prompts.md).
         case prompt
-        /// A Helpers card: the agent's helpers as a live tree (docs/delegation.md).
+        /// A Delegated card: work the agent delegated, as a live tree (docs/delegation.md).
         case helpers
     }
 

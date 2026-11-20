@@ -9,6 +9,7 @@ task history stay right. Lekora keeps nothing about the board itself.
 from __future__ import annotations
 
 import asyncio
+import json
 import importlib
 import logging
 from contextlib import closing
@@ -339,6 +340,47 @@ class HermesBoards:
             return self._cards(conn, [self._require(conn, task_id)])[0]
 
     # ---- watching -------------------------------------------------------------------
+
+    def created_since(self, board: str, after: Optional[int]) -> tuple[int, list[dict]]:
+        """(the newest history id, tasks created since ``after``: ``{id, session_id, created_by,
+        creator_task_id}``). ``after`` None: only where the history is now (docs/delegation.md)."""
+        with self._conn(board) as conn:
+            top = conn.execute("SELECT COALESCE(MAX(id), 0) FROM task_events").fetchone()[0]
+            if after is None or top <= after:
+                return top, []
+            rows = conn.execute(
+                "SELECT e.task_id, json_extract(e.payload, '$.creator_task_id'), t.session_id, t.created_by "
+                "FROM task_events e JOIN tasks t ON t.id = e.task_id "
+                "WHERE e.id > ? AND e.kind = 'created' ORDER BY e.id LIMIT 200", (after,)).fetchall()
+            return top, [{"id": r[0], "creator_task_id": r[1], "session_id": r[2], "created_by": r[3]}
+                         for r in rows]
+
+    def follow(self, board: str, task_ids: Iterable[str]) -> list[dict]:
+        """Where delegated tasks are now: status, who has it, what happened last, what it reported."""
+        out = []
+        with self._conn(board) as conn:
+            for task_id in task_ids:
+                task = self.kb.get_task(conn, task_id)
+                if task is None:
+                    out.append({"id": task_id, "status": "archived"})
+                    continue
+                last = conn.execute(
+                    "SELECT kind, payload FROM task_events WHERE task_id = ? AND kind NOT IN ('heartbeat') "
+                    "ORDER BY id DESC LIMIT 1", (task_id,)).fetchone()
+                doing = None
+                if last:
+                    try:
+                        payload = json.loads(last[1]) if last[1] else None
+                    except (TypeError, ValueError):
+                        payload = None
+                    doing = describe_event(last[0], payload)
+                summary = self.kb.latest_summary(conn, task_id) if hasattr(self.kb, "latest_summary") else None
+                out.append({"id": task.id, "title": task.title, "status": task.status, "assignee": task.assignee,
+                            "started_at": task.started_at, "completed_at": task.completed_at,
+                            "created_at": task.created_at, "doing": doing,
+                            "summary": task.result or summary or None,
+                            "error": _clip(task.last_failure_error, 300)})
+        return out
 
     def changes(self, board: str, after: Optional[int]) -> tuple[int, list[str]]:
         """(the newest history id, the tasks changed since ``after``), heartbeats left out.

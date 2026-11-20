@@ -193,7 +193,7 @@ class Gateway:
                       delegation: Optional[dict] = None) -> dict:
         data: dict[str, Any] = {"seq": seq, "role": role, "text": text, "rev": rev}
         if delegation:
-            data["delegation"] = delegation  # a Helpers card: the helpers tree (docs/delegation.md)
+            data["delegation"] = delegation  # a Delegated card: the delegation tree (docs/delegation.md)
         if session:
             data["session"] = session  # the Hermes conversation it belongs to (docs/chats.md)
         if review:
@@ -345,9 +345,9 @@ class Gateway:
             await self._broadcast(updated)
 
     async def publish_helpers(self, profile_id: str, text: str, delegation: dict) -> int:
-        """A Helpers card (docs/delegation.md), saved as a chat message and sent to every phone."""
+        """A Delegated card (docs/delegation.md), saved as a chat message and sent to every phone."""
         seq = self.store.append_event(profile_id, "chat.message",
-                                      {"role": "helpers", "text": text, "delegation": delegation})
+                                      {"role": "delegation", "text": text, "delegation": delegation})
         await self._broadcast(self.store.get_event(seq))
         return seq
 
@@ -989,16 +989,16 @@ class Gateway:
 
     async def _delegation_stop(self, conn: _Conn, msg_id: Optional[str], profile_id: Any, data: dict) -> None:
         if self.delegations is None:
-            raise _Reject("UNAVAILABLE", "Helpers can't be stopped on this Hermes instance", True, False, msg_id)
+            raise _Reject("UNAVAILABLE", "Delegated work can't be stopped on this Hermes instance", True, False, msg_id)
         seq, helper_id = data.get("seq"), data.get("helper_id")
         if not isinstance(seq, int) or (helper_id is not None and not isinstance(helper_id, str)):
             raise _Reject("INVALID_MESSAGE", "delegation.stop needs a card seq", True, False, msg_id)
         try:
             stopped = await self.delegations.stop(seq, helper_id)
         except KeyError:
-            raise _Reject("UNKNOWN_CARD", "Those helpers have already finished", True, False, msg_id)
+            raise _Reject("UNKNOWN_CARD", "That has already finished", True, False, msg_id)
         except RuntimeError:
-            raise _Reject("UNAVAILABLE", "This Hermes can't stop helpers", True, False, msg_id)
+            raise _Reject("UNAVAILABLE", "This Hermes can't stop that", True, False, msg_id)
         await self._send(conn, self._envelope("delegation.stop.result", {"stopped": stopped},
                                               msg_id=msg_id, profile_id=profile_id))
 

@@ -266,8 +266,9 @@ class LekoraService:
         helpers = self._hermes_helpers
         self.gateway.delegations = Delegations(
             self._store, self.gateway.publish_helpers, self.gateway.update_helpers,
-            interrupt=helpers.interrupt if helpers is not None else None)
-        self._helpers_watch = asyncio.create_task(self._watch_helpers()) if helpers is not None else None
+            interrupt=helpers.interrupt if helpers is not None else None,
+            boards=self._kanban_boards, chat_for=self._delegating_chat)
+        self._helpers_watch = asyncio.create_task(self._watch_delegations())
         self._kanban_watch = None
         if self._kanban_boards is not None:
             from .kanban import Kanban
@@ -310,23 +311,45 @@ class LekoraService:
         except Exception:
             logging.getLogger(__name__).exception("Lekora: could not expire old cards")
         try:
-            # Helpers still working when Hermes stopped are gone (docs/delegation.md).
-            await self.gateway.delegations.close_leftovers()
+            # Open Delegated cards: board tasks are followed again, sub-agents are gone (docs/delegation.md).
+            await self.gateway.delegations.resume()
         except Exception:
-            logging.getLogger(__name__).exception("Lekora: could not close old Helpers cards")
+            logging.getLogger(__name__).exception("Lekora: could not resume Delegated cards")
         return port
 
-    async def _watch_helpers(self, every: float = 1.0) -> None:
-        """While helpers are working: what each is doing now, from Hermes' running list."""
+    def _delegating_chat(self, session_id: Optional[str], created_by: Optional[str]) -> Optional[str]:
+        """The Lekora chat a board task was handed off from: its agent's chat, when the task came
+        from one of that agent's Lekora conversations."""
+        gateway = self.gateway
+        if not session_id or not created_by or gateway is None or gateway.chats is None:
+            return None
+        if created_by not in {p["profile_id"] for p in gateway._profiles()}:
+            return None
+        if gateway.chats.current(created_by) == session_id:
+            return created_by
+        try:
+            listed = gateway.chats._sessions(created_by).get("sessions") or []
+        except Exception:
+            return None
+        ids = {str(r.get("id") or r.get("session_id") or "") for r in listed if isinstance(r, dict)}
+        return created_by if session_id in ids else None
+
+    async def _watch_delegations(self) -> None:
+        """Sub-agents: every second while any work; the board: every 3 seconds (docs/delegation.md)."""
+        tick = 0
         while True:
-            await asyncio.sleep(every)
+            await asyncio.sleep(1.0)
+            tick += 1
             delegations = self.gateway.delegations if self.gateway is not None else None
-            if delegations is None or not delegations.any_working:
+            if delegations is None:
                 continue
             try:
-                await delegations.running(await asyncio.to_thread(self._hermes_helpers.running))
+                if self._hermes_helpers is not None and delegations.any_working:
+                    await delegations.running(await asyncio.to_thread(self._hermes_helpers.running))
+                if tick % 3 == 0:
+                    await delegations.board_tick()
             except Exception:
-                logging.getLogger(__name__).debug("Lekora: helper check failed", exc_info=True)
+                logging.getLogger(__name__).debug("Lekora: delegation check failed", exc_info=True)
 
     def _file_store(self):
         """Files both ways (docs/files.md): kept in ``<Hermes>/lekora-files``."""

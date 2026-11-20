@@ -1,7 +1,7 @@
 import XCTest
 @testable import Lekora
 
-/// Helpers as a live tree in the chat (docs/delegation.md).
+/// Delegation as a live tree in the chat (docs/delegation.md).
 @MainActor
 final class HelpersTests: XCTestCase {
     private var host: FakeHost!
@@ -44,7 +44,7 @@ final class HelpersTests: XCTestCase {
     }
 
     private func card(seq: Int, rev: Int, _ helpers: [[String: Any]], status: String = "working") -> [String: Any] {
-        ["seq": seq, "role": "helpers", "text": "Using helpers", "rev": rev,
+        ["seq": seq, "role": "delegation", "text": "Using helpers", "rev": rev,
          "delegation": ["status": status, "helpers": helpers]]
     }
 
@@ -98,28 +98,44 @@ final class HelpersTests: XCTestCase {
         ])
         XCTAssertEqual(tree.rows.map(\.id), ["a", "a1", "b", "orphan"])
         XCTAssertEqual(tree.rows.map(\.depth), [0, 1, 0, 0])
-        XCTAssertEqual(tree.workingCount, 2)
+        XCTAssertEqual(tree.openCount, 2)
     }
 
     func testWords() throws {
         let start = try Date("2026-11-19T08:00:00Z", strategy: .iso8601)
         let working = HelpersTree.Helper(id: "a", goal: "g", status: "working", doing: "Web search", steps: 3,
                                          started_at: "2026-11-19T08:00:00Z")
-        XCTAssertEqual(LKHelpersText.detail(working, now: start + 83), "Web search · 3 steps · 1m 23s")
-        let done = HelpersTree.Helper(id: "b", goal: "g", status: "done", steps: 1, started_at: "2026-11-19T08:00:00Z",
-                                      ended_at: "2026-11-19T08:00:09Z")
-        XCTAssertEqual(LKHelpersText.detail(done, now: start + 999), "Done · 1 step · 9s")
-        XCTAssertEqual(LKHelpersText.summary(HelpersTree(status: "working", helpers: [working, done])), "1 of 2 working")
+        XCTAssertEqual(LKDelegationText.detail(working, now: start + 83), "Web search · 3 steps · 1m 23s")
+        let done = HelpersTree.Helper(id: "b", goal: "g", agent: "carl", task: "t_b", status: "done",
+                                      started_at: "2026-11-19T08:00:00Z", ended_at: "2026-11-19T08:00:09Z")
+        XCTAssertEqual(LKDelegationText.detail(done, now: start + 999), "Done · 9s")
+        let blocked = HelpersTree.Helper(id: "c", goal: "g", agent: "ashlyn", task: "t_c", status: "blocked",
+                                         doing: "Blocked: needs permission", started_at: "2026-11-19T08:00:00Z")
+        XCTAssertEqual(LKDelegationText.detail(blocked, now: start), "Blocked: needs permission")
+        let waiting = HelpersTree.Helper(id: "d", goal: "g", agent: "dian", task: "t_d", status: "waiting")
+        XCTAssertEqual(LKDelegationText.detail(waiting, now: start), "Waiting to start")
+        XCTAssertEqual(LKDelegationText.summary(HelpersTree(status: "working", helpers: [working, done, blocked])),
+                       "2 of 3 still going · 1 blocked")
         var failed = done
         failed.status = "failed"
-        XCTAssertEqual(LKHelpersText.summary(HelpersTree(status: "done", helpers: [done, failed])),
-                       "2 helpers finished, 1 didn't make it")
+        XCTAssertEqual(LKDelegationText.summary(HelpersTree(status: "done", helpers: [done, failed])),
+                       "All 2 finished, 1 didn't make it")
+        XCTAssertEqual(LKDelegationText.who(working, nameFor: { $0 }), "Sub-agent")
+        XCTAssertEqual(LKDelegationText.who(done, nameFor: { $0.capitalized }), "Carl")
+    }
+
+    func testOnlyRunningWorkCanBeStopped() {
+        XCTAssertTrue(HelpersTree.Helper(id: "a", goal: "g", status: "working").canStop)
+        XCTAssertTrue(HelpersTree.Helper(id: "b", goal: "g", task: "t", status: "working").canStop)
+        XCTAssertFalse(HelpersTree.Helper(id: "c", goal: "g", task: "t", status: "waiting").canStop)
+        XCTAssertFalse(HelpersTree.Helper(id: "d", goal: "g", task: "t", status: "blocked").canStop)
     }
 
     func testCardSurvivesTheCacheAndDecodesFromTheWire() throws {
-        let json = #"{"seq":5,"role":"helpers","text":"Used 1 helper","rev":50,"delegation":{"status":"done","helpers":[{"id":"sa-0-ab","goal":"Find flights","agent":"researcher","status":"done","steps":4,"started_at":"2026-11-19T08:00:00Z","ended_at":"2026-11-19T08:01:00Z","summary":"Two found"}]}}"#
+        let json = #"{"seq":5,"role":"delegation","text":"Used 1 helper","rev":50,"delegation":{"status":"done","helpers":[{"id":"sa-0-ab","goal":"Find flights","agent":"researcher","status":"done","steps":4,"started_at":"2026-11-19T08:00:00Z","ended_at":"2026-11-19T08:01:00Z","summary":"Two found","task":"t_9","board":"default"}]}}"#
         let message = try JSONDecoder().decode(ChatMessageData.self, from: Data(json.utf8))
         XCTAssertEqual(message.delegation?.helpers.first?.summary, "Two found")
+        XCTAssertEqual(message.delegation?.helpers.first?.task, "t_9")
         var timeline = ChatTimeline()
         timeline.applyPage(profileId: "default", messages: [message], hasMore: false)
         let restored = try JSONDecoder().decode([ChatEntry].self, from: JSONEncoder().encode(timeline.entries))

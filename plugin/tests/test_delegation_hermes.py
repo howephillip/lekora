@@ -1,51 +1,32 @@
-"""Helpers against Hermes' real delegation code (docs/delegation.md). Runs only where Hermes is
-installed, in a temporary Hermes home with throwaway profiles."""
+"""Delegated cards against Hermes' real code (docs/delegation.md). Runs only where Hermes is
+installed, on a throwaway board in a temporary Hermes home."""
 
 import inspect
 import json
-from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("tools.delegate_tool_routes")
+kanban_db = pytest.importorskip("hermes_cli.kanban_db")
+pytest.importorskip("tools.delegate_tool")
 
-from agent import delegation_backends, delegation_registry  # noqa: E402
-from tools.delegate_tool_routes import resolve_task_routes  # noqa: E402
-
-from lekora import hermes_delegation  # noqa: E402
-from lekora.hermes_delegation import BACKEND, HermesHelpers, ask_agent, make_provider  # noqa: E402
-
-
-class Ctx:
-    def __init__(self):
-        self.hooks, self.tools = {}, {}
-
-    def register_hook(self, name, cb):
-        self.hooks[name] = cb
-
-    def register_delegation_provider(self, provider):
-        delegation_registry._registry.register(provider)
-
-    def register_tool(self, **kw):
-        self.tools[kw["name"]] = kw
+from lekora.hermes_delegation import HermesHelpers, Hooks, register  # noqa: E402
+from lekora.kanban import HermesBoards  # noqa: E402
 
 
 @pytest.fixture
-def home(tmp_path, monkeypatch):
-    root = tmp_path / "hermes-home"
-    # A local model endpoint that is never called: routes resolve without the network.
-    model = ("model:\n  default: test-model\n  provider: custom\n"
-             "  base_url: http://127.0.0.1:9/v1\n  api_key: test-key\n")
-    (root / "profiles" / "researcher").mkdir(parents=True)
-    (root / "profiles" / "researcher" / "config.yaml").write_text(model)
-    (root / "config.yaml").write_text(model)
-    monkeypatch.setenv("HERMES_HOME", str(root))
-    before = delegation_registry._registry.snapshot_registration(BACKEND)
-    yield root
-    delegation_backends.set_session_backend("sess-1", None)
-    now = delegation_registry._registry.snapshot_registration(BACKEND)
-    if now is not None:
-        delegation_registry._registry.restore_registration(BACKEND, now, before)
+def boards(tmp_path, monkeypatch):
+    home = tmp_path / "hermes-home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    for name in ("HERMES_KANBAN_DB", "HERMES_KANBAN_BOARD", "HERMES_KANBAN_HOME", "HERMES_KANBAN_TASK"):
+        monkeypatch.delenv(name, raising=False)
+    return HermesBoards()
+
+
+def _create(boards, title, assignee, session=None, creator=None):
+    with boards._conn("default") as conn:
+        return kanban_db.create_task(conn, title=title, assignee=assignee, created_by="default",
+                                     session_id=session, creator_task_id=creator)
 
 
 def test_the_hooks_lekora_uses_are_hermes_hooks():
@@ -54,47 +35,69 @@ def test_the_hooks_lekora_uses_are_hermes_hooks():
 
 
 def test_hermes_still_sends_what_the_hooks_read():
-    from tools import delegate_tool, delegate_tool_results
+    from tools import delegate_tool, delegate_tool_results, kanban_tools
     start = inspect.getsource(delegate_tool)
     for kw in ("parent_turn_id", "parent_subagent_id", "child_session_id", "child_subagent_id", "child_goal"):
         assert kw + "=" in start
     stop = inspect.getsource(delegate_tool_results._fire_subagent_stop_hooks)
     for kw in ("child_session_id", "child_summary", "child_status", "tool_call_history", "duration_ms"):
         assert kw + "=" in stop
+    # kanban_create answers with the new task's id (what the post_tool_call hook reads).
+    assert "_ok(task_id=new_tid" in inspect.getsource(kanban_tools._handle_create)
 
 
-def test_register_adds_hooks_backend_and_tool(home):
+def test_register_only_watches():
+    class Ctx:
+        def __init__(self):
+            self.hooks, self.other = {}, []
+
+        def register_hook(self, name, cb):
+            self.hooks[name] = cb
+
+        def __getattr__(self, name):
+            self.other.append(name)
+            raise AttributeError(name)
+
     ctx = Ctx()
-    hermes_delegation.register(ctx, lambda: None, lambda: ["default", "researcher"], lambda: True)
-    assert set(ctx.hooks) == {"subagent_start", "post_tool_call", "subagent_stop"}
-    assert "lekora_ask_agent" in ctx.tools
-    assert any(i.name == BACKEND and i.available for i in delegation_backends.list_backends())
+    register(ctx, lambda: None)
+    assert set(ctx.hooks) == {"subagent_start", "post_tool_call", "subagent_stop"} and ctx.other == []
 
 
-def test_a_task_naming_an_agent_runs_as_that_profile(home):
-    delegation_registry._registry.register(make_provider(lambda: ["default", "researcher"]))
-    delegation_backends.set_session_backend("sess-1", BACKEND)
-    parent = SimpleNamespace(session_id="sess-1")
-    routes, err = resolve_task_routes([{"goal": "Look into it", "agent": "researcher"}], {}, parent)
-    assert err is None and routes[0].error is None
-    assert routes[0].profile_home == home / "profiles" / "researcher"
-    assert routes[0].backend == BACKEND and routes[0].label == "researcher"
+def test_new_tasks_carry_the_chat_and_the_task_that_made_them(boards):
+    top, _ = boards.created_since("default", None)
+    first = _create(boards, "Fix screen capture", "ashlyn", session="20261119_lekora")
+    child = _create(boards, "Check permissions", "carl", creator=first)
+    _, rows = boards.created_since("default", top)
+    by_id = {r["id"]: r for r in rows}
+    assert by_id[first]["session_id"] == "20261119_lekora" and by_id[first]["created_by"] == "default"
+    assert by_id[child]["creator_task_id"] == first
 
 
-def test_an_unknown_agent_is_refused_by_name(home):
-    delegation_registry._registry.register(make_provider(lambda: ["default", "researcher"]))
-    delegation_backends.set_session_backend("sess-1", BACKEND)
-    routes, err = resolve_task_routes([{"goal": "x", "agent": "nobody"}], {}, SimpleNamespace(session_id="sess-1"))
-    assert err is None and "nobody" in routes[0].error
+def test_following_a_task(boards):
+    task_id = _create(boards, "Fix screen capture", "ashlyn", session="s")
+    row = boards.follow("default", [task_id, "t_gone"])
+    assert row[0]["title"] == "Fix screen capture" and row[0]["assignee"] == "ashlyn"
+    assert row[0]["status"] in ("ready", "todo", "running") and row[0]["doing"]
+    assert row[1] == {"id": "t_gone", "status": "archived"}
 
 
-def test_asking_needs_a_real_other_agent(home):
-    names = lambda: ["default", "researcher"]  # noqa: E731
-    assert "task" in json.loads(ask_agent({"agent": "researcher"}, profiles=names))["error"]
-    err = json.loads(ask_agent({"agent": "nobody", "task": "x"}, profiles=names))["error"]
-    assert "default, researcher" in err
-    # Outside a chat turn there's no agent to report back to.
-    assert "chat turn" in json.loads(ask_agent({"agent": "researcher", "task": "x"}, profiles=names))["error"]
+def test_the_kanban_create_hook_reads_a_real_answer(monkeypatch):
+    seen = []
+
+    class D:
+        async def handed_off(self, **kw):
+            seen.append(kw)
+
+    import asyncio
+    loop = asyncio.new_event_loop()
+    import lekora.hermes_delegation as hd
+    monkeypatch.setattr(hd, "_lekora_chat", lambda: "default")
+    hooks = Hooks(lambda: (D(), loop))
+    hooks.post_tool_call(tool_name="kanban_create", args={"title": "Fix it", "assignee": "ashlyn"},
+                         result=json.dumps({"ok": True, "task_id": "t_1", "status": "running"}), task_id="")
+    loop.run_until_complete(asyncio.sleep(0.05))
+    loop.close()
+    assert seen and seen[0]["task_id"] == "t_1" and seen[0]["assignee"] == "ashlyn" and seen[0]["chat_id"] == "default"
 
 
 def test_hermes_running_list_and_stop():

@@ -590,7 +590,7 @@ class Store:
         return [self._event(r) for r in rows]
 
     def working_helper_cards(self) -> list[Event]:
-        """Helpers cards still marked working (docs/delegation.md)."""
+        """Delegated cards still open (docs/delegation.md)."""
         with self._lock:
             rows = self._db.execute(
                 "SELECT * FROM events WHERE instance_id = ? AND event_type = 'chat.message' "

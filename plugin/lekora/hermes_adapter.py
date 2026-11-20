@@ -121,20 +121,8 @@ def _lekora_session() -> bool:
         return False
 
 
-def _profile_names() -> list[str]:
-    try:
-        return [p["profile_id"] for p in _profiles.discover_profiles()]
-    except Exception:
-        return []
-
-
-def _can_ask_agent() -> bool:
-    """Asking another agent: in Lekora chats, when there is another agent to ask."""
-    return _lekora_session() and len(_profile_names()) > 1
-
-
 def _helpers_target():
-    """Where Hermes' helper events go: the running Lekora's Helpers cards and its loop."""
+    """Where Hermes' delegation events go: the running Lekora's Delegated cards and its loop."""
     active = _ACTIVE
     if not active or active[0]._service is None or active[0]._service.gateway is None:
         return None
@@ -176,13 +164,13 @@ def _hermes_boards():
 
 
 def _hermes_helpers():
-    """Hermes' running-helper list and Stop (docs/delegation.md); None on a Hermes without them."""
+    """Hermes' running sub-agent list and Stop (docs/delegation.md); None on a Hermes without them."""
     try:
         from tools.delegate_tool_registry import interrupt_subagent, list_active_subagents  # noqa: F401
         from .hermes_delegation import HermesHelpers
         return HermesHelpers()
     except Exception:
-        logger.info("Lekora: this Hermes can't list its helpers; Helpers cards show less")
+        logger.info("Lekora: this Hermes can't list its sub-agents; Delegated cards show less")
         return None
 
 
@@ -784,11 +772,6 @@ def register(ctx) -> None:
         ctx.register_tool(name=schema["name"], toolset=TOOLSET, schema=schema,
                           handler=_artifact_handler(schema["name"]), check_fn=check,
                           description=schema["description"], emoji="🧩")
-    # Helpers as a live tree, and asking another agent (docs/delegation.md).
+    # Delegation shown as a live tree in the chat (docs/delegation.md): watching only.
     from . import hermes_delegation
-    try:
-        from tools.registry import no_cache_check_fn
-        ask_check = no_cache_check_fn(_can_ask_agent)
-    except ImportError:
-        ask_check = _can_ask_agent
-    hermes_delegation.register(ctx, _helpers_target, _profile_names, ask_check)
+    hermes_delegation.register(ctx, _helpers_target)

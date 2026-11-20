@@ -480,9 +480,9 @@ public final class GatewayClient: ObservableObject {
         return ack
     }
 
-    // MARK: - Helpers (docs/delegation.md)
+    // MARK: - Delegation (docs/delegation.md)
 
-    /// Stops one helper on a Helpers card, or (nil) every helper still working on it.
+    /// Stops one piece of delegated work on a Delegated card, or (nil) everything still running on it.
     @discardableResult
     public func stopHelpers(profileId: String, seq: Int, helperId: String?) async throws -> [String] {
         try await request(type: "delegation.stop", profileId: profileId,

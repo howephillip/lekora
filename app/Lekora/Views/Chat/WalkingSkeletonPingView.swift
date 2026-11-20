@@ -414,11 +414,14 @@ public struct WalkingSkeletonPingView: View {
             if entry.role == .system {
                 LKSystemNotice(entry.text)
             } else if let tree = entry.delegation {
-                // The agent's helpers as a live tree (docs/delegation.md).
-                LKHelpersCard(tree, agentName: profileName, nameFor: gateway.agentName,
-                              stop: entry.seq.map { seq in
-                                  { helperId in try await gateway.stopHelpers(profileId: entry.profileId, seq: seq, helperId: helperId) }
-                              })
+                // Work the agent delegated, as a live tree (docs/delegation.md). It only shows: the chat stays free.
+                LKDelegationCard(tree, agentName: profileName, nameFor: gateway.agentName,
+                                 stop: entry.seq.map { seq in
+                                     { helperId in try await gateway.stopHelpers(profileId: entry.profileId, seq: seq, helperId: helperId) }
+                                 },
+                                 taskView: { board, task in
+                                     AnyView(TaskDetailView(gateway: gateway, boardSlug: board, taskId: task, board: nil))
+                                 })
             } else if let card = entry.card {
                 LKPromptCard(card, agentName: profileName, actions: promptActions(for: card))
             } else if let artifact = entry.artifact {

@@ -1,27 +1,32 @@
 import SwiftUI
 
-// The Helpers card (docs/delegation.md): the helpers an agent used for one reply, as a live
-// tree. Content, so a solid surface like the other cards; the buttons are the system's.
+// The Delegated card (docs/delegation.md): work an agent handed to other agents (board tasks)
+// or to sub-agent copies of itself, as a live tree. It only shows: the chat stays free, and
+// results come back through the agent. Content, so a solid surface like the other cards.
 
-public struct LKHelpersCard: View {
+public struct LKDelegationCard: View {
     private let tree: HelpersTree
     private let agentName: String
     private let nameFor: (String) -> String
     private let stop: ((String?) async throws -> Void)?
+    private let taskView: ((_ board: String, _ task: String) -> AnyView)?
 
     @State private var opened: HelpersTree.Helper?
     @State private var stopping: Set<String> = []
     @State private var failure: String?
 
     /// - Parameters:
-    ///   - nameFor: another agent's name from its profile id.
-    ///   - stop: stops one helper (its id) or, with nil, all of them; nil = can't stop.
+    ///   - nameFor: an agent's name from its profile id.
+    ///   - stop: stops one piece of work (its id) or, with nil, all of it; nil = can't stop.
+    ///   - taskView: a board task's page, for Open in Board; nil = not offered.
     public init(_ tree: HelpersTree, agentName: String, nameFor: @escaping (String) -> String,
-                stop: ((String?) async throws -> Void)?) {
+                stop: ((String?) async throws -> Void)?,
+                taskView: ((_ board: String, _ task: String) -> AnyView)? = nil) {
         self.tree = tree
         self.agentName = agentName
         self.nameFor = nameFor
         self.stop = stop
+        self.taskView = taskView
     }
 
     public var body: some View {
@@ -31,10 +36,10 @@ public struct LKHelpersCard: View {
                 VStack(alignment: .leading, spacing: LK.Spacing.sm) {
                     ForEach(tree.rows) { row in
                         Button { opened = row.helper } label: {
-                            LKHelperRow(helper: row.helper, depth: row.depth, nameFor: nameFor)
+                            LKDelegationRow(helper: row.helper, depth: row.depth, nameFor: nameFor)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityHint("Shows what it was asked and what it reported")
+                        .accessibilityHint("Shows the whole task and what came back")
                     }
                 }
                 if let failure {
@@ -49,9 +54,8 @@ public struct LKHelpersCard: View {
             Spacer(minLength: LK.Spacing.xl)
         }
         .sheet(item: $opened) { helper in
-            LKHelperDetail(helper: current(helper), agentName: agentName, nameFor: nameFor,
-                           stopping: stopping.contains(helper.id),
-                           stop: stop == nil ? nil : { run(helper.id) })
+            LKDelegationDetail(helper: current(helper), nameFor: nameFor, stopping: stopping.contains(helper.id),
+                               stop: stop == nil ? nil : { run(helper.id) }, taskView: taskView)
                 .presentationDetents([.medium, .large])
         }
     }
@@ -59,20 +63,17 @@ public struct LKHelpersCard: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: LK.Spacing.xxs) {
-                Label("\(agentName)'s helpers", systemImage: "point.3.connected.trianglepath.dotted")
+                Label("\(agentName) delegated", systemImage: "arrow.triangle.branch")
                     .font(LK.Typography.headline)
-                Text(LKHelpersText.summary(tree))
+                Text(LKDelegationText.summary(tree))
                     .font(LK.Typography.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: LK.Spacing.sm)
-            if tree.workingCount > 0, stop != nil {
+            let stoppable = tree.helpers.filter(\.canStop).count
+            if stoppable > 1, stop != nil {
                 Button(role: .destructive) { run(nil) } label: {
-                    if stopping.contains("") {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text(tree.workingCount == 1 ? "Stop" : "Stop All")
-                    }
+                    if stopping.contains("") { ProgressView().controlSize(.small) } else { Text("Stop All") }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -81,7 +82,7 @@ public struct LKHelpersCard: View {
         }
     }
 
-    /// The opened helper as it is now (the card keeps updating while its sheet is open).
+    /// The opened work as it is now (the card keeps updating while its sheet is open).
     private func current(_ helper: HelpersTree.Helper) -> HelpersTree.Helper {
         tree.helpers.first { $0.id == helper.id } ?? helper
     }
@@ -102,8 +103,8 @@ public struct LKHelpersCard: View {
     }
 }
 
-/// One helper in the tree: its state, what it was asked, and what it's doing.
-struct LKHelperRow: View {
+/// One piece of delegated work: who has it, the task, and where it's at.
+struct LKDelegationRow: View {
     let helper: HelpersTree.Helper
     let depth: Int
     let nameFor: (String) -> String
@@ -117,22 +118,21 @@ struct LKHelperRow: View {
                     .padding(.leading, CGFloat(depth - 1) * LK.Spacing.lg)
                     .padding(.top, 3)
             }
-            LKHelperStatusIcon(status: helper.status)
+            LKDelegationStatusIcon(status: helper.status)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: LK.Spacing.xxs) {
-                if let agent = helper.agent {
-                    Text(nameFor(agent))
-                        .font(LK.Typography.captionStrong)
-                        .foregroundStyle(LK.Palette.accent)
-                }
+                Text(LKDelegationText.who(helper, nameFor: nameFor))
+                    .font(LK.Typography.captionStrong)
+                    .foregroundStyle(helper.agent != nil ? AnyShapeStyle(LK.Palette.accent) : AnyShapeStyle(.secondary))
                 Text(helper.goal)
                     .font(LK.Typography.subheadline)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(LKHelpersText.detail(helper, now: context.date))
+                    Text(LKDelegationText.detail(helper, now: context.date))
                         .font(LK.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(helper.status == "blocked" ? AnyShapeStyle(LK.Palette.warning) : AnyShapeStyle(.secondary))
+                        .lineLimit(2)
                         .monospacedDigit()
                 }
             }
@@ -147,7 +147,7 @@ struct LKHelperRow: View {
     }
 }
 
-struct LKHelperStatusIcon: View {
+struct LKDelegationStatusIcon: View {
     let status: String
 
     var body: some View {
@@ -156,6 +156,10 @@ struct LKHelperStatusIcon: View {
             ProgressView().controlSize(.mini)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel(status == "working" ? "Working" : "Finishing")
+        case "waiting":
+            icon("clock", .secondary, "Waiting to start")
+        case "blocked":
+            icon("exclamationmark.triangle.fill", LK.Palette.warning, "Blocked")
         case "done":
             icon("checkmark.circle.fill", LK.Palette.success, "Done")
         case "failed":
@@ -175,50 +179,60 @@ struct LKHelperStatusIcon: View {
     }
 }
 
-/// A helper opened from the card: its whole task and what it reported back.
-struct LKHelperDetail: View {
+/// Delegated work opened from the card: the whole task and what came back.
+struct LKDelegationDetail: View {
     let helper: HelpersTree.Helper
-    let agentName: String
     let nameFor: (String) -> String
     let stopping: Bool
     let stop: (() -> Void)?
+    let taskView: ((_ board: String, _ task: String) -> AnyView)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: LK.Spacing.lg) {
-                    HStack(spacing: LK.Spacing.sm) {
-                        LKHelperStatusIcon(status: helper.status)
+                    HStack(alignment: .top, spacing: LK.Spacing.sm) {
+                        LKDelegationStatusIcon(status: helper.status)
                         TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Text(LKHelpersText.detail(helper, now: context.date))
+                            Text(LKDelegationText.detail(helper, now: context.date))
                                 .font(LK.Typography.subheadline)
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
                     }
-                    section("Asked to") { Text(helper.goal).textSelection(.enabled) }
+                    section("Task") { Text(helper.goal).textSelection(.enabled) }
                     if let summary = helper.summary, !summary.isEmpty {
-                        section("Reported back") {
+                        section(helper.isOpen ? "Latest" : "What came back") {
                             Text(LKMessageBubble.markdown(summary)).textSelection(.enabled)
                         }
-                    } else if !helper.isWorking {
-                        Text("It didn't report anything back.")
+                    } else if !helper.isOpen {
+                        Text("Nothing came back.")
                             .font(LK.Typography.footnote)
                             .foregroundStyle(.secondary)
                     }
-                    if helper.isWorking, let stop {
-                        Button(role: .destructive, action: stop) {
-                            if stopping { ProgressView() } else { Label("Stop This Helper", systemImage: "stop.fill") }
+                    HStack(spacing: LK.Spacing.md) {
+                        if let task = helper.task, let taskView {
+                            NavigationLink {
+                                taskView(helper.board ?? "", task)
+                            } label: {
+                                Label("Open in Board", systemImage: "rectangle.split.3x1")
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(stopping || helper.doing == "Stopping")
+                        if helper.canStop, let stop {
+                            Button(role: .destructive, action: stop) {
+                                if stopping { ProgressView() } else { Label("Stop", systemImage: "stop.fill") }
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(stopping || helper.doing == "Stopping")
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(LK.Spacing.lg)
             }
-            .navigationTitle(helper.agent.map(nameFor) ?? "\(agentName)'s helper")
+            .navigationTitle(LKDelegationText.who(helper, nameFor: nameFor))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -240,31 +254,42 @@ struct LKHelperDetail: View {
 }
 
 /// The card's words, kept apart so tests can check them.
-public enum LKHelpersText {
+public enum LKDelegationText {
+    public static func who(_ helper: HelpersTree.Helper, nameFor: (String) -> String) -> String {
+        helper.agent.map(nameFor) ?? "Sub-agent"
+    }
+
     public static func summary(_ tree: HelpersTree) -> String {
         let n = tree.helpers.count
-        let working = tree.workingCount
-        if working == 0 {
+        let open = tree.openCount
+        let blocked = tree.helpers.filter { $0.status == "blocked" }.count
+        if open == 0 {
             let failed = tree.helpers.filter { $0.status == "failed" || $0.status == "timed_out" }.count
-            let base = n == 1 ? "1 helper finished" : "\(n) helpers finished"
+            let base = n == 1 ? "Finished" : "All \(n) finished"
             return failed > 0 ? "\(base), \(failed) didn't make it" : base
         }
-        return n == 1 ? "1 helper working" : "\(working) of \(n) working"
+        var text = n == 1 ? "In progress" : "\(open) of \(n) still going"
+        if blocked > 0 { text += blocked == 1 ? " · 1 blocked" : " · \(blocked) blocked" }
+        return text
     }
 
     public static func detail(_ helper: HelpersTree.Helper, now: Date) -> String {
         var parts: [String] = []
         switch helper.status {
-        case "working": parts.append(helper.doing ?? "Starting")
+        case "waiting": parts.append("Waiting to start")
+        case "working": parts.append(helper.doing ?? "Working")
         case "finishing": parts.append("Finishing")
+        case "blocked":
+            let why = helper.doing ?? ""
+            parts.append(why.hasPrefix("Blocked") ? why : (why.isEmpty ? "Blocked" : "Blocked: \(why)"))
         case "done": parts.append("Done")
         case "failed": parts.append("Failed")
         case "timed_out": parts.append("Timed out")
         default: parts.append("Stopped")
         }
         if helper.steps > 0 { parts.append(helper.steps == 1 ? "1 step" : "\(helper.steps) steps") }
-        if let start = helper.startedDate {
-            let end = helper.isWorking ? now : (helper.endedDate ?? now)
+        if let start = helper.startedDate, helper.status != "blocked" {
+            let end = helper.isOpen ? now : (helper.endedDate ?? now)
             parts.append(elapsed(max(0, end.timeIntervalSince(start))))
         }
         return parts.joined(separator: " · ")
@@ -274,26 +299,30 @@ public enum LKHelpersText {
         let s = Int(seconds.rounded(.down))
         if s < 60 { return "\(s)s" }
         if s < 3600 { return "\(s / 60)m \(s % 60)s" }
-        return "\(s / 3600)h \(s % 3600 / 60)m"
+        if s < 86400 { return "\(s / 3600)h \(s % 3600 / 60)m" }
+        return "\(s / 86400)d \(s % 86400 / 3600)h"
     }
 }
 
-#Preview("Helpers") {
+#Preview("Delegated") {
     let now = Date()
     func at(_ ago: TimeInterval) -> String { (now - ago).formatted(.iso8601) }
     let tree = HelpersTree(status: "working", helpers: [
-        .init(id: "sa-0", goal: "Find three direct flights from Sydney to Tokyo in March under $900",
-              status: "working", doing: "Web search", steps: 6, started_at: at(83)),
-        .init(id: "sa-1", goal: "Compare hotels near Shinjuku station", status: "done", steps: 11,
-              started_at: at(120), ended_at: at(20), summary: "Three good options: **Hotel Gracery**…"),
-        .init(id: "sa-1a", parent: "sa-1", goal: "Check reviews for Hotel Gracery", status: "done", steps: 3,
-              started_at: at(100), ended_at: at(60)),
-        .init(id: "sa-2", goal: "Review the itinerary for visa issues", agent: "researcher",
-              status: "working", doing: "Read file", steps: 2, started_at: at(30)),
-        .init(id: "sa-3", goal: "Book a restaurant", status: "failed", steps: 1, started_at: at(50), ended_at: at(45)),
+        .init(id: "t_1", goal: "M1 MacBook: make screen capture and input work from Linux", agent: "ashlyn",
+              task: "t_1", board: "default", status: "blocked",
+              doing: "Blocked: needs Screen Recording permission for the screen-sharing agent", started_at: at(900)),
+        .init(id: "t_2", parent: "t_1", goal: "Check the TCC database for the ARD agent", agent: "carl",
+              task: "t_2", board: "default", status: "working", doing: "Picked up by carl", started_at: at(240)),
+        .init(id: "t_3", goal: "Deploy the Benefits page", agent: "carl", task: "t_3", board: "default",
+              status: "done", started_at: at(3000), ended_at: at(600), summary: "Live at /benefits"),
+        .init(id: "sa-0", goal: "Compare hotels near Shinjuku station", status: "working", doing: "Web search",
+              steps: 6, started_at: at(83)),
+        .init(id: "t_4", goal: "Write the release notes", agent: "dian", task: "t_4", status: "waiting",
+              started_at: at(20)),
     ])
     return ScrollView {
-        LKHelpersCard(tree, agentName: "Assistant", nameFor: { $0.capitalized }, stop: { _ in })
+        LKDelegationCard(tree, agentName: "Lauren", nameFor: { $0.capitalized }, stop: { _ in },
+                         taskView: { _, task in AnyView(Text(task)) })
             .padding()
     }
 }
