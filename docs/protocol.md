@@ -470,3 +470,7 @@ A group's chat key is `group:<group_id>`; it is used as `profile_id` on every me
 - `chat.send` with `profile_id: "group:<id>"`: the user's message to the group (text and files as usual). `chat.message`, `chat.draft` and `chat.typing` for a group carry `speaker` (the agent's profile_id) on agent messages. `history.fetch`, `chat.read`, `prompt.respond`, `artifacts.*` and `file.*` take the group key like an agent's id.
 - `hello.ack` `read` includes each group's key.
 - Errors: `UNKNOWN_GROUP`, `INVALID_GROUP` (name missing, fewer than two members, unknown agent).
+
+## 24. Analytics (spec: `analytics.md`)
+- `analytics.get` `{days: 1|7|30, profile_id?}` → `analytics.get.result` `{days, since (ISO date), totals: {cost_usd, tokens, sessions}, daily: [{day (YYYY-MM-DD), cost_usd, tokens}], by_agent: [{profile_id, cost_usd, tokens, sessions}], by_model: [{model, cost_usd, tokens}], by_source: [{source, cost_usd, tokens}], estimated: bool, accounts: [account]}`. With `profile_id`, only that agent. `source` is Hermes' platform name (`lekora`, `telegram`, `cron`, `subagent`, `kanban`, `cli`, …) or `background` (background tasks).
+- An account: `{provider, title, plan?, windows: [{label, used_percent?, detail?, reset_at?}], details: [line], unavailable_reason?, agents: [profile_id]}`; `available: false` providers carry only `{provider, unavailable_reason}`. As Hermes' own account checks word them.

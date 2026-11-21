@@ -215,6 +215,18 @@ class LekoraAdapter(BasePlatformAdapter):
         parsed = groups.parse_chat(chat_id) if groups is not None else None
         return parsed[1] if parsed else chat_id
 
+    def _hermes_analytics(self):
+        """Hermes' usage records and account checks (docs/analytics.md); None without them."""
+        try:
+            from hermes_state import SessionDB  # noqa: F401
+            from .hermes_analytics import HermesAnalytics
+            from .profiles import profile_home
+            root = Path(self._cfg.hermes_root) if self._cfg.hermes_root else None
+            return HermesAnalytics(lambda profile_id: profile_home(profile_id, root))
+        except Exception:
+            logger.info("Lekora: this Hermes can't be read for usage; Analytics is unavailable")
+            return None
+
     def group_chats_changed(self) -> None:
         """Groups changed: their members' chats get (or lose) their in-memory routes."""
         self.offered_profiles()
@@ -528,7 +540,7 @@ class LekoraAdapter(BasePlatformAdapter):
             hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for,
             chat_sessions_reader=self._chat_sessions_for, current_session_reader=self._current_session_for,
             kanban_boards=_hermes_boards(), hermes_schedules=_hermes_schedules(), draft_llm=_draft_llm,
-            hermes_helpers=_hermes_helpers())
+            hermes_helpers=_hermes_helpers(), hermes_analytics=self._hermes_analytics())
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()

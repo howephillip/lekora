@@ -104,6 +104,7 @@ class Gateway:
         self.artifacts: Optional[Any] = None   # Artifacts (docs/artifacts.md)
         self.delegations: Optional[Any] = None  # Delegated cards (docs/delegation.md)
         self.groups: Optional[Any] = None       # Groups: group chats (docs/group-chats.md)
+        self.analytics: Optional[Any] = None    # Analytics: usage and spend (docs/analytics.md)
         self.name_changed: Optional[Callable[[], None]] = None  # set by the service
         self.groups_changed: Optional[Callable[[], None]] = None  # set by the service
         self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
@@ -585,6 +586,8 @@ class Gateway:
                 self.voice_replies.phone_timing(env.get("profile_id"), data)
         elif type_ in ("groups.list", "group.create", "group.update", "group.delete", "group.start", "group.details"):
             await self._groups_request(conn, msg_id, type_, data)
+        elif type_ == "analytics.get":
+            await self._analytics_request(conn, msg_id, data)
         elif type_ == "delegation.stop":
             await self._delegation_stop(conn, msg_id, env.get("profile_id"), data)
         elif type_ == "prompt.respond":
@@ -1094,6 +1097,18 @@ class Gateway:
                 self.groups_changed()  # members' chats get their routes (docs/group-chats.md)
             except Exception:
                 log.debug("Lekora: group change not passed on", exc_info=True)
+
+    # ---- analytics (docs/analytics.md) ---------------------------------------------
+
+    async def _analytics_request(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
+        from .analytics import AnalyticsError
+        if self.analytics is None:
+            raise _Reject("UNAVAILABLE", "This Hermes instance can't show usage", True, False, msg_id)
+        try:
+            result = await self.analytics.get(data.get("days"), data.get("profile_id"))
+        except AnalyticsError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        await self._send(conn, self._envelope("analytics.get.result", result, msg_id=msg_id))
 
     # ---- helpers (docs/delegation.md) ------------------------------------------
 

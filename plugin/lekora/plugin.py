@@ -155,7 +155,10 @@ class LekoraService:
         hermes_schedules: Optional[Any] = None,
         draft_llm: Optional[Callable[[str, str], Any]] = None,
         hermes_helpers: Optional[Any] = None,
+        hermes_analytics: Optional[Any] = None,
     ) -> None:
+        # Analytics (docs/analytics.md): Hermes' usage records and account checks, from the adapter.
+        self._hermes_analytics = hermes_analytics
         # Helpers (docs/delegation.md): Hermes' running-helper list and its Stop, from the adapter.
         self._hermes_helpers = hermes_helpers
         # Drafting a schedule from a description (docs/scheduler.md): Hermes' model for plugins.
@@ -282,6 +285,14 @@ class LekoraService:
         self.gateway.artifacts = Artifacts(self._store, self.gateway.publish_artifact_message,
                                            self.gateway.publish_artifact_changed)
         self.gateway.artifacts.key = self.gateway.phone_key
+        if self._hermes_analytics is not None:
+            from .analytics import Analytics
+            source = self._hermes_analytics
+            gateway_for_analytics = self.gateway
+            self.gateway.analytics = Analytics(
+                profiles=lambda: [p["profile_id"] for p in gateway_for_analytics._profiles()],
+                read_usage=source.read_usage, accounts=source.accounts,
+                configured_provider=source.configured_provider)
         # Group chats (docs/group-chats.md): every member reached as in its own Lekora chat.
         from .groups import Groups
         gateway = self.gateway
