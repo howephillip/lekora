@@ -799,7 +799,9 @@ def _register_tool(ctx, **tool) -> None:
     ctx.register_tool(**tool)
     try:
         from tools.registry import registry
-        if registry.get_entry(tool["name"], scope=None) is None:
+        # The shared slot itself: ``get_entry(scope=None)`` also answers from this profile's own
+        # slot, where ctx just put it, and would hide that the shared slot lacks it.
+        if tool["name"] not in registry._slot(None):
             registry.register(scope=None, **tool)
     except Exception:
         logger.info("Lekora: %s is only available to the agents that enable the Lekora plugin", tool["name"])
