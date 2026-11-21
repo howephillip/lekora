@@ -789,22 +789,12 @@ async def _draft_llm(instructions: str, text: str) -> Any:
 
 
 def _register_tool(ctx, **tool) -> None:
-    """A Lekora tool for every agent, not only the profile whose config enables the plugin.
+    """A Lekora tool, for the agents whose Hermes config enables the Lekora plugin.
 
-    Hermes keeps a plugin's tools in that profile's own slot, so agents whose config doesn't list
-    Lekora had none of its tools (owner, 2026-11-20: they couldn't make or change artifacts, even in
-    a group). Each tool is also put in Hermes' shared slot, which every profile sees; ``check_fn``
-    still offers it only in Lekora chats. Nothing is written to any agent's config (rule 8).
-    Hermes internals (``tools.registry``): re-check after Hermes upgrades."""
+    Hermes gives a plugin's tools only to those agents, by design: a plugin's registration is always
+    kept in its own profile's slot (tools.registry pins a plugin caller's scope), so a plugin cannot
+    share tools with every agent (owner, 2026-11-21: tried, and Hermes overruled it)."""
     ctx.register_tool(**tool)
-    try:
-        from tools.registry import registry
-        # The shared slot itself: ``get_entry(scope=None)`` also answers from this profile's own
-        # slot, where ctx just put it, and would hide that the shared slot lacks it.
-        if tool["name"] not in registry._slot(None):
-            registry.register(scope=None, **tool)
-    except Exception:
-        logger.info("Lekora: %s is only available to the agents that enable the Lekora plugin", tool["name"])
 
 
 def register(ctx) -> None:
