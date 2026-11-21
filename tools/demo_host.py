@@ -135,6 +135,39 @@ def tools_write(profile, enable, disable):
     on.difference_update(disable)
 
 
+class DemoAnalytics:
+    """Made-up usage for the Analytics screen (docs/analytics.md)."""
+    PER_AGENT = {"default": 0.9, "scout": 0.4, "juniper": 2.6, "atlas": 0.25}
+
+    def read_usage(self, profile, since):
+        import datetime as dt, random
+        rnd = random.Random(profile)
+        start = dt.date.fromtimestamp(since)
+        days = (dt.date.today() - start).days + 1
+        scale = self.PER_AGENT.get(profile, 0.1)
+        main, background = [], []
+        for i in range(days):
+            day = (start + dt.timedelta(days=i)).isoformat()
+            for source, share in (("lekora", 0.5), ("cron", 0.2), ("kanban", 0.3)):
+                cost = round(scale * share * rnd.uniform(0.3, 1.6), 4)
+                main.append({"day": day, "source": source, "sessions": rnd.randint(1, 9), "cost_usd": cost, "tokens": int(cost * 900_000)})
+            background.append({"day": day, "cost_usd": round(scale * 0.05, 4), "tokens": 20_000})
+        total = sum(r["cost_usd"] for r in main)
+        model = "anthropic/claude-sonnet-5.5" if profile == "juniper" else "deepseek/deepseek-v4.1-flash"
+        return {"main": main, "background": background,
+                "models": [{"model": model, "provider": "openrouter", "cost_usd": total * 0.9, "tokens": int(total * 800_000)},
+                           {"model": "anthropic/claude-haiku-5.5", "provider": "openrouter", "cost_usd": total * 0.1, "tokens": int(total * 90_000)}]}
+
+    def accounts(self, pairs):
+        return [{"provider": "openrouter", "title": "Account limits",
+                 "windows": [{"label": "API key quota", "used_percent": 17.1, "detail": "$82.87 of $100.00 remaining • resets monthly"}],
+                 "details": ["Credits balance: $8.81", "API key usage: $106.19 total • $0.06 today • $3.24 this week • $17.13 this month"],
+                 "agents": sorted({p for p, _ in pairs})}]
+
+    def configured_provider(self, profile):
+        return "openrouter"
+
+
 class Demo:
     svc = None
     state: dict = {}
@@ -322,7 +355,8 @@ async def main():
     svc = LekoraService(demo, cfg, hermes_version="0.22.5",
                         commands_provider=lambda pid: COMMANDS, kanban_boards=demo_board(),
                         settings_reader=lambda pid: demo.settings_for(pid), model_info=_model_info,
-                        resolvers=demo.resolvers(), tools_reader=tools_read, tools_writer=tools_write)
+                        resolvers=demo.resolvers(), tools_reader=tools_read, tools_writer=tools_write,
+                        hermes_analytics=DemoAnalytics())
     demo.svc = svc
     await svc.start()
     # OpenRouter routing choices are kept in memory here (a real host writes the agent's Hermes config).

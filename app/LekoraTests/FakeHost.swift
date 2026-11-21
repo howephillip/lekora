@@ -203,6 +203,9 @@ final class FakeHost: @unchecked Sendable {
     var respondStatusOverride: String?
 
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+    /// Every analytics.get received (docs/analytics.md).
+    var analyticsAsked: [[String: Any]] = []
+
     /// Group chats (docs/group-chats.md), as the host lists them.
     var groups: [[String: Any]] = []
 
@@ -621,6 +624,20 @@ final class FakeHost: @unchecked Sendable {
                                         "members": members, "created_at": "2026-11-19T10:00:00Z"]
             groups.append(group)
             send(type: "group.create.result", id: id, data: ["group": group], on: connection)
+        case "analytics.get":
+            analyticsAsked.append(data)
+            let days = data["days"] as? Int ?? 7
+            send(type: "analytics.get.result", id: id, data: [
+                "days": days, "since": "2026-11-15",
+                "totals": ["cost_usd": 35.94, "tokens": 484_294_564, "sessions": 669],
+                "daily": (0..<days).map { ["day": String(format: "2026-11-%02d", 15 + $0), "cost_usd": Double($0), "tokens": 1000 * $0] },
+                "by_agent": [["profile_id": "coder", "cost_usd": 29.4, "tokens": 75_392_502, "sessions": 40]],
+                "by_model": [["model": "anthropic/claude-sonnet-5.5", "cost_usd": 29.33, "tokens": 70_000_000]],
+                "by_source": [["source": "kanban", "cost_usd": 26.89, "tokens": 60_000_000]],
+                "estimated": true,
+                "accounts": [["provider": "openrouter", "title": "Account limits",
+                              "windows": [["label": "API key quota", "used_percent": 17.1, "detail": "$82.87 of $100.00 remaining"]],
+                              "details": ["Credits balance: $8.81"], "agents": ["coder"]]]], on: connection)
         case "group.details":
             send(type: "group.details.result", id: id, data: [
                 "group": groups.first ?? [:],

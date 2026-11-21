@@ -7,6 +7,7 @@ struct SideMenuView: View {
     @Binding var isOpen: Bool
     let openBoard: (GatewayClient) -> Void
     let openSchedules: (GatewayClient) -> Void
+    var openAnalytics: (GatewayClient) -> Void = { _ in }
     let openYourName: () -> Void
     let openInstances: () -> Void
     let manageAgents: (GatewayClient) -> Void
@@ -62,9 +63,13 @@ struct SideMenuView: View {
                         ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
                             item("Cron Jobs", detail: client.savedHost?.instanceName, symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
                         }
+                        ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
+                            item("Analytics", detail: client.savedHost?.instanceName, symbol: "chart.bar.xaxis") { pick { openAnalytics(client) } }
+                        }
                     } else if let client = hosts.clients.first {
                         item("Board", symbol: "square.stack.3d.up") { pick { openBoard(client) } }
                         item("Cron Jobs", symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
+                        item("Analytics", symbol: "chart.bar.xaxis") { pick { openAnalytics(client) } }
                     }
                 }
                 group("Settings") {

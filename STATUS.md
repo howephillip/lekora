@@ -11,6 +11,12 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). Known limit, parked by you: agents other than the default can't use Lekora's artifact and file tools (see below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
+## Built, waiting for your phone check: Analytics (Phase 8, feature 1; spec: `docs/analytics.md`)
+- **Where:** left menu › **Analytics**. Today / 7 Days / 30 Days.
+- **What:** spend and tokens (Hermes' estimate, labelled as one), a daily spend chart (tap a day to read it), and breakdowns by agent (tap one for just its numbers), by model, and by where (Lekora chats, Telegram, scheduled jobs, helpers, Board workers, background tasks).
+- **Real spend (your ask):** an Accounts section with what each provider your agents use reports, through Hermes' own account checks: OpenRouter (today / week / month, credit balance, key limit), Nous Portal credits, Claude and OpenAI Codex plan limits. Providers that don't report (Google, plain API keys, local models) say so.
+- **Checked against your real instance (read-only, 2026-11-21):** last 7 days $35.94 estimated across 669 conversations (Ashlyn $29.40, mostly Board work on Claude Sonnet); OpenRouter itself reports $3.24 this week, $17.13 this month, $8.81 credit, $82.87 of $100 key limit left. Plugin 453 pass (9 new), app 250 pass (4 new); checked in the simulator.
+
 ## Built, waiting for your phone check: group chats (Phase 7, feature 2; spec: `docs/group-chats.md`)
 - **What you get:** **+ › New Group** on the Agents screen: a name and two or more agents. Groups sit at the top of the list with their members' bots together. In a group, **@name** talks to one or a few agents (suggestions appear as you type "@", Everyone first); **no @mention means everyone answers**. Each reply shows who said it; agents answer at the same time; typing shows who's working. Tap the group's name to rename it, change its agents or delete it.
 - **Shared conversation:** each agent gets what you and the others said since its last turn, then your message. A reply of "(pass)" is never shown, and an agent @mentioning another brings it in (at most 3 rounds and 10 agent messages per message of yours, so they can't loop).

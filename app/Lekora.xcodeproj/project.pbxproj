@@ -79,6 +79,7 @@
 		CD269D6630AF36010012AFBC /* HelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD269D6530AF36010012AFBC /* HelpersTests.swift */; };
 		CD269D6830B00ECA0012AFBC /* GroupViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD269D6730B00ECA0012AFBC /* GroupViews.swift */; };
 		CD269D6A30B010510012AFBC /* GroupChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD269D6930B010510012AFBC /* GroupChatTests.swift */; };
+		CD269D6F30B1BB090012AFBC /* AnalyticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD269D6E30B1BB090012AFBC /* AnalyticsTests.swift */; };
 		D406851904C858B73F530BFC /* ProtocolMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B84D4867859EB84AAD67DFF /* ProtocolMessages.swift */; };
 		D4773F09B9DF24077E513CD3 /* LKVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 753AC48F8DA7FC0783EFD2FF /* LKVoice.swift */; };
 		D5E75A6364A09E0D8E76A561 /* LKChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70D035010855C26CF7103C5 /* LKChat.swift */; };
@@ -180,7 +181,8 @@
 		CD269D6330AF35760012AFBC /* LKHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKHelpers.swift; sourceTree = "<group>"; };
 		CD269D6530AF36010012AFBC /* HelpersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpersTests.swift; sourceTree = "<group>"; };
 		CD269D6730B00ECA0012AFBC /* GroupViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupViews.swift; sourceTree = "<group>"; };
-		CD269D6930B010510012AFBC /* GroupChatTests.swift */ = {isa = PBXFileReference; path = GroupChatTests.swift; sourceTree = "<group>"; };
+		CD269D6930B010510012AFBC /* GroupChatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatTests.swift; sourceTree = "<group>"; };
+		CD269D6E30B1BB090012AFBC /* AnalyticsTests.swift */ = {isa = PBXFileReference; path = AnalyticsTests.swift; sourceTree = "<group>"; };
 		D4796A331F35A27B4CBEA112 /* CodeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeEditorView.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		DD6AA398351F711D345961F7 /* LKAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKAgents.swift; sourceTree = "<group>"; };
@@ -196,6 +198,14 @@
 		F81AE5FED6A36A665705C55D /* HostsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostsModel.swift; sourceTree = "<group>"; };
 		FD0CDF9E6E70F592D7D26D0F /* ChatTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimeline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		CD269D6B30B1BAD50012AFBC /* Analytics */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Analytics;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXGroup section */
 		08C8D04330BB4F194B82DB82 /* Setup */ = {
@@ -323,6 +333,7 @@
 				5B80EC56CADDB2722443348C /* VoiceNoteTests.swift */,
 				CD269D6530AF36010012AFBC /* HelpersTests.swift */,
 				CD269D6930B010510012AFBC /* GroupChatTests.swift */,
+				CD269D6E30B1BB090012AFBC /* AnalyticsTests.swift */,
 			);
 			path = LekoraTests;
 			sourceTree = "<group>";
@@ -377,6 +388,7 @@
 				DCFB9DB67227C71469250099 /* Chat */,
 				9035F9E8D6538754B6CB91CD /* Schedules */,
 				08C8D04330BB4F194B82DB82 /* Setup */,
+				CD269D6B30B1BAD50012AFBC /* Analytics */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -411,6 +423,9 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CD269D6B30B1BAD50012AFBC /* Analytics */,
 			);
 			name = Lekora;
 			packageProductDependencies = (
@@ -538,6 +553,7 @@
 				CD269D6A30B010510012AFBC /* GroupChatTests.swift in Sources */,
 				B6BF1B51675EC519EBFFE440 /* FakeHost.swift in Sources */,
 				F8F1AF8CED29B5EEA4DE0B4F /* FilesTests.swift in Sources */,
+				CD269D6F30B1BB090012AFBC /* AnalyticsTests.swift in Sources */,
 				7016FE2A3587140FCFA0B20E /* HandsFreeTests.swift in Sources */,
 				4CF11F07B4FDA7EA6D659B07 /* HearingRepliesTests.swift in Sources */,
 				6F86DE2FC4FB058A4BB72A2A /* KanbanTests.swift in Sources */,

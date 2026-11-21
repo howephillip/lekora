@@ -26,6 +26,7 @@ public struct AgentsHomeView: View {
     @State private var menuOpen = false
     @State private var boardOn: GatewayClient?
     @State private var schedulesOn: GatewayClient?
+    @State private var analyticsOn: GatewayClient?
     @AppStorage("homeLayout") private var layoutChoice = Layout.recent.rawValue
 
     public init(hosts: HostsModel) {
@@ -79,6 +80,9 @@ public struct AgentsHomeView: View {
                 .navigationDestination(isPresented: Binding(get: { schedulesOn != nil }, set: { if !$0 { schedulesOn = nil; menuOpen = true } })) {
                     if let client = schedulesOn { SchedulesView(gateway: client) }
                 }
+                .navigationDestination(isPresented: Binding(get: { analyticsOn != nil }, set: { if !$0 { analyticsOn = nil; menuOpen = true } })) {
+                    if let client = analyticsOn { AnalyticsView(gateway: client) }
+                }
                 .navigationDestination(for: AgentKey.self) { key in
                     chat(for: key)
                 })
@@ -88,6 +92,7 @@ public struct AgentsHomeView: View {
             SideMenuView(hosts: hosts, isOpen: $menuOpen,
                          openBoard: { boardOn = $0 },
                          openSchedules: { schedulesOn = $0 },
+                         openAnalytics: { analyticsOn = $0 },
                          openYourName: { editingName = true },
                          openInstances: { showingComputers = true },
                          manageAgents: { managingAgentsOn = $0 })

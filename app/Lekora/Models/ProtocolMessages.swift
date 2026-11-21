@@ -561,6 +561,75 @@ public struct DelegationStopData: Codable, Equatable, Sendable {
     public let stopped: [String]
 }
 
+// MARK: - Analytics (docs/analytics.md)
+/// Usage and spend for a period, across every agent (or one), from Hermes; and what providers report.
+public struct AnalyticsReport: Codable, Equatable, Sendable {
+    public struct Totals: Codable, Equatable, Sendable {
+        public let cost_usd: Double
+        public let tokens: Int
+        public let sessions: Int
+    }
+    public struct Day: Codable, Equatable, Sendable, Identifiable {
+        public let day: String
+        public let cost_usd: Double
+        public let tokens: Int
+        public var id: String { day }
+        /// The day at midnight on this phone's clock (not UTC, which can fall on the evening before).
+        public var date: Date? {
+            let parts = day.split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 3 else { return nil }
+            return Calendar.current.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+        }
+    }
+    public struct Agent: Codable, Equatable, Sendable, Identifiable {
+        public let profile_id: String
+        public let cost_usd: Double
+        public let tokens: Int
+        public let sessions: Int
+        public var id: String { profile_id }
+    }
+    public struct Model: Codable, Equatable, Sendable, Identifiable {
+        public let model: String
+        public let cost_usd: Double
+        public let tokens: Int
+        public var id: String { model }
+    }
+    public struct Source: Codable, Equatable, Sendable, Identifiable {
+        public let source: String
+        public let cost_usd: Double
+        public let tokens: Int
+        public var id: String { source }
+    }
+    public struct Account: Codable, Equatable, Sendable, Identifiable {
+        public struct Window: Codable, Equatable, Sendable, Hashable {
+            public let label: String
+            public let used_percent: Double?
+            public let detail: String?
+            public let reset_at: String?
+        }
+        public let provider: String
+        public let title: String?
+        public let plan: String?
+        public let windows: [Window]?
+        public let details: [String]?
+        public let unavailable_reason: String?
+        public let agents: [String]?
+        public var id: String { provider + (agents ?? []).joined(separator: ",") }
+    }
+
+    public let days: Int
+    public let since: String
+    public let totals: Totals
+    public let daily: [Day]
+    public let by_agent: [Agent]
+    public let by_model: [Model]
+    public let by_source: [Source]
+    public let estimated: Bool?
+    public let accounts: [Account]
+}
+
+struct AnalyticsRequest: Codable { let days: Int; let profile_id: String? }
+
 // MARK: - Slash commands (docs/slash-commands.md)
 /// A command an agent can use, from Hermes' own lists.
 public struct SlashCommand: Codable, Equatable, Hashable, Sendable {

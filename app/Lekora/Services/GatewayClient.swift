@@ -548,6 +548,14 @@ public final class GatewayClient: ObservableObject {
         applyGroups(groups.filter { $0.group_id != groupId })
     }
 
+    // MARK: - Analytics (docs/analytics.md)
+
+    /// Usage and spend for the last `days` (1, 7 or 30), for every agent or one.
+    public func analytics(days: Int, profileId: String? = nil) async throws -> AnalyticsReport {
+        try await request(type: "analytics.get", data: AnalyticsRequest(days: days, profile_id: profileId),
+                          reply: AnalyticsReport.self, timeout: 45)
+    }
+
     // MARK: - Delegation (docs/delegation.md)
 
     /// Stops one piece of delegated work on a Delegated card, or (nil) everything still running on it.
