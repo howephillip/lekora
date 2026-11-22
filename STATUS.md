@@ -11,14 +11,14 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). The limit you parked (only the default agent had Lekora's artifact and file tools) is now being fixed (below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
-## Built, waiting for your phone check: cards remember their changes (your ask, 2026-11-22; spec: `docs/artifacts.md`)
+## Done, confirmed on your phone 2026-11-22: cards remember their changes (your ask; spec: `docs/artifacts.md`)
 - **What changes:** what you do inside a card's page (tick items, count, type, change settings) is still there when you close it and open it again. It's saved on your Hermes instance, so it also survives a new phone or a re-setup. One copy per card, shared by all its versions.
 - **How:** the page's own browser storage (`localStorage`) is saved shortly after each change and when the card closes, then put back the next time it opens. Edits you save with Edit already became new versions; that part was fine.
 - **Agents are told:** Lekora's artifact tool and the lekora-tools skill now say to keep anything a page should remember in that storage. Cards made before this, if they only hold state in their scripts, still start fresh; ask the agent to update them.
 - **Checked:** a real web page got back what it kept and reported its change (app test); plugin 476 pass and app 257 pass; the artifact and command tests also pass on your instance with Hermes' own Python.
 - **To check on your phone (after updating the plugin and app):** ask an agent for a checklist or counter card, change it, close, reopen.
 
-## Built, waiting for your phone check: Lekora's tools for every agent (your go-ahead 2026-11-22; spec: `docs/agent-command.md`)
+## Done, confirmed on your phone 2026-11-22: Lekora's tools for every agent ( spec: `docs/agent-command.md`)
 - **What changes:** every agent, not only the default, can make artifact cards, change and read them, and send you files, in one-to-one and group chats. In a group, every member can work on the same cards.
 - **How:** Hermes only hands a plugin's tools to the agent the plugin runs in, so Lekora gives every agent a `lekora` command that it runs with the terminal tool it already has. Hermes tells each command which chat it came from, so the card lands in the right chat.
 - **How agents know:** Lekora adds its own skill, **lekora-tools**, to every agent (in Skills, "From Lekora"). Nothing is added to your messages, and no agent settings are written. You can turn it off per agent in Skills, or in Chat Settings › Tools › **Artifacts and Files**. It can't be edited or removed, because Lekora keeps it up to date.
