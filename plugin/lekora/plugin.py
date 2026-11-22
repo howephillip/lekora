@@ -156,7 +156,12 @@ class LekoraService:
         draft_llm: Optional[Callable[[str, str], Any]] = None,
         hermes_helpers: Optional[Any] = None,
         hermes_analytics: Optional[Any] = None,
+        skills_scan: Optional[Callable[[str], Optional[dict]]] = None,
+        skill_llm: Optional[Callable[[str, str], Any]] = None,
     ) -> None:
+        # Skills (docs/skills.md): Hermes' own catalog check and its model for drafting.
+        self._skills_scan = skills_scan
+        self._skill_llm = skill_llm
         # Analytics (docs/analytics.md): Hermes' usage records and account checks, from the adapter.
         self._hermes_analytics = hermes_analytics
         # Helpers (docs/delegation.md): Hermes' running-helper list and its Stop, from the adapter.
@@ -285,6 +290,17 @@ class LekoraService:
         self.gateway.artifacts = Artifacts(self._store, self.gateway.publish_artifact_message,
                                            self.gateway.publish_artifact_changed)
         self.gateway.artifacts.key = self.gateway.phone_key
+        from .skills import Skills
+        from .routing_config import RoutingConfig, hermes_read, hermes_write
+        skills_root = Path(self.config.hermes_root) if self.config.hermes_root else _profiles.hermes_root()
+        gateway_for_skills = self.gateway
+        self.gateway.skills = Skills(
+            profiles=lambda: [p["profile_id"] for p in gateway_for_skills._profiles()],
+            home_of=lambda pid: _profiles.profile_home(pid, skills_root),
+            read_config=hermes_read, write_config=hermes_write,
+            backup_config=RoutingConfig(skills_root / "lekora-backups" / "config").backup,
+            run_cli=self._run_cli, backups=skills_root / "lekora-backups",
+            scan=self._skills_scan, llm=self._skill_llm)
         if self._hermes_analytics is not None:
             from .analytics import Analytics
             source = self._hermes_analytics

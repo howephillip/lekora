@@ -540,7 +540,8 @@ class LekoraAdapter(BasePlatformAdapter):
             hermes_streamer=self._hermes_streamer_for, env_value=self._env_value_for,
             chat_sessions_reader=self._chat_sessions_for, current_session_reader=self._current_session_for,
             kanban_boards=_hermes_boards(), hermes_schedules=_hermes_schedules(), draft_llm=_draft_llm,
-            hermes_helpers=_hermes_helpers(), hermes_analytics=self._hermes_analytics())
+            hermes_helpers=_hermes_helpers(), hermes_analytics=self._hermes_analytics(),
+            skills_scan=_skills_scan, skill_llm=_draft_skill_llm)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
             port = await self._service.start()
@@ -780,6 +781,23 @@ def _schedule_delivery_options() -> dict:
     except Exception:
         return {}
     return {k: v for k, v in wanted.items() if k in known}
+
+
+def _skills_scan(identifier: str):
+    """Hermes' own check of a catalog skill before installing it (docs/skills.md)."""
+    from .hermes_skills import scan
+    return scan(identifier)
+
+
+async def _draft_skill_llm(instructions: str, text: str) -> Any:
+    """A skill drafted by the user's active model, through Hermes (docs/skills.md)."""
+    if _PLUGIN_CTX is None or not hasattr(_PLUGIN_CTX, "llm"):
+        from .skills import SkillError
+        raise SkillError("DRAFT_UNAVAILABLE", "This Hermes version can't draft skills for Lekora")
+    result = await _PLUGIN_CTX.llm.acomplete_structured(
+        instructions=instructions, input=[{"type": "text", "text": text}], json_mode=True,
+        max_tokens=3000, timeout=90, purpose="lekora: draft a skill from the user's words")
+    return result.parsed
 
 
 def check_requirements() -> bool:

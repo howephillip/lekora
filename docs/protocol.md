@@ -474,3 +474,16 @@ A group's chat key is `group:<group_id>`; it is used as `profile_id` on every me
 ## 24. Analytics (spec: `analytics.md`)
 - `analytics.get` `{days: 1|7|30, profile_id?}` → `analytics.get.result` `{days, since (ISO date), totals: {cost_usd, tokens, sessions}, daily: [{day (YYYY-MM-DD), cost_usd, tokens}], by_agent: [{profile_id, cost_usd, tokens, sessions}], by_model: [{model, cost_usd, tokens}], by_source: [{source, cost_usd, tokens}], estimated: bool, accounts: [account]}`. With `profile_id`, only that agent. `source` is Hermes' platform name (`lekora`, `telegram`, `cron`, `subagent`, `kanban`, `cli`, …) or `background` (background tasks).
 - An account: `{provider, title, plan?, windows: [{label, used_percent?, detail?, reset_at?}], details: [line], unavailable_reason?, agents: [profile_id]}`; `available: false` providers carry only `{provider, unavailable_reason}`. As Hermes' own account checks word them.
+
+## 25. Skills (spec: `skills.md`)
+`profile_id` is the agent the skills belong to (not for `skills.search` / `skill.scan`).
+- `skills.list` → `{skills: [skill]}`. A skill: `{name, description, category?, source: builtin|hub|local|external, enabled, essential, trust?}` (`essential`: can't be turned off).
+- `skill.get` `{name}` → `{skill, content}` (its SKILL.md).
+- `skill.enable` `{name, enabled}` → `{skill}` (backs up the agent's config.yaml first; changes only `skills.disabled`).
+- `skills.search` `{query}` → `{results: [{name, identifier, source, trust_level, description}]}`.
+- `skill.scan` `{identifier}` → `{name, source, trust_level, verdict (safe|caution|dangerous), summary, policy (allow|ask|block), policy_reason, findings: [{severity, category, file, line, description}]}`.
+- `skill.install` `{identifier}` → `{skill}`; error `INSTALL_REFUSED` with Hermes' reason.
+- `skill.remove` `{name}` → `{name, backup?}`.
+- `skill.draft` `{description}` → `{name, description, category?, content}` (nothing saved).
+- `skill.save` `{name, content, category?, create: bool}` → `{skill}`; errors `INVALID_SKILL`, `SKILL_EXISTS`, `UNKNOWN_SKILL`.
+- Errors: `UNKNOWN_PROFILE`, `UNKNOWN_SKILL`, `SKILLS_UNAVAILABLE`, `DRAFT_UNAVAILABLE`, `DRAFT_FAILED`.

@@ -105,6 +105,7 @@ class Gateway:
         self.delegations: Optional[Any] = None  # Delegated cards (docs/delegation.md)
         self.groups: Optional[Any] = None       # Groups: group chats (docs/group-chats.md)
         self.analytics: Optional[Any] = None    # Analytics: usage and spend (docs/analytics.md)
+        self.skills: Optional[Any] = None       # Skills: each agent's Hermes skills (docs/skills.md)
         self.name_changed: Optional[Callable[[], None]] = None  # set by the service
         self.groups_changed: Optional[Callable[[], None]] = None  # set by the service
         self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
@@ -586,6 +587,9 @@ class Gateway:
                 self.voice_replies.phone_timing(env.get("profile_id"), data)
         elif type_ in ("groups.list", "group.create", "group.update", "group.delete", "group.start", "group.details"):
             await self._groups_request(conn, msg_id, type_, data)
+        elif type_ in ("skills.list", "skill.get", "skill.enable", "skills.search", "skill.scan",
+                       "skill.install", "skill.remove", "skill.draft", "skill.save"):
+            await self._skills_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "analytics.get":
             await self._analytics_request(conn, msg_id, data)
         elif type_ == "delegation.stop":
@@ -1097,6 +1101,37 @@ class Gateway:
                 self.groups_changed()  # members' chats get their routes (docs/group-chats.md)
             except Exception:
                 log.debug("Lekora: group change not passed on", exc_info=True)
+
+    # ---- skills (docs/skills.md) -------------------------------------------------
+
+    async def _skills_request(self, conn: _Conn, msg_id: Optional[str], type_: str, profile_id: Any, data: dict) -> None:
+        from .skills import SkillError
+        skills = self.skills
+        if skills is None:
+            raise _Reject("SKILLS_UNAVAILABLE", "Skills aren't available on this Hermes instance", True, False, msg_id)
+        try:
+            if type_ == "skills.list":
+                result: dict[str, Any] = {"skills": await asyncio.to_thread(skills.list, profile_id)}
+            elif type_ == "skill.get":
+                result = await asyncio.to_thread(skills.get, profile_id, data.get("name"))
+            elif type_ == "skill.enable":
+                result = {"skill": await asyncio.to_thread(skills.set_enabled, profile_id, data.get("name"), data.get("enabled"))}
+            elif type_ == "skills.search":
+                result = {"results": await skills.search(data.get("query"))}
+            elif type_ == "skill.scan":
+                result = await skills.scan(data.get("identifier"))
+            elif type_ == "skill.install":
+                result = {"skill": await skills.install(profile_id, data.get("identifier"))}
+            elif type_ == "skill.remove":
+                result = await skills.remove(profile_id, data.get("name"))
+            elif type_ == "skill.draft":
+                result = await skills.draft(data.get("description"))
+            else:
+                result = {"skill": await asyncio.to_thread(skills.save, profile_id, data.get("content"),
+                                                           bool(data.get("create")), data.get("category"), data.get("name"))}
+        except SkillError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
     # ---- analytics (docs/analytics.md) ---------------------------------------------
 
