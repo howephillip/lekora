@@ -15,6 +15,7 @@ import json
 import uuid
 from typing import Any, Awaitable, Callable, Optional
 
+PAGE_STATE_LIMIT = 1_000_000   # characters a page may keep between openings
 KINDS = ("html", "markdown", "code", "svg", "text", "mermaid", "react")
 KIND_NAMES = {"html": "web page", "markdown": "document", "code": "code", "svg": "image", "text": "text",
               "mermaid": "diagram", "react": "interactive component"}
@@ -236,8 +237,22 @@ class Artifacts:
         got = self.store.artifact_version(row["artifact_id"], number)
         if got is None:
             raise ArtifactError("UNKNOWN_VERSION", f"There's no version {number}.")
-        return {**card(row), "shown_version": got["version"], "content": got["content"],
-                "versions": self.store.artifact_history(row["artifact_id"])}
+        out = {**card(row), "shown_version": got["version"], "content": got["content"],
+               "versions": self.store.artifact_history(row["artifact_id"])}
+        state = self.store.artifact_page_state(row["artifact_id"])
+        if state:
+            out["page_state"] = state
+        return out
+
+    def save_page_state(self, profile_id: str, artifact_id: Any, state: Any) -> dict:
+        """What the artifact's page remembers (its localStorage, from the phone): kept for the next opening."""
+        row = self._own(profile_id, artifact_id)
+        if not isinstance(state, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in state.items()):
+            raise ArtifactError("INVALID_ARTIFACT", "Page data must be text keys and values.")
+        if sum(len(k) + len(v) for k, v in state.items()) > PAGE_STATE_LIMIT:
+            raise ArtifactError("TOO_LARGE", "This page keeps too much data to save (over 1 MB).")
+        self.store.set_artifact_page_state(row["artifact_id"], row["profile_id"], state)
+        return {"artifact_id": row["artifact_id"], "saved": True}
 
     def list(self, profile_id: str) -> list[dict]:
         return [card(row) for row in self.store.list_artifacts(self.key(profile_id))]
@@ -268,7 +283,9 @@ CREATE_SCHEMA = {
         "with a preview that opens full screen, and can edit it, comment on lines, share it (file or PDF) and go "
         "back to earlier versions. Use it for anything substantial the user will want to view, keep or reuse (a "
         "page, report, plan, chart, tool, script) instead of pasting it into your reply; then say in a sentence "
-        "what it is. Give the complete content."),
+        "what it is. Give the complete content. Anything a page should remember when the user changes it "
+        "(ticked items, counts, inputs, settings) goes in localStorage: Lekora keeps it, so it's still there the "
+        "next time the card opens, on any of the user's phones."),
     "parameters": {
         "type": "object",
         "properties": {

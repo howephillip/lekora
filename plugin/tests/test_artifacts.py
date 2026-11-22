@@ -111,6 +111,30 @@ async def test_the_phone_lists_opens_and_saves(fgw, store):
     await ws.close()
 
 
+async def test_what_a_page_remembers_is_kept_for_the_next_opening(fgw, store, db_path):
+    artifacts = service(fgw, store)
+    made = await artifacts.create("coder", "Counter", "html", PAGE)
+    ws = await phone(fgw, store)
+    got = await ask(ws, store, "artifact.state.save", {"artifact_id": made["artifact_id"], "state": {"count": "5"}})
+    assert got["data"]["saved"] is True
+    got = await ask(ws, store, "artifact.get", {"artifact_id": made["artifact_id"]})
+    assert got["data"]["page_state"] == {"count": "5"}
+    await artifacts.update("coder", made["artifact_id"], PAGE + "<p>v2</p>")
+    assert artifacts.read("coder", made["artifact_id"])["page_state"] == {"count": "5"}, "kept across versions"
+    from lekora.store import Store
+    assert Store(db_path).artifact_page_state(made["artifact_id"]) == {"count": "5"}, "kept on the Hermes instance"
+    for bad in ({"count": 5}, ["x"], {"big": "x" * 1_000_001}):
+        await ws.send(env(store, "artifact.state.save", {"artifact_id": made["artifact_id"], "state": bad},
+                          profile_id="coder"))
+        assert (await until(ws, "error"))[0]["data"]["code"] in ("INVALID_ARTIFACT", "TOO_LARGE")
+    await ws.send(env(store, "artifact.state.save", {"artifact_id": made["artifact_id"], "state": {"a": "b"}},
+                      profile_id="other"))
+    assert (await until(ws, "error"))[0]["data"]["code"] in ("UNKNOWN_ARTIFACT", "UNKNOWN_PROFILE")
+    await ask(ws, store, "artifact.state.save", {"artifact_id": made["artifact_id"], "state": {}})
+    assert "page_state" not in artifacts.read("coder", made["artifact_id"]), "cleared"
+    await ws.close()
+
+
 async def test_asking_to_change_one_tells_the_agent_which(fgw, store):
     artifacts = service(fgw, store)
     made = await artifacts.create("coder", "Plan", "markdown", "# Plan")

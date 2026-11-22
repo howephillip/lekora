@@ -992,7 +992,13 @@ final class FakeHost: @unchecked Sendable {
             send(type: "artifact.get.result", id: id, data: artifactCard(found).merging([
                 "shown_version": shown, "content": versions[shown - 1],
                 "versions": versions.indices.reversed().map { ["version": $0 + 1, "author": $0 == 0 ? "agent" : "user"] },
-            ]) { $1 }, profileId: message["profile_id"] as? String, on: connection)
+            ].merging(found["page_state"].map { ["page_state": $0] } ?? [:]) { $1 }) { $1 },
+                 profileId: message["profile_id"] as? String, on: connection)
+        case "artifact.state.save":
+            guard let index = artifacts.firstIndex(where: { $0["artifact_id"] as? String == data["artifact_id"] as? String }) else { return }
+            artifacts[index]["page_state"] = data["state"]
+            send(type: "artifact.state.save.result", id: id, data: ["artifact_id": data["artifact_id"] ?? "", "saved": true],
+                 profileId: message["profile_id"] as? String, on: connection)
 
         case "artifact.save":
             guard let index = artifacts.firstIndex(where: { $0["artifact_id"] as? String == data["artifact_id"] as? String }) else { return }

@@ -562,7 +562,7 @@ class Gateway:
             await self._file_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("chats.list", "chat.history", "chat.resume"):
             await self._chats_request(conn, msg_id, type_, env.get("profile_id"), data)
-        elif type_ in ("artifacts.list", "artifact.get", "artifact.save"):
+        elif type_ in ("artifacts.list", "artifact.get", "artifact.save", "artifact.state.save"):
             await self._artifact_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_.startswith("schedule"):
             await self._schedules_request(conn, msg_id, type_, env.get("profile_id"), data)
@@ -1205,6 +1205,9 @@ class Gateway:
             elif type_ == "artifact.get":
                 result = await asyncio.to_thread(self.artifacts.read, profile_id, data.get("artifact_id"),
                                                  data.get("version"))
+            elif type_ == "artifact.state.save":
+                result = await asyncio.to_thread(self.artifacts.save_page_state, profile_id, data.get("artifact_id"),
+                                                 data.get("state"))
             else:
                 base = data.get("base_version")
                 result = {"artifact": await self.artifacts.update(

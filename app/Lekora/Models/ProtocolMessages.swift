@@ -1358,6 +1358,8 @@ public struct ArtifactDetail: Codable, Equatable, Sendable {
     public let shown_version: Int
     public let content: String
     public let versions: [ArtifactVersionInfo]
+    /// What the artifact's page remembers (its localStorage), kept on the Hermes instance between openings.
+    public var page_state: [String: String]?
 
     public var card: ArtifactCard {
         ArtifactCard(artifact_id: artifact_id, title: title, kind: kind, language: language, version: version)
@@ -1368,6 +1370,8 @@ struct ArtifactsListResult: Codable { let artifacts: [ArtifactCard] }
 struct ArtifactGetData: Codable { let artifact_id: String; let version: Int? }
 struct ArtifactSaveData: Codable { let artifact_id: String; let content: String; let base_version: Int; let note: String? }
 struct ArtifactSaveResult: Codable { let artifact: ArtifactCard }
+struct ArtifactPageStateData: Codable { let artifact_id: String; let state: [String: String] }
+struct ArtifactPageStateResult: Codable { let artifact_id: String; let saved: Bool }
 struct ArtifactChangedData: Codable { let artifact: ArtifactCard }
 
 

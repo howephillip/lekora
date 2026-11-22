@@ -5,8 +5,9 @@ import WebKit
 // ask to change, share as file or PDF) and an agent's list.
 
 /// The sealed web view every artifact is shown in. Scripts run and online content loads (the
-/// owner's choice), but there's no bridge to the app and nothing is kept between openings;
-/// tapped links open in Safari, not over the artifact.
+/// owner's choice); tapped links open in Safari, not over the artifact. The only things that come
+/// across are the page's errors and what it keeps in localStorage, which is saved on the Hermes
+/// instance and put back at the next opening (owner, 2026-11-22: cards remember their changes).
 @MainActor
 final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler {
     let webView: WKWebView
@@ -18,6 +19,9 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
     /// line, or a tapped comment. Pages that run the artifact's own HTML never get this bridge.
     var onLine: ((Int) -> Void)?
     var onComment: ((String) -> Void)?
+    /// What the page now keeps in localStorage (after it changes; pages shown with `remembering`).
+    var onPageState: (([String: String]) -> Void)?
+    private let reportsErrors: Bool
     /// An error the page hit (its scripts, a diagram that wouldn't draw): only text comes across,
     /// to offer "Ask the agent to fix" (docs/artifacts.md). Nothing goes back into the page.
     @Published private(set) var pageError: String?
@@ -33,13 +37,44 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
     })();
     """
 
+    /// Puts back what the page kept last time, then tells the app whenever it changes (shortly after,
+    /// and when the page goes away). Pages keep text keys and values in localStorage.
+    static func rememberer(_ saved: [String: String]) -> String {
+        let json = (try? JSONSerialization.data(withJSONObject: saved)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return """
+        (function () {
+          var saved = \(json);
+          try { Object.keys(saved).forEach(function (k) { localStorage.setItem(k, saved[k]); }); } catch (e) {}
+          var timer = null;
+          function send() {
+            timer = null;
+            try {
+              var out = {};
+              for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); out[k] = localStorage.getItem(k); }
+              window.webkit.messageHandlers.lekoraState.postMessage(out);
+            } catch (e) {}
+          }
+          function later() { if (timer) clearTimeout(timer); timer = setTimeout(send, 300); }
+          var p = Storage.prototype, set = p.setItem, remove = p.removeItem, clear = p.clear;
+          p.setItem = function () { var r = set.apply(this, arguments); if (this === localStorage) later(); return r; };
+          p.removeItem = function () { var r = remove.apply(this, arguments); if (this === localStorage) later(); return r; };
+          p.clear = function () { var r = clear.apply(this, arguments); if (this === localStorage) later(); return r; };
+          window.__lekoraSaveNow = function () { if (timer) { clearTimeout(timer); } send(); };
+          window.addEventListener('pagehide', function () { if (timer) window.__lekoraSaveNow(); });
+          document.addEventListener('visibilitychange', function () { if (document.hidden && timer) window.__lekoraSaveNow(); });
+        })();
+        """
+    }
+
     init(lines: Bool = false, reportsErrors: Bool = false) {
+        self.reportsErrors = reportsErrors
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let relay = WeakMessageRelay()
         if lines { configuration.userContentController.add(relay, name: "lekoraLines") }
         if reportsErrors {
             configuration.userContentController.add(relay, name: "lekoraErrors")
+            configuration.userContentController.add(relay, name: "lekoraState")
             configuration.userContentController.addUserScript(
                 WKUserScript(source: Self.errorReporter, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
@@ -56,11 +91,27 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
     /// Each artifact gets its own made-up origin, so it can't read another one's storage.
     private var lastHTML = ""
 
-    func show(_ html: String, artifactId: String) {
+    /// `remembering`: what the page kept last time (an artifact's own page). nil: nothing is kept
+    /// (comparisons, lines pages).
+    func show(_ html: String, artifactId: String, remembering: [String: String]? = nil) {
         loading = true
         pageError = nil
         lastHTML = html
+        let scripts = webView.configuration.userContentController
+        scripts.removeAllUserScripts()
+        if reportsErrors {
+            scripts.addUserScript(WKUserScript(source: Self.errorReporter, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        if let remembering {
+            scripts.addUserScript(WKUserScript(source: Self.rememberer(remembering), injectionTime: .atDocumentStart,
+                                               forMainFrameOnly: true))
+        }
         webView.loadHTMLString(html, baseURL: URL(string: "https://\(artifactId).artifact.lekora.invalid/"))
+    }
+
+    /// Asks the page to report what it keeps now, if a change is still waiting (before closing).
+    func saveNow() async {
+        _ = try? await webView.evaluateJavaScript("window.__lekoraSaveNow && window.__lekoraSaveNow(); true")
     }
 
     func pdf() async throws -> Data {
@@ -73,6 +124,11 @@ final class ArtifactWebController: NSObject, ObservableObject, WKNavigationDeleg
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "lekoraState" {
+            guard let body = message.body as? [String: Any] else { return }
+            onPageState?(body.compactMapValues { $0 as? String })
+            return
+        }
         if message.name == "lekoraErrors" {
             // WebKit can report a page's error twice: once hidden ("Script error.") and once with its
             // real text. The real one wins.
@@ -348,6 +404,8 @@ struct ArtifactViewer: View {
     @State private var commenting: CommentTarget?
     @State private var reviewing = false
     @State private var detail: ArtifactDetail?
+    /// What the page remembers (kept on the Hermes instance; put back each time it's shown).
+    @State private var pageState: [String: String] = [:]
     @State private var failure: String?
     @State private var notice: String?
     @State private var editing = false
@@ -489,12 +547,19 @@ struct ArtifactViewer: View {
             }
             .task {
                 comments = loadDrafts()
+                web.onPageState = { state in
+                    guard state != pageState else { return }
+                    pageState = state
+                    let (gateway, id, profile) = (gateway, artifactId, profileId)
+                    Task { try? await gateway.saveArtifactPageState(id, state: state, in: profile) }
+                }
                 linesPage.onLine = { tapLine($0) }
                 linesPage.onComment = { id in
                     if let comment = comments.first(where: { $0.id == id }) { commenting = CommentTarget(comment) }
                 }
                 await load(nil)
             }
+            .onDisappear { Task { [web] in await web.saveNow() } }
             .onChange(of: linesPage.loads) { _, _ in showMarks() }
             .onChange(of: comments) { _, _ in
                 saveDrafts()
@@ -616,6 +681,7 @@ struct ArtifactViewer: View {
         do {
             let got = try await gateway.artifact(artifactId, version: version, in: profileId)
             detail = got
+            pageState = got.page_state ?? [:]
             failure = nil
             render(got)
         } catch {
@@ -635,7 +701,7 @@ struct ArtifactViewer: View {
         }
         let html = ArtifactRendering.html(kind: detail.kind, content: detail.content, language: detail.language,
                                           wrap: wrapLines, codeSize: codeSize, source: source)
-        page.show(html, artifactId: detail.artifact_id)
+        page.show(html, artifactId: detail.artifact_id, remembering: showsLines ? nil : pageState)
     }
 
     private func copy(_ detail: ArtifactDetail) {

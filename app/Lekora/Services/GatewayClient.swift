@@ -1423,6 +1423,13 @@ public final class GatewayClient: ObservableObject {
         return saved
     }
 
+    /// What an artifact's page remembers (its localStorage), kept on the Hermes instance for the next opening.
+    public func saveArtifactPageState(_ id: String, state: [String: String], in profileId: String) async throws {
+        _ = try await request(type: "artifact.state.save", profileId: profileId,
+                              data: ArtifactPageStateData(artifact_id: id, state: state),
+                              reply: ArtifactPageStateResult.self, timeout: 30)
+    }
+
     // MARK: - Schedules (docs/scheduler.md)
 
     /// Counts "an agent's schedules changed" notices (open schedule screens reload).

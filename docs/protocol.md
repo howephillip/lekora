@@ -417,9 +417,10 @@ Requests with `profile_id` set, answered with `<type>.result`:
 - `chat.message` may carry `artifact` `{artifact_id, title, kind (html|markdown|code|svg|text), language?, version, action (created|updated|edited)}`: a card. A user message may carry `about` (same fields, no action): "ask to change" this artifact.
 - `chat.send` may carry `about` `{artifact_id}` and, with it, `review` `[{line_start, line_end, quote, comment}]` (up to 100; text may be empty): a review. The saved message carries `review`; the agent receives every comment in line order with its lines quoted. Otherwise the plugin adds the artifact's title, id and version to what the agent receives (the saved message stays as typed).
 - `artifacts.list` → `artifacts.list.result` `{artifacts: [{artifact_id, title, kind, language?, version, updated_at}]}` (newest change first).
-- `artifact.get` `{artifact_id, version?}` → `artifact.get.result` `{artifact_id, title, kind, language?, version, shown_version, content, versions: [{version, author (agent|user), note?, created_at, size}]}`.
+- `artifact.get` `{artifact_id, version?}` → `artifact.get.result` `{artifact_id, title, kind, language?, version, shown_version, content, versions: [{version, author (agent|user), note?, created_at, size}], page_state?: {key: value}}` (`page_state`: what the page keeps in localStorage, saved between openings).
 - `artifact.save` `{artifact_id, content, base_version, note?}` → `artifact.save.result` `{artifact}`; error `ARTIFACT_CHANGED` when a newer version exists than `base_version`.
 - `artifact.changed` (plugin → phones, not stored): `{artifact}` after any new version.
+- `artifact.state.save` `{artifact_id, state: {key: value}}` (text keys and values, up to 1 MB; `{}` clears) → `{artifact_id, saved: true}`; errors `INVALID_ARTIFACT`, `TOO_LARGE`, `UNKNOWN_ARTIFACT`.
 
 ## 19. Past chats (spec: `chats.md`)
 - `chat.message` may carry `session`: the Hermes conversation it belongs to.

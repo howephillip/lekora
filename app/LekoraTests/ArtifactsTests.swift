@@ -99,12 +99,44 @@ final class ArtifactsTests: XCTestCase {
         let first = try await gateway.artifact("art_1", version: 1, in: "default")
         XCTAssertEqual(first.content, "# Plan", "earlier versions stay")
 
+        // What the page remembers is kept on the Hermes instance and comes back at the next opening.
+        XCTAssertNil(opened.page_state)
+        try await gateway.saveArtifactPageState("art_1", state: ["count": "5"], in: "default")
+        let reopened = try await gateway.artifact("art_1", in: "default")
+        XCTAssertEqual(reopened.page_state, ["count": "5"])
+
         host.announceArtifactChange("art_1", version: 3, profile: "default")
         let followed = await waitUntil { gateway.artifactVersions["art_1"] == 3 }
         XCTAssertTrue(followed, "an open viewer learns there's a newer version")
     }
 }
 
+
+/// A card's page remembers its changes between openings (owner, 2026-11-22).
+@MainActor
+final class ArtifactPageMemoryTests: XCTestCase {
+    func testThePageGetsBackWhatItKeptAndReportsChanges() async throws {
+        let controller = ArtifactWebController(reportsErrors: true)
+        var reported: [String: String]?
+        controller.onPageState = { reported = $0 }
+        let page = """
+        <!doctype html><body><script>
+        var n = Number(localStorage.getItem('count') || '0');
+        localStorage.setItem('count', String(n + 1));
+        document.title = 'count ' + (n + 1);
+        </script></body>
+        """
+        controller.show(page, artifactId: "art_mem", remembering: ["count": "5", "theme": "dark"])
+        let saved = await waitUntil(timeout: 20) { reported != nil }
+        XCTAssertTrue(saved, "a change is reported")
+        XCTAssertEqual(reported, ["count": "6", "theme": "dark"], "it started from what was kept, and everything is kept")
+
+        reported = nil
+        controller.show(page, artifactId: "art_mem", remembering: nil)
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertNil(reported, "comparisons and other pages keep nothing")
+    }
+}
 
 /// Comments on lines, sent together (docs/artifacts.md, "Comments").
 final class ArtifactCommentsTests: XCTestCase {

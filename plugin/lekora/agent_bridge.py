@@ -155,6 +155,10 @@ Kinds: `html` (one self-contained page; scripts and CDN libraries work), `markdo
 `code` (add `--language python`), `svg`, `text`, `mermaid` (a diagram), `react` (one JSX file with a
 default-exported component; Tailwind classes work).
 
+Anything a page should remember when the user changes it (ticked items, counts, inputs, settings) goes
+in `localStorage`: Lekora keeps it, so it's still there the next time the card opens, on any phone.
+Read it back when the page loads.
+
 - List this chat's artifacts: `{c} artifact list`
 - Read one (with the user's own edits): `{c} artifact read art_… [--version N]`
 - Rewrite one (a new version; read it first, the user may have edited it):

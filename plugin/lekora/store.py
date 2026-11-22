@@ -98,6 +98,15 @@ CREATE TABLE IF NOT EXISTS artifact_versions (
     created_at  TEXT,
     PRIMARY KEY (artifact_id, version)
 );
+-- What an artifact's page remembers (its localStorage), kept here so it survives closing the card,
+-- a re-setup or a new phone (owner, 2026-11-22). One copy per artifact, across its versions.
+CREATE TABLE IF NOT EXISTS artifact_page_state (
+    artifact_id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    profile_id  TEXT NOT NULL,
+    state_json  TEXT NOT NULL,
+    updated_at  TEXT
+);
 """
 
 # Group chats (docs/group-chats.md): a name and member agents; ``seen`` is, per member, the last
@@ -716,7 +725,7 @@ class Store:
             self._db.execute(
                 "DELETE FROM app_settings WHERE instance_id = ? AND profile_id = ?",
                 (self.instance_id, profile_id))
-            for table in ("artifacts", "artifact_versions"):
+            for table in ("artifacts", "artifact_versions", "artifact_page_state"):
                 self._db.execute(f"DELETE FROM {table} WHERE instance_id = ? AND profile_id = ?",
                                  (self.instance_id, profile_id))
             self._db.commit()
@@ -816,6 +825,28 @@ class Store:
                              (version, now, title or row["title"], artifact_id))
             self._db.commit()
         return version
+
+    def artifact_page_state(self, artifact_id: str) -> dict:
+        with self._lock:
+            row = self._db.execute("SELECT state_json FROM artifact_page_state WHERE artifact_id = ? AND instance_id = ?",
+                                   (artifact_id, self.instance_id)).fetchone()
+        try:
+            return json.loads(row["state_json"]) if row else {}
+        except ValueError:
+            return {}
+
+    def set_artifact_page_state(self, artifact_id: str, profile_id: str, state: dict) -> None:
+        with self._lock:
+            if state:
+                self._db.execute(
+                    "INSERT INTO artifact_page_state (artifact_id, instance_id, profile_id, state_json, updated_at)"
+                    " VALUES (?,?,?,?,?) ON CONFLICT(artifact_id) DO UPDATE SET state_json = excluded.state_json,"
+                    " updated_at = excluded.updated_at",
+                    (artifact_id, self.instance_id, profile_id, json.dumps(state), _iso(self._clock())))
+            else:
+                self._db.execute("DELETE FROM artifact_page_state WHERE artifact_id = ? AND instance_id = ?",
+                                 (artifact_id, self.instance_id))
+            self._db.commit()
 
     def get_artifact(self, artifact_id: str) -> Optional[dict]:
         with self._lock:
