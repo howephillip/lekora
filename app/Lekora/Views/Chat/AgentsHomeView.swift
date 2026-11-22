@@ -72,17 +72,7 @@ public struct AgentsHomeView: View {
 
     public var body: some View {
         let home = NavigationStack(path: $path) {
-            withSheets(agentList
-                .toolbar { homeToolbar }
-                .navigationDestination(isPresented: Binding(get: { boardOn != nil }, set: { if !$0 { boardOn = nil; menuOpen = true } })) {
-                    if let client = boardOn { BoardView(gateway: client) }
-                }
-                .navigationDestination(isPresented: Binding(get: { schedulesOn != nil }, set: { if !$0 { schedulesOn = nil; menuOpen = true } })) {
-                    if let client = schedulesOn { SchedulesView(gateway: client) }
-                }
-                .navigationDestination(isPresented: Binding(get: { analyticsOn != nil }, set: { if !$0 { analyticsOn = nil; menuOpen = true } })) {
-                    if let client = analyticsOn { AnalyticsView(gateway: client) }
-                }
+            withSheets(page
                 .navigationDestination(for: AgentKey.self) { key in
                     chat(for: key)
                 })
@@ -90,14 +80,54 @@ public struct AgentsHomeView: View {
         // The left menu covers the whole screen, bars included.
         .overlay {
             SideMenuView(hosts: hosts, isOpen: $menuOpen,
-                         openBoard: { boardOn = $0 },
-                         openSchedules: { schedulesOn = $0 },
-                         openAnalytics: { analyticsOn = $0 },
+                         openBoard: { show(board: $0) },
+                         openSchedules: { show(schedules: $0) },
+                         openAnalytics: { show(analytics: $0) },
+                         openHome: { show() },
+                         current: currentPage,
                          openYourName: { editingName = true },
                          openInstances: { showingComputers = true },
                          manageAgents: { managingAgentsOn = $0 })
         }
         return keepingConnected(home)
+    }
+
+    // MARK: - Pages (owner, 2026-11-22): Home, Board, Cron Jobs and Analytics are siblings, switched
+    // from the left menu; each keeps the menu button where a Back button would be.
+
+    @ViewBuilder
+    private var page: some View {
+        if let client = boardOn {
+            BoardView(gateway: client).toolbar { menuToolbar }
+        } else if let client = schedulesOn {
+            SchedulesView(gateway: client).toolbar { menuToolbar }
+        } else if let client = analyticsOn {
+            AnalyticsView(gateway: client).toolbar { menuToolbar }
+        } else {
+            agentList.toolbar { homeToolbar }
+        }
+    }
+
+    /// Which page the menu marks as current.
+    private var currentPage: SideMenuView.Place {
+        if let client = boardOn { return .board(client.savedHost?.instanceId) }
+        if let client = schedulesOn { return .schedules(client.savedHost?.instanceId) }
+        if let client = analyticsOn { return .analytics(client.savedHost?.instanceId) }
+        return .home
+    }
+
+    private func show(board: GatewayClient? = nil, schedules: GatewayClient? = nil, analytics: GatewayClient? = nil) {
+        path = []
+        boardOn = board
+        schedulesOn = schedules
+        analyticsOn = analytics
+    }
+
+    @ToolbarContentBuilder
+    private var menuToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button { menuOpen = true } label: { Label("Menu", systemImage: "line.3.horizontal") }
+        }
     }
 
     private func withSheets<V: View>(_ content: V) -> some View {

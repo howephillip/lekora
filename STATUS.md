@@ -11,7 +11,10 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). Known limit, parked by you: agents other than the default can't use Lekora's artifact and file tools (see below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
-## Built, waiting for your phone check: Analytics (Phase 8, feature 1; spec: `docs/analytics.md`)
+## Built, waiting for your phone check: Home in the side menu (your ask, 2026-11-22)
+- **Home** is now the first item in the left menu. Home, Board, Cron Jobs and Analytics are pages you switch between from the menu; each keeps the menu button top left instead of Back, and the menu marks the page you're on. Chats opened from Home keep Back (and swipe back). Checked in the simulator; app 250 pass.
+
+## Done: Analytics (Phase 8, feature 1; confirmed by you 2026-11-22; spec: `docs/analytics.md`)
 - **Where:** left menu › **Analytics**. Today / 7 Days / 30 Days.
 - **What:** spend and tokens (Hermes' estimate, labelled as one), a daily spend chart (tap a day to read it), and breakdowns by agent (tap one for just its numbers), by model, and by where (Lekora chats, Telegram, scheduled jobs, helpers, Board workers, background tasks).
 - **Real spend (your ask):** an Accounts section with what each provider your agents use reports, through Hermes' own account checks: OpenRouter (today / week / month, credit balance, key limit), Nous Portal credits, Claude and OpenAI Codex plan limits. Providers that don't report (Google, plain API keys, local models) say so.

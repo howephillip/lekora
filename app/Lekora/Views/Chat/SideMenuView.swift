@@ -8,6 +8,17 @@ struct SideMenuView: View {
     let openBoard: (GatewayClient) -> Void
     let openSchedules: (GatewayClient) -> Void
     var openAnalytics: (GatewayClient) -> Void = { _ in }
+    var openHome: () -> Void = {}
+    /// The page on screen, marked in the menu.
+    var current: Place = .home
+
+    /// A page the menu opens (per Hermes instance, by its id).
+    enum Place: Equatable {
+        case home
+        case board(String?)
+        case schedules(String?)
+        case analytics(String?)
+    }
     let openYourName: () -> Void
     let openInstances: () -> Void
     let manageAgents: (GatewayClient) -> Void
@@ -56,20 +67,24 @@ struct SideMenuView: View {
             ScrollView {
             VStack(alignment: .leading, spacing: LK.Spacing.xl) {
                 group(nil) {
+                    item("Home", symbol: "house", selected: current == .home) { pick(openHome) }
                     if hosts.hasSeveral {
                         ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
-                            item("Board", detail: client.savedHost?.instanceName, symbol: "square.stack.3d.up") { pick { openBoard(client) } }
+                            item("Board", detail: client.savedHost?.instanceName, symbol: "square.stack.3d.up",
+                                 selected: current == .board(client.savedHost?.instanceId)) { pick { openBoard(client) } }
                         }
                         ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
-                            item("Cron Jobs", detail: client.savedHost?.instanceName, symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
+                            item("Cron Jobs", detail: client.savedHost?.instanceName, symbol: "calendar.badge.clock",
+                                 selected: current == .schedules(client.savedHost?.instanceId)) { pick { openSchedules(client) } }
                         }
                         ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
-                            item("Analytics", detail: client.savedHost?.instanceName, symbol: "chart.bar.xaxis") { pick { openAnalytics(client) } }
+                            item("Analytics", detail: client.savedHost?.instanceName, symbol: "chart.bar.xaxis",
+                                 selected: current == .analytics(client.savedHost?.instanceId)) { pick { openAnalytics(client) } }
                         }
                     } else if let client = hosts.clients.first {
-                        item("Board", symbol: "square.stack.3d.up") { pick { openBoard(client) } }
-                        item("Cron Jobs", symbol: "calendar.badge.clock") { pick { openSchedules(client) } }
-                        item("Analytics", symbol: "chart.bar.xaxis") { pick { openAnalytics(client) } }
+                        item("Board", symbol: "square.stack.3d.up", selected: current == .board(client.savedHost?.instanceId)) { pick { openBoard(client) } }
+                        item("Cron Jobs", symbol: "calendar.badge.clock", selected: current == .schedules(client.savedHost?.instanceId)) { pick { openSchedules(client) } }
+                        item("Analytics", symbol: "chart.bar.xaxis", selected: current == .analytics(client.savedHost?.instanceId)) { pick { openAnalytics(client) } }
                     }
                 }
                 group("Settings") {
@@ -112,11 +127,15 @@ struct SideMenuView: View {
         }
     }
 
-    private func item(_ title: String, detail: String? = nil, symbol: String, action: @escaping () -> Void) -> some View {
+    private func item(_ title: String, detail: String? = nil, symbol: String, selected: Bool = false,
+                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
             row(title, detail: detail, symbol: symbol)
+                .background(selected ? AnyShapeStyle(LK.Palette.accent.opacity(0.12)) : AnyShapeStyle(.clear),
+                            in: RoundedRectangle(cornerRadius: LK.Radius.small, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func row(_ title: String, detail: String?, symbol: String) -> some View {
