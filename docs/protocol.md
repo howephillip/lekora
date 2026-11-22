@@ -392,7 +392,7 @@ Requests with `profile_id` set, answered with `<type>.result`:
 - Errors: `INVALID_SETTING`, `VOICE_UNAVAILABLE`, `UNKNOWN_MESSAGE`.
 
 ## 14. Agent tools in Lekora chats (spec: `agent-tools.md`)
-- `agent.tools.get` `{}` → `{toolsets: [{key, label, description, enabled}], elsewhere: {platform: [keys]}}`.
+- `agent.tools.get` `{}` → `{toolsets: [{key, label, description, enabled}], elsewhere: {platform: [keys]}, lekora_skill: on|off|missing}` (`lekora_skill`: Lekora's own tools for this agent, through its skill; docs/agent-command.md).
 - `agent.tools.set` `{changes: {key: bool}}` → the same, read back from Hermes, plus `problem` if a change didn't apply.
 - Errors: `INVALID_SETTING`, `BACKUP_FAILED`, `TOOLS_FAILED`, `UNAVAILABLE`.
 
@@ -477,7 +477,7 @@ A group's chat key is `group:<group_id>`; it is used as `profile_id` on every me
 
 ## 25. Skills (spec: `skills.md`)
 `profile_id` is the agent the skills belong to (not for `skills.search` / `skill.scan`).
-- `skills.list` → `{skills: [skill]}`. A skill: `{name, description, category?, source: builtin|hub|local|external, enabled, essential, trust?}` (`essential`: can't be turned off).
+- `skills.list` → `{skills: [skill]}`. A skill: `{name, description, category?, source: builtin|hub|local|external|lekora, enabled, essential, trust?}` (`essential`: can't be turned off; `lekora`: Lekora's own lekora-tools skill, on/off only, docs/agent-command.md).
 - `skills.all` (no `profile_id`) → `{skills: [{name, description, category?, agents: [{profile_id, source, enabled, essential, trust?}]}]}`: every skill across every agent (owner, 2026-11-22: one Skills page).
 - `skill.copy` `{name, to: [profile_id]}` (`profile_id`: an agent that has it) → `{name, added: [profile_id], failed: [{profile_id, reason}]}`: a catalog skill is installed by Hermes for them (same identifier), any other copied.
 - `skill.get` `{name}` → `{skill, content}` (its SKILL.md).

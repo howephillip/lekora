@@ -138,6 +138,7 @@ final class HearingRepliesTests: XCTestCase {
         var tools = try await gateway.agentTools(for: "default")
         XCTAssertEqual(tools.toolsets.first { $0.key == "kanban" }?.enabled, false)
         XCTAssertEqual(tools.elsewhere?["telegram"], ["file", "kanban", "web"])
+        XCTAssertEqual(tools.lekora_skill, "on", "Lekora's own tools, through its skill (docs/agent-command.md)")
         tools = try await gateway.setAgentTools(["kanban": true], for: "default")
         XCTAssertEqual(tools.toolsets.first { $0.key == "kanban" }?.enabled, true)
     }

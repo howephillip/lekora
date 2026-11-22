@@ -20,6 +20,8 @@ from typing import Any, Awaitable, Callable, Iterable, Optional, Sequence
 log = logging.getLogger(__name__)
 
 ESSENTIAL = {"hermes-agent"}          # Hermes never lets this one be turned off
+LEKORA_MARKER = ".lekora-managed"     # Lekora's own skill (docs/agent-command.md): on/off only
+LEKORA_KEEPS = "Lekora keeps this skill up to date; turn it off instead"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 CATEGORY_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 DESCRIPTION_LIMIT = 60                # Hermes' limit for a new skill's description
@@ -140,7 +142,8 @@ class Skills:
                   bundled: set[str], hub: dict[str, dict], disabled: set[str]) -> dict:
         rel = folder.relative_to(self._dir(profile_id)).parts
         category = head.get("category") or (rel[0] if len(rel) >= 2 else None)
-        source = "hub" if name in hub else "builtin" if name in bundled else "local"
+        source = ("lekora" if (folder / LEKORA_MARKER).exists() else "hub" if name in hub
+                  else "builtin" if name in bundled else "local")
         item: dict[str, Any] = {"name": name, "description": head.get("description") or "",
                                 "source": source, "enabled": name not in disabled or name in ESSENTIAL,
                                 "essential": name in ESSENTIAL}
@@ -285,6 +288,8 @@ class Skills:
         name, folder, _ = self._one(profile_id, name)
         if name in ESSENTIAL:
             raise SkillError("INVALID_REQUEST", "Hermes needs this skill; it can't be removed")
+        if (folder / LEKORA_MARKER).exists():
+            raise SkillError("INVALID_REQUEST", LEKORA_KEEPS)
         _, hub = self._records(self._dir(profile_id))
         if name in hub:
             code, out = await self._run_cli(["-p", profile_id, "skills", "uninstall", name, "--yes"])
@@ -332,6 +337,8 @@ class Skills:
             (folder / "SKILL.md").write_text(content)
             return self.get(profile_id, head["name"])["skill"]
         name, folder, _ = self._one(profile_id, name)
+        if (folder / LEKORA_MARKER).exists():
+            raise SkillError("INVALID_REQUEST", LEKORA_KEEPS)
         self.check(content, name)
         old = folder / "SKILL.md"
         keep = self._backups / "skills" / profile_id / f"{name}-{_stamp()}.SKILL.md"

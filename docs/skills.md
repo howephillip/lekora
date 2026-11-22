@@ -2,7 +2,7 @@
 
 ## What the user sees
 - **Skills in the left menu** (owner, 2026-11-22: one page, not per agent). Hermes keeps skills per agent; the page shows every skill once, with the agents that have it. A skill's page lists every agent: on/off for those that have it, **Add to** for those that don't (a catalog skill is installed for them by Hermes; any other is copied), **Remove from** (confirmed). Installing from the catalog and New Skill ask which agents get it (all by default).
-- **The list:** each skill's name, what it's for and where it came from: **Built in** (ships with Hermes), **From the catalog**, or **Made here** (by you or the agent). A switch turns it **off or on**.
+- **The list:** each skill's name, what it's for and where it came from: **Built in** (ships with Hermes), **From the catalog**, **Made here** (by you or the agent), or **From Lekora** (its lekora-tools skill, which gives every agent Lekora's artifacts and files; on/off only, docs/agent-command.md). A switch turns it **off or on**.
 - **Off means off everywhere** (owner, 2026-11-22): the agent doesn't use it in any app (Lekora, Telegram…). Hermes' own `hermes-agent` skill can't be turned off.
 - **Open a skill** to read its instructions; skills made here (and built-in ones) can be **edited**.
 - **Add from the catalog:** search Hermes' skills catalog (official skills and community sources). Before installing, Lekora shows **who made it** (official / trusted / community) and **Hermes' safety scan** (owner, 2026-11-22): its verdict, what it found, and whether Hermes allows it. Hermes blocks what it finds dangerous; the user confirms the rest.
@@ -21,4 +21,3 @@ See docs/protocol.md §25.
 
 ## Limits
 - A skill's extra files (scripts, references) are kept but not shown or edited in the app.
-- Agents other than the default can't use Lekora's own tools (Phase 7 limit); skills are unaffected.

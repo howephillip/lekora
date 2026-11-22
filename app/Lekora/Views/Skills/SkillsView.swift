@@ -153,7 +153,7 @@ struct SkillDetailView: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let detail, detail.skill.source != "hub" {
+            if let detail, detail.skill.source != "hub", detail.skill.source != "lekora" {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Edit") { editing = true }
                 }
@@ -174,7 +174,7 @@ struct SkillDetailView: View {
 
     /// Agents whose own copy an edit changes (not catalog copies, which Hermes keeps up to date).
     private var editableOwners: [String] {
-        (shared?.agents ?? []).filter { $0.source != "hub" }.map(\.profile_id)
+        (shared?.agents ?? []).filter { $0.source != "hub" && $0.source != "lekora" }.map(\.profile_id)
     }
 
     private var removeMessage: String {
@@ -210,7 +210,7 @@ struct SkillDetailView: View {
             }
         }
         .swipeActions {
-            if let agent, agent.essential != true {
+            if let agent, agent.essential != true, agent.source != "lekora" {
                 Button("Remove", role: .destructive) { removing = id }
             }
         }
@@ -625,6 +625,7 @@ enum LKSkillText {
         case "local": return "Made Here"
         case "hub": return "From the Catalog"
         case "builtin": return "Built In"
+        case "lekora": return "From Lekora"
         default: return "Shared"
         }
     }

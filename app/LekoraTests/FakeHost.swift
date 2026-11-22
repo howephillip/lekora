@@ -46,7 +46,8 @@ final class FakeHost: @unchecked Sendable {
 
     func toolsData() -> [String: Any] {
         ["toolsets": ["web", "file", "kanban"].map { ["key": $0, "label": $0.capitalized, "description": "", "enabled": enabledTools.contains($0)] },
-         "elsewhere": ["telegram": ["file", "kanban", "web"]]]
+         "elsewhere": ["telegram": ["file", "kanban", "web"]],
+         "lekora_skill": "on"]
     }
 
     /// Voice mode: a reply is being made into a voice note (or why its audio can't play).

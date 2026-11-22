@@ -70,6 +70,10 @@ final class SkillsTests: XCTestCase {
         XCTAssertTrue(draft.content.hasPrefix("---\nname: weekly-review"))
     }
 
+    func testLekorasOwnSkillIsLabelled() {
+        XCTAssertEqual(LKSkillText.source("lekora"), "From Lekora")
+    }
+
     func testWords() {
         XCTAssertEqual(LKSkillText.source("local"), "Made Here")
         XCTAssertEqual(LKSkillText.source("hub"), "From the Catalog")

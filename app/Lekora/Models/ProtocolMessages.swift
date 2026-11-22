@@ -364,6 +364,9 @@ public struct AgentToolsData: Codable, Equatable, Sendable {
     /// The lists saved for the agent's other chat platforms (e.g. telegram), to copy from.
     public let elsewhere: [String: [String]]?
     public let problem: String?
+    /// Lekora's own tools (artifacts, sending files) reach the agent through its lekora-tools skill
+    /// (docs/agent-command.md): "on", "off" or "missing".
+    public var lekora_skill: String?
 }
 
 struct AgentToolsChange: Codable { let changes: [String: Bool] }

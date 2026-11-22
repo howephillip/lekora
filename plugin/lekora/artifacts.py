@@ -357,19 +357,25 @@ def run_tool(name: str, args: dict, *, platform: str, chat_id: str, service: Opt
     except RuntimeError:
         pass
     try:
+        return asyncio.run_coroutine_threadsafe(call_tool(name, args, chat_id, service), loop).result(timeout=timeout)
+    except Exception as exc:
+        return _result(False, error=f"Couldn't do that: {getattr(exc, 'reason', None) or exc}")
+
+
+async def call_tool(name: str, args: dict, chat_id: str, service: Artifacts) -> str:
+    """An artifacts tool's work, on the Lekora service's loop: from the tool, or the lekora command
+    (docs/agent-command.md)."""
+    try:
         if name == "lekora_create_artifact":
-            made = asyncio.run_coroutine_threadsafe(service.create(
-                chat_id, args.get("title"), args.get("kind"), args.get("content"), args.get("language")), loop
-            ).result(timeout=timeout)
+            made = await service.create(chat_id, args.get("title"), args.get("kind"), args.get("content"),
+                                        args.get("language"))
             return _result(True, message=f"Created \"{made['title']}\" (version 1); the user sees it as a card.", **made)
         if name == "lekora_update_artifact":
-            made = asyncio.run_coroutine_threadsafe(service.update(
-                chat_id, args.get("artifact_id"), args.get("content"), note=args.get("note"),
-                title=args.get("title")), loop).result(timeout=timeout)
+            made = await service.update(chat_id, args.get("artifact_id"), args.get("content"), note=args.get("note"),
+                                        title=args.get("title"))
             return _result(True, message=f"Saved \"{made['title']}\" as version {made['version']}.", **made)
         if name == "lekora_edit_artifact":
-            made = asyncio.run_coroutine_threadsafe(service.edit(
-                chat_id, args.get("artifact_id"), args.get("edits"), note=args.get("note")), loop).result(timeout=timeout)
+            made = await service.edit(chat_id, args.get("artifact_id"), args.get("edits"), note=args.get("note"))
             return _result(True, message=f"Saved \"{made['title']}\" as version {made['version']}.", **made)
         if name == "lekora_read_artifact":
             got = service.read(chat_id, args.get("artifact_id"), args.get("version"))

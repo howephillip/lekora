@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
 import uuid
 from pathlib import Path
@@ -27,7 +28,8 @@ from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
 from . import hermes_streaming
-from .hermes_files import TOOL_NAME, TOOL_SCHEMA, TOOLSET, inbound_media, send_file_tool
+from .agent_bridge import SKILL_CATEGORY, SKILL_NAME, AgentBridge, ensure_skill, install_command
+from .hermes_files import TOOL_NAME, TOOL_SCHEMA, TOOLSET, inbound_media, send_file_async, send_file_tool
 from .hermes_routes import DEFAULT_PROFILE_ID, ProfileRouter, check_routed
 from .prompts import CARD_MESSAGE_PREFIX, Resolvers
 from .streaming import LiveReplies
@@ -197,6 +199,10 @@ class LekoraAdapter(BasePlatformAdapter):
         self._service: Optional[LekoraService] = None
         self._router = ProfileRouter(lambda: self.gateway_runner, PLATFORM_NAME)
         self._router.extra_chats = lambda: self._groups().member_chats() if self._groups() is not None else []
+        # Lekora's tools for every agent, through the lekora command (docs/agent-command.md).
+        self._bridge: Optional[AgentBridge] = None
+        self._command: Optional[str] = None
+        self._skilled: set[str] = set()
         self._live = LiveReplies(
             lambda: self._service.gateway if self._service is not None else None,
             cursor=lambda: hermes_streaming.cursor_of(self.gateway_runner))
@@ -234,7 +240,44 @@ class LekoraAdapter(BasePlatformAdapter):
     def offered_profiles(self) -> list[dict]:
         """Profiles for the phone, refreshing the in-memory routes on every call (each
         phone connect and message), so new or deleted Hermes profiles need no restart."""
-        return self._router.offered(self._cfg.current_profiles())
+        profiles = self._cfg.current_profiles()
+        self._ensure_skills(p["profile_id"] for p in profiles)
+        return self._router.offered(profiles)
+
+    def _ensure_skills(self, profile_ids) -> None:
+        """Lekora's lekora-tools skill for each agent, once per start (and for new agents as they appear)."""
+        if self._command is None:
+            return
+        for profile_id in profile_ids:
+            if profile_id in self._skilled:
+                continue
+            self._skilled.add(profile_id)
+            try:
+                if ensure_skill(self._profile_home(profile_id), self._command):
+                    logger.info("Lekora: %s has Lekora's lekora-tools skill (artifacts and files by command)", profile_id)
+            except Exception as exc:
+                logger.warning("Lekora: couldn't give %s Lekora's skill: %s", profile_id, exc)
+
+    async def _bridge_run(self, tool: str, args: dict, chat_id: str) -> str:
+        """A lekora command's request, run as the matching tool would in that chat."""
+        if self._service is None or self._service.gateway is None:
+            return json.dumps({"success": False, "error": "Lekora isn't running"})
+        if tool == TOOL_NAME:
+            return await send_file_async(args, chat_id, self._tool_deliver, BasePlatformAdapter.validate_media_delivery_path)
+        from .artifacts import call_tool
+        return await call_tool(tool, args, chat_id, self._service.gateway.artifacts)
+
+    async def _start_bridge(self) -> None:
+        try:
+            folder = Path(self._service.gateway.store.path).parent / "lekora-command"
+            self._bridge = AgentBridge(folder, self._bridge_run)
+            await self._bridge.start()
+            self._command = install_command(folder)
+            self._skilled.clear()
+            self.offered_profiles()
+        except Exception as exc:
+            logger.warning("Lekora: the lekora command for agents couldn't start: %s", exc)
+            self._bridge = None
 
     def _set_in_memory_home_channel(self, config) -> None:
         """Stop Hermes' "no home channel is set" notice on the first message.
@@ -449,9 +492,14 @@ class LekoraAdapter(BasePlatformAdapter):
                                                                               include_default_mcp_servers=False))
                     except Exception:
                         continue
+            skills = config.get("skills") if isinstance(config.get("skills"), dict) else {}
+            off = SKILL_NAME in (skills.get("disabled") or [])
+        has = (self._profile_home(profile_id) / "skills" / SKILL_CATEGORY / SKILL_NAME / "SKILL.md").is_file()
         return {"toolsets": [{"key": key, "label": label, "description": description, "enabled": key in enabled}
                              for key, label, description in entries],
-                "elsewhere": elsewhere}
+                "elsewhere": elsewhere,
+                # Lekora's own tools reach every agent through its skill (docs/agent-command.md).
+                "lekora_skill": "off" if has and off else "on" if has else "missing"}
 
     def _set_tools_for(self, profile_id: str, enable: list, disable: list) -> None:
         """Changes the agent's tools in Lekora chats with Hermes' own save (as `hermes tools
@@ -564,6 +612,7 @@ class LekoraAdapter(BasePlatformAdapter):
         self._mark_connected()
         logger.info("Lekora: listening on port %s", port)
         self._wire_plugin_handlers(None)
+        await self._start_bridge()
         self.sync_chat_origins()  # finished background work can reach every agent (docs/delegation.md)
         return True
 
@@ -572,6 +621,9 @@ class LekoraAdapter(BasePlatformAdapter):
         if _ACTIVE is not None and _ACTIVE[0] is self:
             _ACTIVE = None
         self._mark_disconnected()
+        if self._bridge is not None:
+            await self._bridge.stop()
+            self._bridge = None
         if self._service is not None:
             await self._service.stop()
             self._service = None

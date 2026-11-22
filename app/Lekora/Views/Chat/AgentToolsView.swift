@@ -19,6 +19,22 @@ struct AgentToolsView: View {
             if let problem = tools?.problem {
                 Text(problem).font(LK.Typography.footnote).foregroundStyle(LK.Palette.warning)
             }
+            if let state = tools?.lekora_skill {
+                Section {
+                    Toggle(isOn: Binding(get: { state == "on" }, set: { on in setLekoraSkill(on) })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Artifacts and Files")
+                            Text("Lekora's own tools: artifact cards and sending you files")
+                                .font(LK.Typography.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(saving || state == "missing")
+                } footer: {
+                    Text(state == "missing"
+                         ? "Lekora gives \(agentName) these when it next starts on your Hermes instance."
+                         : "Through Lekora's lekora-tools skill, so they work for every agent. Turning this off turns the skill off.")
+                }
+            }
             if let elsewhere = tools?.elsewhere, !elsewhere.isEmpty {
                 Section {
                     ForEach(elsewhere.keys.sorted(), id: \.self) { platform in
@@ -55,6 +71,20 @@ struct AgentToolsView: View {
         #endif
         .overlay { if saving { ProgressView().controlSize(.large) } }
         .task { await load() }
+    }
+
+    private func setLekoraSkill(_ on: Bool) {
+        saving = true
+        Task {
+            defer { saving = false }
+            do {
+                try await gateway.setSkill("lekora-tools", enabled: on, for: profileId)
+                tools?.lekora_skill = on ? "on" : "off"
+                failure = nil
+            } catch {
+                failure = error.localizedDescription
+            }
+        }
     }
 
     private func load() async {

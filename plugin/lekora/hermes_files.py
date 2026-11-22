@@ -159,5 +159,27 @@ def send_file_tool(args: dict, *, platform: str, chat_id: str,
     except Exception as exc:
         reason = getattr(exc, "reason", None) or str(exc) or type(exc).__name__
         return tool_result(False, f"Couldn't send the file: {reason}")
+    return _sent(path, name, note)
+
+
+def _sent(path: str, name: Optional[str], note: Any) -> str:
     sent = f"Sent {name or Path(path).name} to the user"
     return tool_result(True, f"{sent}. {note}" if isinstance(note, str) and note else sent)
+
+
+async def send_file_async(args: dict, chat_id: str, deliver: Callable[[str, str, str, Optional[str]], Awaitable[Any]],
+                          validate: Callable[[str], Optional[str]]) -> str:
+    """The same, on the Lekora service's loop: for the lekora command (docs/agent-command.md)."""
+    raw = str(args.get("path") or "").strip()
+    if not raw:
+        return tool_result(False, "Which file? Give its absolute path.")
+    path = validate(raw)
+    if path is None:
+        return tool_result(False, f"Can't send {raw}: it isn't a file, or it's somewhere files may not be sent from")
+    name = args.get("name") or None
+    try:
+        note = await deliver(chat_id, path, str(args.get("caption") or ""), name)
+    except Exception as exc:
+        reason = getattr(exc, "reason", None) or str(exc) or type(exc).__name__
+        return tool_result(False, f"Couldn't send the file: {reason}")
+    return _sent(path, name, note)
