@@ -11,6 +11,14 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). Known limit, parked by you: agents other than the default can't use Lekora's artifact and file tools (see below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
+## Built, waiting for your phone check: Skills (Phase 8, feature 2; spec: `docs/skills.md`)
+- **Where:** an agent's Chat Settings › **Skills**. Grouped as Made Here, From the Catalog and Built In, each with an on/off switch (off = everywhere; `hermes-agent` stays on).
+- **Open a skill** to read it; **Edit** skills made here or built in; **Remove** (confirmed): catalog ones are uninstalled by Hermes, others moved to a backup on the instance.
+- **+ › Find in Catalog:** search Hermes' catalog; each result shows who made it (Official / Trusted / Community); tap for **Hermes' safety scan** (verdict and findings) before **Install** (confirmed; Hermes blocks what it finds dangerous).
+- **+ › New Skill:** describe it and Hermes' model drafts it (edit before saving), or write it yourself.
+- **Rule 8 exception you chose (2026-11-22):** the switch changes only `skills.disabled` in the agent's config.yaml, after a backup (original + 10 newest). I can't edit AGENTS.md myself; the line to add is in my last message.
+- **Checked on your instance (read-only):** default 107 skills, Ashlyn 79, Brenda 74; a real catalog search and Hermes' scan (Anthropic's PDF skill: trusted, safe); a real unattended install in a throwaway folder; the on/off switch on a throwaway copy of Brenda's settings (Hermes reads it as off; nothing else in the file changed). Plugin 466 pass (13 new), app 254 pass (4 new); checked in the simulator.
+
 ## Built, waiting for your phone check: Home in the side menu (your ask, 2026-11-22)
 - **Home** is now the first item in the left menu. Home, Board, Cron Jobs and Analytics are pages you switch between from the menu; each keeps the menu button top left instead of Back, and the menu marks the page you're on. Chats opened from Home keep Back (and swipe back). Checked in the simulator; app 250 pass.
 

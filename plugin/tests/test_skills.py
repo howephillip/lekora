@@ -166,3 +166,18 @@ async def test_the_phone_lists_and_toggles(gw, store, skills):
     await ws.send(env(store, "skills.list", {}, profile_id="nobody", msg_id="s3"))
     err = [m for m in await drain(ws) if m.get("id") == "s3"][0]
     assert err["data"]["code"] == "UNKNOWN_PROFILE"
+
+
+async def test_a_failure_answers_with_an_error_and_keeps_the_connection(gw, store, skills):
+    def broken(*a, **k):
+        raise ModuleNotFoundError("hermes_cli")
+    skills._read_config = broken
+    gw.skills = skills
+    device_id, tok = store.register_device("iPhone")
+    ws = await hello_rev(gw, store, device_id, tok, since_rev=store.current_rev())
+    await recv(ws)
+    await ws.send(env(store, "skill.enable", {"name": "golf", "enabled": True}, profile_id="default", msg_id="s1"))
+    err = [m for m in await drain(ws) if m.get("id") == "s1"][0]
+    assert err["type"] == "error" and err["data"]["code"] == "SKILLS_FAILED"
+    await ws.send(env(store, "skills.list", {}, profile_id="default", msg_id="s2"))  # still connected
+    assert [m for m in await drain(ws) if m.get("id") == "s2"][0]["type"] == "skills.list.result"

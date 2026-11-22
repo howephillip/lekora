@@ -548,6 +548,52 @@ public final class GatewayClient: ObservableObject {
         applyGroups(groups.filter { $0.group_id != groupId })
     }
 
+    // MARK: - Skills (docs/skills.md)
+
+    public func skills(for profileId: String) async throws -> [SkillInfo] {
+        try await request(type: "skills.list", profileId: profileId, data: EmptyData(), reply: SkillsListData.self, timeout: 30).skills
+    }
+
+    public func skill(_ name: String, for profileId: String) async throws -> SkillDetail {
+        try await request(type: "skill.get", profileId: profileId, data: SkillNameRequest(name: name), reply: SkillDetail.self, timeout: 20)
+    }
+
+    @discardableResult
+    public func setSkill(_ name: String, enabled: Bool, for profileId: String) async throws -> SkillInfo {
+        try await request(type: "skill.enable", profileId: profileId, data: SkillEnableRequest(name: name, enabled: enabled),
+                          reply: SkillResult.self, timeout: 20).skill
+    }
+
+    public func searchSkills(_ query: String) async throws -> [CatalogSkill] {
+        try await request(type: "skills.search", data: SkillSearchRequest(query: query), reply: SkillSearchResult.self, timeout: 60).results
+    }
+
+    public func scanSkill(_ identifier: String) async throws -> SkillScan {
+        try await request(type: "skill.scan", data: SkillIdentifierRequest(identifier: identifier), reply: SkillScan.self, timeout: 120)
+    }
+
+    @discardableResult
+    public func installSkill(_ identifier: String, for profileId: String) async throws -> SkillInfo {
+        try await request(type: "skill.install", profileId: profileId, data: SkillIdentifierRequest(identifier: identifier),
+                          reply: SkillResult.self, timeout: 180).skill
+    }
+
+    public func removeSkill(_ name: String, for profileId: String) async throws {
+        _ = try await request(type: "skill.remove", profileId: profileId, data: SkillNameRequest(name: name),
+                              reply: SkillRemoveResult.self, timeout: 120)
+    }
+
+    public func draftSkill(_ description: String) async throws -> SkillDraft {
+        try await request(type: "skill.draft", data: SkillDraftRequest(description: description), reply: SkillDraft.self, timeout: 120)
+    }
+
+    @discardableResult
+    public func saveSkill(content: String, name: String?, category: String?, create: Bool, for profileId: String) async throws -> SkillInfo {
+        try await request(type: "skill.save", profileId: profileId,
+                          data: SkillSaveRequest(name: name, content: content, category: category, create: create),
+                          reply: SkillResult.self, timeout: 30).skill
+    }
+
     // MARK: - Analytics (docs/analytics.md)
 
     /// Usage and spend for the last `days` (1, 7 or 30), for every agent or one.

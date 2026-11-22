@@ -1131,6 +1131,9 @@ class Gateway:
                                                            bool(data.get("create")), data.get("category"), data.get("name"))}
         except SkillError as exc:
             raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except Exception as exc:  # never drop the phone's connection over one skill
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("SKILLS_FAILED", f"Hermes couldn't do that: {exc}", True, False, msg_id)
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
     # ---- analytics (docs/analytics.md) ---------------------------------------------

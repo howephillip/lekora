@@ -158,7 +158,10 @@ class LekoraService:
         hermes_analytics: Optional[Any] = None,
         skills_scan: Optional[Callable[[str], Optional[dict]]] = None,
         skill_llm: Optional[Callable[[str, str], Any]] = None,
+        config_io: Optional[tuple] = None,
     ) -> None:
+        # (read, write) of an agent's config.yaml; default: Hermes' own (a demo host passes its own).
+        self._config_io = config_io
         # Skills (docs/skills.md): Hermes' own catalog check and its model for drafting.
         self._skills_scan = skills_scan
         self._skill_llm = skill_llm
@@ -297,7 +300,8 @@ class LekoraService:
         self.gateway.skills = Skills(
             profiles=lambda: [p["profile_id"] for p in gateway_for_skills._profiles()],
             home_of=lambda pid: _profiles.profile_home(pid, skills_root),
-            read_config=hermes_read, write_config=hermes_write,
+            read_config=(self._config_io or (hermes_read, hermes_write))[0],
+            write_config=(self._config_io or (hermes_read, hermes_write))[1],
             backup_config=RoutingConfig(skills_root / "lekora-backups" / "config").backup,
             run_cli=self._run_cli, backups=skills_root / "lekora-backups",
             scan=self._skills_scan, llm=self._skill_llm)

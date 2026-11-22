@@ -630,6 +630,71 @@ public struct AnalyticsReport: Codable, Equatable, Sendable {
 
 struct AnalyticsRequest: Codable { let days: Int; let profile_id: String? }
 
+// MARK: - Skills (docs/skills.md)
+public struct SkillInfo: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public let name: String
+    public let description: String
+    public let category: String?
+    /// builtin | hub | local | external
+    public let source: String
+    public var enabled: Bool
+    public let essential: Bool?
+    public let trust: String?
+    public var id: String { name }
+}
+
+public struct SkillDetail: Codable, Equatable, Sendable {
+    public let skill: SkillInfo
+    public let content: String
+}
+
+public struct CatalogSkill: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public let name: String
+    public let identifier: String
+    public let source: String
+    public let trust_level: String
+    public let description: String
+    public var id: String { identifier }
+}
+
+public struct SkillScan: Codable, Equatable, Sendable {
+    public struct Finding: Codable, Equatable, Hashable, Sendable {
+        public let severity: String
+        public let category: String?
+        public let file: String?
+        public let line: Int?
+        public let description: String
+    }
+    public let name: String?
+    public let source: String?
+    public let trust_level: String?
+    /// safe | caution | dangerous
+    public let verdict: String?
+    public let summary: String?
+    /// allow | ask | block
+    public let policy: String
+    public let policy_reason: String?
+    public let findings: [Finding]
+}
+
+public struct SkillDraft: Codable, Equatable, Sendable {
+    public let name: String
+    public let description: String
+    public let category: String?
+    public let content: String
+}
+
+struct SkillsListData: Codable { let skills: [SkillInfo] }
+struct SkillResult: Codable { let skill: SkillInfo }
+struct SkillNameRequest: Codable { let name: String }
+struct SkillEnableRequest: Codable { let name: String; let enabled: Bool }
+struct SkillSearchRequest: Codable { let query: String }
+struct SkillSearchResult: Codable { let results: [CatalogSkill] }
+struct SkillIdentifierRequest: Codable { let identifier: String }
+struct SkillRemoveResult: Codable { let name: String; let backup: String? }
+struct SkillDraftRequest: Codable { let description: String }
+struct SkillSaveRequest: Codable { let name: String?; let content: String; let category: String?; let create: Bool }
+
 // MARK: - Slash commands (docs/slash-commands.md)
 /// A command an agent can use, from Hermes' own lists.
 public struct SlashCommand: Codable, Equatable, Hashable, Sendable {

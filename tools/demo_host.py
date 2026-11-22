@@ -135,6 +135,52 @@ def tools_write(profile, enable, disable):
     on.difference_update(disable)
 
 
+_demo_configs: dict = {}  # agents' config.yaml, in memory (the demo has no Hermes config writer)
+
+
+def seed_demo_skills(root):
+    """A few made-up skills for the Skills screen (docs/skills.md)."""
+    import json as _json
+    skills = root / "skills"
+    if (skills / ".bundled_manifest").exists():
+        return
+    for rel, name, desc in (("productivity/calendar-digest", "calendar-digest", "Sum up the day's calendar"),
+                            ("research/web-brief", "web-brief", "Short researched briefs with sources"),
+                            ("hermes-agent", "hermes-agent", "How Hermes works"),
+                            ("travel/coast-weekend", "coast-weekend", "Plan a slow weekend by the coast")):
+        folder = skills / rel
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "SKILL.md").write_text(f"---\nname: {name}\ndescription: \"{desc}\"\n---\n\n## When to use\n\n{desc}.\n\n## Steps\n\n1. Gather what's needed.\n2. Write it up.\n")
+    (skills / ".bundled_manifest").write_text("hermes-agent:x\nweb-brief:y\n")
+
+
+async def demo_cli(args):
+    """Hermes' CLI as the demo needs it: a skills catalog search."""
+    import json as _json
+    if list(args[:2]) == ["skills", "search"]:
+        return 0, _json.dumps([{"name": "pdf", "identifier": "skills-sh/anthropics/skills/pdf", "source": "skills.sh",
+                                "trust_level": "trusted", "description": "Read, fill and merge PDF files"},
+                               {"name": "spreadsheet-helper", "identifier": "clawhub/someone/spreadsheet-helper",
+                                "source": "clawhub", "trust_level": "community", "description": "Tidy up spreadsheets"}])
+    return 1, "Not available in the demo"
+
+
+def demo_scan(identifier):
+    community = "clawhub" in identifier
+    return {"name": identifier.rsplit("/", 1)[-1], "identifier": identifier, "source": "demo",
+            "trust_level": "community" if community else "trusted",
+            "verdict": "caution" if community else "safe",
+            "summary": "Runs a shell command from its script." if community else "No issues found.",
+            "policy": "ask" if community else "allow", "policy_reason": None,
+            "findings": [{"severity": "high", "category": "execution", "file": "scripts/run.sh", "line": 4,
+                          "description": "Runs a downloaded script"}] if community else []}
+
+
+async def demo_skill_llm(instructions, text):
+    return {"name": "weekly-review", "description": "Sum up my week every Friday", "category": "productivity",
+            "instructions": "## When to use\n\nOn Fridays, or when asked for a weekly review.\n\n## Steps\n\n1. Read this week's calendar.\n2. List what got done and what slipped.\n3. Suggest three priorities for next week."}
+
+
 class DemoAnalytics:
     """Made-up usage for the Analytics screen (docs/analytics.md)."""
     PER_AGENT = {"default": 0.9, "scout": 0.4, "juniper": 2.6, "atlas": 0.25}
@@ -356,8 +402,12 @@ async def main():
                         commands_provider=lambda pid: COMMANDS, kanban_boards=demo_board(),
                         settings_reader=lambda pid: demo.settings_for(pid), model_info=_model_info,
                         resolvers=demo.resolvers(), tools_reader=tools_read, tools_writer=tools_write,
-                        hermes_analytics=DemoAnalytics())
+                        hermes_analytics=DemoAnalytics(), run_cli=demo_cli,
+                        skills_scan=demo_scan, skill_llm=demo_skill_llm,
+                        config_io=(lambda path: _demo_configs.get(str(path), {}),
+                                   lambda path, data: _demo_configs.__setitem__(str(path), data)))
     demo.svc = svc
+    seed_demo_skills(tmp / "hermes")
     await svc.start()
     # OpenRouter routing choices are kept in memory here (a real host writes the agent's Hermes config).
     from lekora.routing_config import RoutingConfig

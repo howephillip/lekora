@@ -203,6 +203,10 @@ final class FakeHost: @unchecked Sendable {
     var respondStatusOverride: String?
 
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+    /// An agent's skills (docs/skills.md).
+    var skillList: [[String: Any]] = [["name": "golf", "description": "My golf notes", "source": "local", "enabled": true, "essential": false],
+                                      ["name": "hermes-agent", "description": "How Hermes works", "source": "builtin", "enabled": true, "essential": true]]
+
     /// Every analytics.get received (docs/analytics.md).
     var analyticsAsked: [[String: Any]] = []
 
@@ -624,6 +628,29 @@ final class FakeHost: @unchecked Sendable {
                                         "members": members, "created_at": "2026-11-19T10:00:00Z"]
             groups.append(group)
             send(type: "group.create.result", id: id, data: ["group": group], on: connection)
+        case "skills.list":
+            send(type: "skills.list.result", id: id, data: ["skills": skillList], profileId: message["profile_id"] as? String, on: connection)
+        case "skill.enable":
+            let name = data["name"] as? String ?? ""
+            guard let index = skillList.firstIndex(where: { $0["name"] as? String == name }) else {
+                send(error: "UNKNOWN_SKILL", reason: "That skill isn't there any more", id: id, on: connection, close: false)
+                return
+            }
+            skillList[index]["enabled"] = data["enabled"] as? Bool ?? true
+            send(type: "skill.enable.result", id: id, data: ["skill": skillList[index]], on: connection)
+        case "skills.search":
+            send(type: "skills.search.result", id: id, data: ["results": [["name": "pdf", "identifier": "official/pdf", "source": "official",
+                                                                            "trust_level": "builtin", "description": "Read PDFs"]]], on: connection)
+        case "skill.scan":
+            send(type: "skill.scan.result", id: id, data: ["name": "pdf", "trust_level": "builtin", "verdict": "safe", "policy": "allow",
+                                                           "findings": [] as [Any]], on: connection)
+        case "skill.install":
+            let skill: [String: Any] = ["name": "pdf", "description": "Read PDFs", "source": "hub", "enabled": true, "essential": false]
+            skillList.append(skill)
+            send(type: "skill.install.result", id: id, data: ["skill": skill], on: connection)
+        case "skill.draft":
+            send(type: "skill.draft.result", id: id, data: ["name": "weekly-review", "description": "Sum up my week",
+                                                            "content": "---\nname: weekly-review\ndescription: Sum up my week\n---\n\nSteps"], on: connection)
         case "analytics.get":
             analyticsAsked.append(data)
             let days = data["days"] as? Int ?? 7
