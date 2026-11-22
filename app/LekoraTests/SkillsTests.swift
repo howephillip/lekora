@@ -40,6 +40,18 @@ final class SkillsTests: XCTestCase {
         XCTAssertEqual(sent, ["default"])
     }
 
+    func testEverySkillWithItsAgentsThenGiveItToAnother() async throws {
+        let gateway = try await connected()
+        let all = try await gateway.allSkills()
+        XCTAssertEqual(all.map(\.name), ["golf", "hermes-agent"])
+        XCTAssertEqual(all.first?.agents.map(\.profile_id), ["default"])
+        let copied = try await gateway.copySkill("golf", from: "default", to: ["coder"])
+        XCTAssertEqual(copied.added, ["coder"])
+        let sent = host.received(type: "skill.copy").first
+        XCTAssertEqual(sent?["profile_id"] as? String, "default")
+        XCTAssertEqual((sent?["data"] as? [String: Any])?["to"] as? [String], ["coder"])
+    }
+
     func testCatalogScanThenInstall() async throws {
         let gateway = try await connected()
         let found = try await gateway.searchSkills("pdf")

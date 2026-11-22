@@ -27,6 +27,7 @@ public struct AgentsHomeView: View {
     @State private var boardOn: GatewayClient?
     @State private var schedulesOn: GatewayClient?
     @State private var analyticsOn: GatewayClient?
+    @State private var skillsOn: GatewayClient?
     @AppStorage("homeLayout") private var layoutChoice = Layout.recent.rawValue
 
     public init(hosts: HostsModel) {
@@ -84,6 +85,7 @@ public struct AgentsHomeView: View {
                          openSchedules: { show(schedules: $0) },
                          openAnalytics: { show(analytics: $0) },
                          openHome: { show() },
+                         openSkills: { show(skills: $0) },
                          current: currentPage,
                          openYourName: { editingName = true },
                          openInstances: { showingComputers = true },
@@ -103,6 +105,8 @@ public struct AgentsHomeView: View {
             SchedulesView(gateway: client).toolbar { menuToolbar }
         } else if let client = analyticsOn {
             AnalyticsView(gateway: client).toolbar { menuToolbar }
+        } else if let client = skillsOn {
+            SkillsView(gateway: client).toolbar { menuToolbar }
         } else {
             agentList.toolbar { homeToolbar }
         }
@@ -113,14 +117,17 @@ public struct AgentsHomeView: View {
         if let client = boardOn { return .board(client.savedHost?.instanceId) }
         if let client = schedulesOn { return .schedules(client.savedHost?.instanceId) }
         if let client = analyticsOn { return .analytics(client.savedHost?.instanceId) }
+        if let client = skillsOn { return .skills(client.savedHost?.instanceId) }
         return .home
     }
 
-    private func show(board: GatewayClient? = nil, schedules: GatewayClient? = nil, analytics: GatewayClient? = nil) {
+    private func show(board: GatewayClient? = nil, schedules: GatewayClient? = nil, analytics: GatewayClient? = nil,
+                      skills: GatewayClient? = nil) {
         path = []
         boardOn = board
         schedulesOn = schedules
         analyticsOn = analytics
+        skillsOn = skills
     }
 
     @ToolbarContentBuilder

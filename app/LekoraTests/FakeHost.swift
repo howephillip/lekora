@@ -630,6 +630,17 @@ final class FakeHost: @unchecked Sendable {
             send(type: "group.create.result", id: id, data: ["group": group], on: connection)
         case "skills.list":
             send(type: "skills.list.result", id: id, data: ["skills": skillList], profileId: message["profile_id"] as? String, on: connection)
+        case "skills.all":
+            let shared: [[String: Any]] = skillList.map { skill in
+                ["name": skill["name"] ?? "", "description": skill["description"] ?? "",
+                 "agents": [["profile_id": "default", "source": skill["source"] ?? "local",
+                             "enabled": skill["enabled"] ?? true, "essential": skill["essential"] ?? false]]]
+            }
+            send(type: "skills.all.result", id: id, data: ["skills": shared], on: connection)
+        case "skill.copy":
+            let name = data["name"] as? String ?? ""
+            let to = data["to"] as? [String] ?? []
+            send(type: "skill.copy.result", id: id, data: ["name": name, "added": to, "failed": [] as [[String: Any]]], on: connection)
         case "skill.enable":
             let name = data["name"] as? String ?? ""
             guard let index = skillList.firstIndex(where: { $0["name"] as? String == name }) else {

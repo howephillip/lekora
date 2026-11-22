@@ -685,6 +685,30 @@ public struct SkillDraft: Codable, Equatable, Sendable {
 }
 
 struct SkillsListData: Codable { let skills: [SkillInfo] }
+
+/// A skill across every agent (one Skills page; docs/skills.md).
+public struct SharedSkill: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public struct Agent: Codable, Equatable, Hashable, Sendable {
+        public let profile_id: String
+        public let source: String
+        public var enabled: Bool
+        public let essential: Bool?
+        public let trust: String?
+    }
+    public let name: String
+    public let description: String
+    public let category: String?
+    public var agents: [Agent]
+    public var id: String { name }
+}
+struct SharedSkillsData: Codable { let skills: [SharedSkill] }
+struct SkillCopyRequest: Codable { let name: String; let to: [String] }
+public struct SkillCopyResult: Codable, Equatable, Sendable {
+    public struct Failure: Codable, Equatable, Sendable { public let profile_id: String; public let reason: String }
+    public let name: String
+    public let added: [String]
+    public let failed: [Failure]
+}
 struct SkillResult: Codable { let skill: SkillInfo }
 struct SkillNameRequest: Codable { let name: String }
 struct SkillEnableRequest: Codable { let name: String; let enabled: Bool }

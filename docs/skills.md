@@ -1,7 +1,7 @@
 # Skills (Phase 8, feature 2)
 
 ## What the user sees
-- **Chat Settings › Skills** for any agent (every agent's skills are its own in Hermes).
+- **Skills in the left menu** (owner, 2026-11-22: one page, not per agent). Hermes keeps skills per agent; the page shows every skill once, with the agents that have it. A skill's page lists every agent: on/off for those that have it, **Add to** for those that don't (a catalog skill is installed for them by Hermes; any other is copied), **Remove from** (confirmed). Installing from the catalog and New Skill ask which agents get it (all by default).
 - **The list:** each skill's name, what it's for and where it came from: **Built in** (ships with Hermes), **From the catalog**, or **Made here** (by you or the agent). A switch turns it **off or on**.
 - **Off means off everywhere** (owner, 2026-11-22): the agent doesn't use it in any app (Lekora, Telegram…). Hermes' own `hermes-agent` skill can't be turned off.
 - **Open a skill** to read its instructions; skills made here (and built-in ones) can be **edited**.

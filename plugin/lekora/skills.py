@@ -158,6 +158,50 @@ class Skills:
                  for name, (folder, head) in self._found(profile_id).items()]
         return sorted(items, key=lambda s: (s.get("category") or "~", s["name"]))
 
+    def all(self) -> list[dict]:
+        """Every skill across every agent (owner, 2026-11-22: one Skills page, not per agent):
+        ``{name, description, category?, agents: [{profile_id, source, enabled, essential, trust?}]}``."""
+        merged: dict[str, dict] = {}
+        for profile_id in self._profiles():
+            for item in self.list(profile_id):
+                entry = merged.setdefault(item["name"], {"name": item["name"], "description": item["description"],
+                                                         "agents": []})
+                if item.get("category") and "category" not in entry:
+                    entry["category"] = item["category"]
+                if not entry["description"] and item["description"]:
+                    entry["description"] = item["description"]
+                entry["agents"].append({k: item[k] for k in ("source", "enabled", "essential", "trust") if k in item}
+                                       | {"profile_id": profile_id})
+        return sorted(merged.values(), key=lambda s: s["name"])
+
+    async def copy(self, from_profile: Any, name: Any, to: Any) -> dict:
+        """Give agents a skill another agent has: a catalog skill is installed for them by Hermes (the
+        same identifier); any other is copied as it is. Agents that have it already are left alone."""
+        from_profile = self._agent(from_profile)
+        name, folder, _ = self._one(from_profile, name)
+        if not isinstance(to, list) or not to:
+            raise SkillError("INVALID_REQUEST", "Which agents?")
+        targets = [self._agent(p) for p in dict.fromkeys(to)]
+        _, hub = self._records(self._dir(from_profile))
+        added, failed = [], []
+        for target in targets:
+            if target == from_profile or name in self._found(target):
+                continue
+            try:
+                if name in hub and hub[name].get("identifier"):
+                    await self.install(target, hub[name]["identifier"])
+                else:
+                    rel = folder.relative_to(self._dir(from_profile))
+                    dest = self._dir(target) / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    await asyncio.to_thread(shutil.copytree, folder, dest)
+                added.append(target)
+            except SkillError as exc:
+                failed.append({"profile_id": target, "reason": exc.reason})
+            except OSError as exc:
+                failed.append({"profile_id": target, "reason": str(exc)})
+        return {"name": name, "added": added, "failed": failed}
+
     def _one(self, profile_id: str, name: Any) -> tuple[str, Path, dict]:
         found = self._found(profile_id)
         if not isinstance(name, str) or name not in found:

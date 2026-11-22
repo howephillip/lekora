@@ -370,13 +370,8 @@ struct ChatSettingsView: View {
             } label: {
                 Label("Tools in Lekora Chats", systemImage: "wrench.and.screwdriver")
             }
-            NavigationLink {
-                SkillsView(gateway: gateway, profileId: profileId, agentName: agentName)
-            } label: {
-                Label("Skills", systemImage: "graduationcap")
-            }
         } footer: {
-            Text("Tools: what \(agentName) can use in this app (the task board, web, files, terminal and more), saved for Lekora only. Skills: what \(agentName) knows how to do, everywhere.")
+            Text("What \(agentName) can use in this app: the task board, web, files, terminal and more. Saved in \(agentName)'s Hermes settings for Lekora only. Skills are in the left menu.")
         }
     }
 

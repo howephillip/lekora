@@ -554,6 +554,18 @@ public final class GatewayClient: ObservableObject {
         try await request(type: "skills.list", profileId: profileId, data: EmptyData(), reply: SkillsListData.self, timeout: 30).skills
     }
 
+    /// Every skill across every agent, with the agents that have it.
+    public func allSkills() async throws -> [SharedSkill] {
+        try await request(type: "skills.all", data: EmptyData(), reply: SharedSkillsData.self, timeout: 60).skills
+    }
+
+    /// Gives `agents` a skill that `profileId` has.
+    @discardableResult
+    public func copySkill(_ name: String, from profileId: String, to agents: [String]) async throws -> SkillCopyResult {
+        try await request(type: "skill.copy", profileId: profileId, data: SkillCopyRequest(name: name, to: agents),
+                          reply: SkillCopyResult.self, timeout: 240)
+    }
+
     public func skill(_ name: String, for profileId: String) async throws -> SkillDetail {
         try await request(type: "skill.get", profileId: profileId, data: SkillNameRequest(name: name), reply: SkillDetail.self, timeout: 20)
     }

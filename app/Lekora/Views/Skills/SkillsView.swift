@@ -1,26 +1,29 @@
 import SwiftUI
 
-// Skills (docs/skills.md): an agent's Hermes skills: on/off, read and edit, the catalog (with Hermes'
-// safety scan before installing), new skills (describe it or write it), remove (always confirmed).
+// Skills (docs/skills.md): one page for every agent's Hermes skills (owner, 2026-11-22). Hermes keeps
+// skills per agent; this shows each skill once with the agents that have it.
 
 struct SkillsView: View {
     @ObservedObject var gateway: GatewayClient
-    let profileId: String
-    let agentName: String
 
-    @State private var skills: [SkillInfo] = []
+    @State private var skills: [SharedSkill] = []
     @State private var loaded = false
     @State private var failure: String?
     @State private var filter = ""
     @State private var addingFromCatalog = false
     @State private var creating = false
-    @State private var busy: Set<String> = []
 
-    private var shown: [SkillInfo] {
+    private var shown: [SharedSkill] {
         let words = filter.trimmingCharacters(in: .whitespaces).lowercased()
         guard !words.isEmpty else { return skills }
         return skills.filter { $0.name.lowercased().contains(words) || $0.description.lowercased().contains(words)
-            || ($0.category ?? "").lowercased().contains(words) }
+            || ($0.category ?? "").lowercased().contains(words)
+            || $0.agents.contains { gateway.agentName($0.profile_id).lowercased().contains(words) } }
+    }
+
+    private var categories: [String] {
+        // "Other" (no category) goes last.
+        Array(Set(shown.map { $0.category ?? "other" })).sorted { ($0 == "other" ? 1 : 0, $0) < ($1 == "other" ? 1 : 0, $1) }
     }
 
     var body: some View {
@@ -31,22 +34,19 @@ struct SkillsView: View {
             if !loaded && failure == nil {
                 Section { HStack { ProgressView(); Text("Asking Hermes…").foregroundStyle(.secondary) } }
             }
-            ForEach(LKSkillText.order, id: \.self) { source in
-                let group = shown.filter { $0.source == source }.sorted { $0.name < $1.name }
-                if !group.isEmpty {
-                    Section {
-                        ForEach(group) { skill in row(skill) }
-                    } header: {
-                        Text("\(LKSkillText.source(source)) (\(group.count))")
-                    } footer: {
-                        if group.contains(where: { $0.essential == true }) {
-                            Text("hermes-agent stays on: Hermes needs it to know how it works.")
+            ForEach(categories, id: \.self) { category in
+                Section(category.prefix(1).uppercased() + category.dropFirst()) {
+                    ForEach(shown.filter { ($0.category ?? "other") == category }) { skill in
+                        NavigationLink {
+                            SkillDetailView(gateway: gateway, name: skill.name) { Task { await load() } }
+                        } label: {
+                            row(skill)
                         }
                     }
                 }
             }
         }
-        .searchable(text: $filter, prompt: "Filter \(agentName)'s skills")
+        .searchable(text: $filter, prompt: "Filter skills or agents")
         .navigationTitle("Skills")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -61,168 +61,236 @@ struct SkillsView: View {
         .task { await load() }
         .refreshable { await load() }
         .sheet(isPresented: $addingFromCatalog, onDismiss: { Task { await load() } }) {
-            SkillCatalogView(gateway: gateway, profileId: profileId, agentName: agentName)
+            SkillCatalogView(gateway: gateway)
         }
         .sheet(isPresented: $creating, onDismiss: { Task { await load() } }) {
-            SkillEditorView(gateway: gateway, profileId: profileId, agentName: agentName, existing: nil)
+            SkillEditorView(gateway: gateway, existing: nil)
         }
     }
 
-    private func row(_ skill: SkillInfo) -> some View {
-        HStack(spacing: LK.Spacing.md) {
-            NavigationLink {
-                SkillDetailView(gateway: gateway, profileId: profileId, agentName: agentName, name: skill.name) {
-                    Task { await load() }
-                }
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(skill.name).font(LK.Typography.body).foregroundStyle(skill.enabled ? .primary : .secondary)
-                    if !skill.description.isEmpty {
-                        Text(skill.description).font(LK.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                }
+    private func row(_ skill: SharedSkill) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(skill.name)
+            if !skill.description.isEmpty {
+                Text(skill.description).font(LK.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
             }
-            if busy.contains(skill.name) {
-                ProgressView()
-            } else {
-                Toggle("On", isOn: Binding(get: { skill.enabled }, set: { toggle(skill, $0) }))
-                    .labelsHidden()
-                    .disabled(skill.essential == true)
-                    .accessibilityLabel("\(skill.name) on")
-            }
+            LKSkillAgents(gateway: gateway, agents: skill.agents)
         }
     }
 
     private func load() async {
         do {
-            skills = try await gateway.skills(for: profileId)
+            skills = try await gateway.allSkills()
             failure = nil
         } catch {
             failure = error.localizedDescription
         }
         loaded = true
     }
+}
 
-    private func toggle(_ skill: SkillInfo, _ on: Bool) {
-        busy.insert(skill.name)
-        Task {
-            defer { busy.remove(skill.name) }
-            do {
-                let changed = try await gateway.setSkill(skill.name, enabled: on, for: profileId)
-                if let index = skills.firstIndex(where: { $0.name == changed.name }) { skills[index] = changed }
-            } catch {
-                failure = error.localizedDescription
+/// The agents that have a skill: their bots, faded where it's off.
+struct LKSkillAgents: View {
+    @ObservedObject var gateway: GatewayClient
+    let agents: [SharedSkill.Agent]
+
+    var body: some View {
+        let count = gateway.profiles.count
+        HStack(spacing: 4) {
+            ForEach(agents.prefix(8), id: \.profile_id) { agent in
+                LKAgentAvatar(id: agent.profile_id, palette: gateway.avatarPalettes[agent.profile_id], size: 18)
+                    .opacity(agent.enabled ? 1 : 0.35)
             }
+            Text(agents.count == count && count > 1 ? "All agents" : agents.map { gateway.agentName($0.profile_id) }.joined(separator: ", "))
+                .font(LK.Typography.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Agents: " + agents.map { gateway.agentName($0.profile_id) + ($0.enabled ? "" : " (off)") }.joined(separator: ", "))
     }
 }
 
-/// One skill: what it says, where it came from, edit and remove.
+/// One skill: its instructions, and every agent: on/off, add to, remove from; edit.
 struct SkillDetailView: View {
     @ObservedObject var gateway: GatewayClient
-    let profileId: String
-    let agentName: String
     let name: String
     var changed: () -> Void = {}
 
-    @Environment(\.dismiss) private var dismiss
+    @State private var shared: SharedSkill?
     @State private var detail: SkillDetail?
     @State private var failure: String?
     @State private var editing = false
-    @State private var confirmingRemove = false
-    @State private var removing = false
+    @State private var busy: Set<String> = []
+    @State private var removing: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: LK.Spacing.md) {
-                if let detail {
-                    HStack(spacing: LK.Spacing.sm) {
-                        Text(LKSkillText.source(detail.skill.source))
-                        if let trust = detail.skill.trust { Text("· \(LKSkillText.trust(trust))") }
-                        if let category = detail.skill.category { Text("· \(category)") }
-                        if !detail.skill.enabled { Text("· Off") }
+        List {
+            if let failure {
+                Section { Text(failure).foregroundStyle(LK.Palette.danger) }
+            }
+            if let shared {
+                Section {
+                    ForEach(gateway.profiles) { profile in
+                        agentRow(profile, shared.agents.first { $0.profile_id == profile.profile_id })
                     }
-                    .font(LK.Typography.caption)
-                    .foregroundStyle(.secondary)
+                } header: {
+                    Text("Agents")
+                } footer: {
+                    Text("Off means that agent doesn't use it anywhere. Hermes' own hermes-agent skill always stays on.")
+                }
+            }
+            Section("Instructions") {
+                if let detail {
                     Text(detail.content)
                         .font(LK.Typography.code)
                         .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else if let failure {
-                    Text(failure).foregroundStyle(LK.Palette.danger)
-                } else {
+                } else if failure == nil {
                     ProgressView()
                 }
             }
-            .padding(LK.Spacing.lg)
         }
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    if detail?.skill.source != "hub" {
-                        Button("Edit", systemImage: "pencil") { editing = true }
-                    }
-                    if detail?.skill.essential != true {
-                        Button("Remove", systemImage: "trash", role: .destructive) { confirmingRemove = true }
-                    }
-                } label: {
-                    Label("More", systemImage: "ellipsis.circle")
+            if let detail, detail.skill.source != "hub" {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") { editing = true }
                 }
-                .disabled(detail == nil || removing)
             }
         }
-        .confirmationDialog("Remove \(name)?", isPresented: $confirmingRemove, titleVisibility: .visible) {
-            Button("Remove Skill", role: .destructive) { remove() }
+        .confirmationDialog("Remove \(name) from \(removing.map(gateway.agentName) ?? "")?",
+                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            titleVisibility: .visible) {
+            Button("Remove", role: .destructive) { if let removing { remove(from: removing) } }
         } message: {
             Text(removeMessage)
         }
         .sheet(isPresented: $editing, onDismiss: { Task { await load(); changed() } }) {
-            if let detail {
-                SkillEditorView(gateway: gateway, profileId: profileId, agentName: agentName, existing: detail)
-            }
+            if let detail { SkillEditorView(gateway: gateway, existing: detail, owners: editableOwners) }
         }
-        .overlay { if removing { LKBlockingProgress("Removing \(name)…") } }
         .task { await load() }
     }
 
+    /// Agents whose own copy an edit changes (not catalog copies, which Hermes keeps up to date).
+    private var editableOwners: [String] {
+        (shared?.agents ?? []).filter { $0.source != "hub" }.map(\.profile_id)
+    }
+
     private var removeMessage: String {
-        switch detail?.skill.source {
-        case "hub": return "Hermes uninstalls it from \(agentName). You can install it again from the catalog."
+        guard let removing, let agent = shared?.agents.first(where: { $0.profile_id == removing }) else { return "" }
+        switch agent.source {
+        case "hub": return "Hermes uninstalls it from \(gateway.agentName(removing))."
         case "builtin": return "It's moved to a backup on the Hermes instance and Hermes won't add it back. Turning it off is usually better."
         default: return "It's moved to a backup on the Hermes instance, so it isn't lost."
         }
     }
 
+    @ViewBuilder
+    private func agentRow(_ profile: ProfileData, _ agent: SharedSkill.Agent?) -> some View {
+        let id = profile.profile_id
+        HStack(spacing: LK.Spacing.md) {
+            LKAgentAvatar(id: id, palette: gateway.avatarPalettes[id], size: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.name)
+                Text(agent.map { LKSkillText.source($0.source) } ?? "Doesn't have it")
+                    .font(LK.Typography.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if busy.contains(id) {
+                ProgressView()
+            } else if let agent {
+                Toggle(profile.name, isOn: Binding(get: { agent.enabled }, set: { toggle(id, $0) }))
+                    .labelsHidden()
+                    .disabled(agent.essential == true)
+            } else {
+                Button("Add") { add(to: id) }
+                    .buttonStyle(.bordered)
+                    .disabled(shared?.agents.isEmpty != false)
+            }
+        }
+        .swipeActions {
+            if let agent, agent.essential != true {
+                Button("Remove", role: .destructive) { removing = id }
+            }
+        }
+    }
+
     private func load() async {
         do {
-            detail = try await gateway.skill(name, for: profileId)
+            shared = try await gateway.allSkills().first { $0.name == name }
+            if let owner = shared?.agents.first?.profile_id {
+                detail = try await gateway.skill(name, for: owner)
+            }
+            failure = shared == nil ? "No agent has this skill any more." : nil
         } catch {
             failure = error.localizedDescription
         }
     }
 
-    private func remove() {
-        removing = true
+    private func run(_ id: String, _ work: @escaping () async throws -> Void) {
+        busy.insert(id)
         Task {
-            defer { removing = false }
+            defer { busy.remove(id) }
             do {
-                try await gateway.removeSkill(name, for: profileId)
+                try await work()
+                await load()
                 changed()
-                dismiss()
             } catch {
                 failure = error.localizedDescription
             }
         }
     }
+
+    private func toggle(_ id: String, _ on: Bool) {
+        run(id) { try await gateway.setSkill(name, enabled: on, for: id) }
+    }
+
+    private func add(to id: String) {
+        guard let owner = shared?.agents.first(where: { $0.source == "hub" })?.profile_id ?? shared?.agents.first?.profile_id else { return }
+        run(id) {
+            let result = try await gateway.copySkill(name, from: owner, to: [id])
+            if let failed = result.failed.first { throw SkillsFailure(reason: failed.reason) }
+        }
+    }
+
+    private func remove(from id: String) {
+        run(id) { try await gateway.removeSkill(name, for: id) }
+    }
 }
 
-/// The skills catalog: search, then Hermes' safety scan, then install (confirmed).
+struct SkillsFailure: LocalizedError {
+    let reason: String
+    var errorDescription: String? { reason }
+}
+
+/// Which agents get a skill (all, by default).
+struct LKAgentPicker: View {
+    @ObservedObject var gateway: GatewayClient
+    @Binding var chosen: Set<String>
+
+    var body: some View {
+        ForEach(gateway.profiles) { profile in
+            Button {
+                if chosen.contains(profile.profile_id) { chosen.remove(profile.profile_id) } else { chosen.insert(profile.profile_id) }
+            } label: {
+                HStack(spacing: LK.Spacing.md) {
+                    LKAgentAvatar(id: profile.profile_id, palette: gateway.avatarPalettes[profile.profile_id], size: 26)
+                    Text(profile.name).foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: chosen.contains(profile.profile_id) ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(chosen.contains(profile.profile_id) ? AnyShapeStyle(LK.Palette.accent) : AnyShapeStyle(.tertiary))
+                }
+            }
+            .tint(.primary)
+            .accessibilityAddTraits(chosen.contains(profile.profile_id) ? .isSelected : [])
+        }
+    }
+}
+
+/// The skills catalog: search, then Hermes' safety scan, then install for the chosen agents.
 struct SkillCatalogView: View {
     @ObservedObject var gateway: GatewayClient
-    let profileId: String
-    let agentName: String
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
@@ -269,7 +337,7 @@ struct SkillCatalogView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }
             .navigationDestination(item: $picked) { item in
-                SkillInstallView(gateway: gateway, profileId: profileId, agentName: agentName, item: item) { dismiss() }
+                SkillInstallView(gateway: gateway, item: item) { dismiss() }
             }
         }
     }
@@ -290,11 +358,9 @@ struct SkillCatalogView: View {
     }
 }
 
-/// A catalog skill before installing: who made it and Hermes' scan; Install when Hermes allows it.
+/// A catalog skill before installing: who made it, Hermes' scan, and which agents get it.
 struct SkillInstallView: View {
     @ObservedObject var gateway: GatewayClient
-    let profileId: String
-    let agentName: String
     let item: CatalogSkill
     var installed: () -> Void
 
@@ -302,12 +368,13 @@ struct SkillInstallView: View {
     @State private var failure: String?
     @State private var confirming = false
     @State private var installing = false
+    @State private var chosen: Set<String> = []
 
     var body: some View {
         List {
             Section {
                 LabeledContent("From", value: item.source)
-                LabeledContent("Made by") { LKTrustBadge(trust: item.trust_level) }
+                LabeledContent("Trust") { LKTrustBadge(trust: item.trust_level) }
                 Text(item.description).foregroundStyle(.secondary)
             }
             Section {
@@ -331,31 +398,40 @@ struct SkillInstallView: View {
                         Text("Hermes won't install this: \(scan.policy_reason ?? "its safety check blocked it").")
                             .foregroundStyle(LK.Palette.danger)
                     }
-                } else if let failure {
-                    Text(failure).foregroundStyle(LK.Palette.danger)
-                } else {
+                } else if failure == nil {
                     HStack { ProgressView(); Text("Hermes is checking it…").foregroundStyle(.secondary) }
                 }
             } header: {
                 Text("Hermes' Safety Scan")
             }
+            Section("Install For") {
+                LKAgentPicker(gateway: gateway, chosen: $chosen)
+            }
+            if let failure {
+                Section { Text(failure).foregroundStyle(LK.Palette.danger) }
+            }
             Section {
                 Button {
                     confirming = true
                 } label: {
-                    if installing { ProgressView() } else { Text("Install for \(agentName)") }
+                    if installing { ProgressView() } else { Text(chosen.count == 1 ? "Install for 1 Agent" : "Install for \(chosen.count) Agents") }
                 }
-                .disabled(scan == nil || scan?.policy == "block" || installing)
+                .disabled(scan == nil || scan?.policy == "block" || installing || chosen.isEmpty)
             }
         }
         .navigationTitle(item.name)
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Install \(item.name) for \(agentName)?", isPresented: $confirming, titleVisibility: .visible) {
+        .confirmationDialog("Install \(item.name)?", isPresented: $confirming, titleVisibility: .visible) {
             Button("Install") { install() }
         } message: {
-            Text("\(LKSkillText.trust(item.trust_level)) skill from \(item.source). \(agentName) can use it from the next message.")
+            Text("\(LKSkillText.trust(item.trust_level)) skill from \(item.source), for \(chosenNames). They can use it from their next message.")
         }
+        .onAppear { if chosen.isEmpty { chosen = Set(gateway.profiles.map(\.profile_id)) } }
         .task { await check() }
+    }
+
+    private var chosenNames: String {
+        gateway.profiles.filter { chosen.contains($0.profile_id) }.map(\.name).joined(separator: ", ")
     }
 
     private func check() async {
@@ -368,25 +444,30 @@ struct SkillInstallView: View {
 
     private func install() {
         installing = true
+        failure = nil
+        let targets = gateway.profiles.map(\.profile_id).filter { chosen.contains($0) }
         Task {
             defer { installing = false }
-            do {
-                try await gateway.installSkill(item.identifier, for: profileId)
-                installed()
-            } catch {
-                failure = error.localizedDescription
+            var problems: [String] = []
+            for target in targets {
+                do {
+                    try await gateway.installSkill(item.identifier, for: target)
+                } catch {
+                    problems.append("\(gateway.agentName(target)): \(error.localizedDescription)")
+                }
             }
+            if problems.isEmpty { installed() } else { failure = problems.joined(separator: "\n") }
         }
     }
 }
 
-/// New Skill (describe it, or write it) and Edit: the SKILL.md in an editor.
+/// New Skill (describe it, or write it) for the chosen agents, and Edit (every agent's own copy).
 struct SkillEditorView: View {
     @ObservedObject var gateway: GatewayClient
-    let profileId: String
-    let agentName: String
     /// nil: a new skill.
     let existing: SkillDetail?
+    /// Edit: the agents whose copy changes.
+    var owners: [String] = []
 
     @Environment(\.dismiss) private var dismiss
     @State private var description = ""
@@ -396,6 +477,7 @@ struct SkillEditorView: View {
     @State private var drafting = false
     @State private var saving = false
     @State private var failure: String?
+    @State private var chosen: Set<String> = []
 
     private static let blank = "---\nname: my-skill\ndescription: \"What it does, in 60 characters\"\nversion: 1.0.0\n---\n\n## When to use\n\n## Steps\n\n1. \n"
 
@@ -415,13 +497,16 @@ struct SkillEditorView: View {
                 if existing != nil || writing {
                     ToolbarItem(placement: .confirmationAction) {
                         if saving { ProgressView() } else {
-                            Button("Save") { save() }.disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            Button("Save") { save() }
+                                .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                          || (existing == nil && chosen.isEmpty))
                         }
                     }
                 }
             }
             .onAppear {
                 if let existing, content.isEmpty { content = existing.content }
+                if chosen.isEmpty { chosen = Set(gateway.profiles.map(\.profile_id)) }
             }
         }
     }
@@ -434,7 +519,7 @@ struct SkillEditorView: View {
             } header: {
                 Text("Describe It")
             } footer: {
-                Text("Hermes' model drafts the skill for \(agentName); you can change it before saving.")
+                Text("Hermes' model drafts the skill; you can change it before saving.")
             }
             if let failure {
                 Section { Text(failure).foregroundStyle(LK.Palette.danger) }
@@ -455,19 +540,29 @@ struct SkillEditorView: View {
     }
 
     private var editor: some View {
-        VStack(alignment: .leading, spacing: LK.Spacing.sm) {
+        Form {
             if let failure {
-                Text(failure).foregroundStyle(LK.Palette.danger).padding(.horizontal)
+                Section { Text(failure).foregroundStyle(LK.Palette.danger) }
             }
-            Text("The header's name (lowercase, -) and description (up to 60 characters) are what \(agentName) sees first.")
-                .font(LK.Typography.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
-            TextEditor(text: $content)
-                .font(LK.Typography.code)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .padding(.horizontal, LK.Spacing.sm)
+            Section {
+                TextEditor(text: $content)
+                    .font(LK.Typography.code)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .frame(minHeight: 320)
+            } footer: {
+                Text("The header's name (lowercase, -) and description (up to 60 characters) are what agents see first.")
+            }
+            if existing == nil {
+                Section("Give It To") {
+                    LKAgentPicker(gateway: gateway, chosen: $chosen)
+                }
+            } else if owners.count > 1 {
+                Section {
+                    Text("Saved for " + owners.map(gateway.agentName).joined(separator: ", ") + ".")
+                        .font(LK.Typography.footnote).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
@@ -490,15 +585,19 @@ struct SkillEditorView: View {
     private func save() {
         saving = true
         failure = nil
+        let targets = existing == nil ? gateway.profiles.map(\.profile_id).filter { chosen.contains($0) } : owners
         Task {
             defer { saving = false }
-            do {
-                try await gateway.saveSkill(content: content, name: existing?.skill.name, category: category,
-                                            create: existing == nil, for: profileId)
-                dismiss()
-            } catch {
-                failure = error.localizedDescription
+            var problems: [String] = []
+            for target in targets {
+                do {
+                    try await gateway.saveSkill(content: content, name: existing?.skill.name, category: category,
+                                                create: existing == nil, for: target)
+                } catch {
+                    problems.append("\(gateway.agentName(target)): \(error.localizedDescription)")
+                }
             }
+            if problems.isEmpty { dismiss() } else { failure = problems.joined(separator: "\n") }
         }
     }
 }

@@ -478,6 +478,8 @@ A group's chat key is `group:<group_id>`; it is used as `profile_id` on every me
 ## 25. Skills (spec: `skills.md`)
 `profile_id` is the agent the skills belong to (not for `skills.search` / `skill.scan`).
 - `skills.list` → `{skills: [skill]}`. A skill: `{name, description, category?, source: builtin|hub|local|external, enabled, essential, trust?}` (`essential`: can't be turned off).
+- `skills.all` (no `profile_id`) → `{skills: [{name, description, category?, agents: [{profile_id, source, enabled, essential, trust?}]}]}`: every skill across every agent (owner, 2026-11-22: one Skills page).
+- `skill.copy` `{name, to: [profile_id]}` (`profile_id`: an agent that has it) → `{name, added: [profile_id], failed: [{profile_id, reason}]}`: a catalog skill is installed by Hermes for them (same identifier), any other copied.
 - `skill.get` `{name}` → `{skill, content}` (its SKILL.md).
 - `skill.enable` `{name, enabled}` → `{skill}` (backs up the agent's config.yaml first; changes only `skills.disabled`).
 - `skills.search` `{query}` → `{results: [{name, identifier, source, trust_level, description}]}`.

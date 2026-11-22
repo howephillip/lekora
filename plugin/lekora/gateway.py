@@ -587,8 +587,8 @@ class Gateway:
                 self.voice_replies.phone_timing(env.get("profile_id"), data)
         elif type_ in ("groups.list", "group.create", "group.update", "group.delete", "group.start", "group.details"):
             await self._groups_request(conn, msg_id, type_, data)
-        elif type_ in ("skills.list", "skill.get", "skill.enable", "skills.search", "skill.scan",
-                       "skill.install", "skill.remove", "skill.draft", "skill.save"):
+        elif type_ in ("skills.list", "skills.all", "skill.copy", "skill.get", "skill.enable", "skills.search",
+                       "skill.scan", "skill.install", "skill.remove", "skill.draft", "skill.save"):
             await self._skills_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "analytics.get":
             await self._analytics_request(conn, msg_id, data)
@@ -1112,6 +1112,10 @@ class Gateway:
         try:
             if type_ == "skills.list":
                 result: dict[str, Any] = {"skills": await asyncio.to_thread(skills.list, profile_id)}
+            elif type_ == "skills.all":
+                result = {"skills": await asyncio.to_thread(skills.all)}
+            elif type_ == "skill.copy":
+                result = await skills.copy(profile_id, data.get("name"), data.get("to"))
             elif type_ == "skill.get":
                 result = await asyncio.to_thread(skills.get, profile_id, data.get("name"))
             elif type_ == "skill.enable":

@@ -68,6 +68,15 @@ def cli(home):
 
 
 @pytest.fixture
+def two(tmp_path, home):
+    """A second agent with only Hermes' own skill."""
+    other = tmp_path / "coder-home"
+    skill(other / "skills", "hermes-agent", "hermes-agent", "How Hermes works")
+    (other / "config.yaml").write_text(json.dumps({}))
+    return other
+
+
+@pytest.fixture
 def skills(home, cli, tmp_path):
     async def llm(instructions, text):
         return {"name": "Weekly Review!", "description": "Sum up my week every Friday",
@@ -181,3 +190,39 @@ async def test_a_failure_answers_with_an_error_and_keeps_the_connection(gw, stor
     assert err["type"] == "error" and err["data"]["code"] == "SKILLS_FAILED"
     await ws.send(env(store, "skills.list", {}, profile_id="default", msg_id="s2"))  # still connected
     assert [m for m in await drain(ws) if m.get("id") == "s2"][0]["type"] == "skills.list.result"
+
+
+# ---- one Skills page for every agent (owner, 2026-11-22) --------------------------------
+
+def many(home, other, cli):
+    homes = {"default": home, "coder": other}
+    return Skills(profiles=lambda: ["default", "coder"], home_of=lambda p: homes[p], read_config=read, write_config=write,
+                  backup_config=RoutingConfig(home / "lekora-backups" / "config").backup, run_cli=cli,
+                  backups=home / "lekora-backups")
+
+
+def test_every_skill_with_the_agents_that_have_it(home, two, cli):
+    got = {s["name"]: s for s in many(home, two, cli).all()}
+    assert [a["profile_id"] for a in got["hermes-agent"]["agents"]] == ["default", "coder"]
+    assert [a["profile_id"] for a in got["golf"]["agents"]] == ["default"]
+    assert got["golf"]["agents"][0]["enabled"] is False and "category" not in got["golf"]
+    assert got["arxiv"]["category"] == "research"
+
+
+async def test_giving_another_agent_a_skill(home, two, cli):
+    s = many(home, two, cli)
+    got = await s.copy("default", "golf", ["coder", "default"])
+    assert got == {"name": "golf", "added": ["coder"], "failed": []}
+    assert (two / "skills" / "golf" / "SKILL.md").is_file()
+    # A catalog skill is installed by Hermes for the other agent, with the same identifier.
+    lock = json.loads((home / "skills" / ".hub" / "lock.json").read_text())
+    lock["installed"]["arxiv"]["identifier"] = "github/x/arxiv"
+    (home / "skills" / ".hub" / "lock.json").write_text(json.dumps(lock))
+
+    async def install_for_coder(args):
+        cli.calls.append(list(args))
+        skill(two / "skills", "research/arxiv", "arxiv", "Search arXiv papers")
+        return 0, "Installed"
+    s._run_cli = install_for_coder
+    got = await s.copy("default", "arxiv", ["coder"])
+    assert got["added"] == ["coder"] and cli.calls[-1] == ["-p", "coder", "skills", "install", "github/x/arxiv", "--yes"]
