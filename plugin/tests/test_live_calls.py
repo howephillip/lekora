@@ -109,7 +109,7 @@ class Settings:
 async def test_the_engine_is_kept_per_agent_and_says_what_it_needs():
     def no_key(profile, history):
         raise LiveError("NO_KEY", "GPT-Live needs an OpenAI API key")
-    live = LiveCalls(Settings(), lambda: PROFILES, None, gpt_setup=no_key, fish_key=lambda: "fk")
+    live = LiveCalls(Settings(), lambda: PROFILES, None, gpt_setup=no_key, fish_key=lambda profile: "fk")
     got = live.engines("coder")
     assert got["engine"] == "agent"
     engines = {e["id"]: e for e in got["engines"]}
@@ -141,7 +141,7 @@ async def test_fish_live_makes_its_agent_once_and_answers_tool_calls_with_the_ag
         yield "Booked for seven."
 
     store = Settings()
-    live = LiveCalls(store, lambda: PROFILES, agent_turn, fish_key=lambda: "fk", http=http,
+    live = LiveCalls(store, lambda: PROFILES, agent_turn, fish_key=lambda profile: "fk", http=http,
                      agent_name=lambda p: "Coder")
 
     async def phone(kind, data):

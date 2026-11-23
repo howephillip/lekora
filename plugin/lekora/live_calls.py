@@ -190,7 +190,7 @@ class LiveCalls:
 
     def __init__(self, store: Any, profiles: Callable[[], list], agent_turn: Callable[[str, str], AsyncIterator[str]],
                  gpt_setup: Optional[Callable[[str, list], dict]] = None,
-                 fish_key: Optional[Callable[[], Optional[str]]] = None,
+                 fish_key: Optional[Callable[[str], Optional[str]]] = None,
                  connect: Optional[Callable[..., Awaitable[Any]]] = None,
                  http: Optional[Callable[[str, str, Optional[dict], str], Any]] = None,
                  history: Callable[[str], list] = lambda p: [],
@@ -219,7 +219,7 @@ class LiveCalls:
         listed = [{"id": "agent", "name": ENGINE_NAMES["agent"], "available": True}]
         gpt = self._gpt_status(profile_id)
         listed.append({"id": "gpt-live", "name": ENGINE_NAMES["gpt-live"], **gpt})
-        fish = bool(self._fish_key and self._fish_key())
+        fish = bool(self._fish_key and self._fish_key(profile_id))
         listed.append({"id": "fish-live", "name": ENGINE_NAMES["fish-live"], "available": fish,
                        **({} if fish else {"reason": "Needs a Fish Audio API key on the Hermes instance (FISH_AUDIO)"})})
         return {"engine": engine if engine in ENGINES else "agent", "engines": listed}
@@ -261,7 +261,7 @@ class LiveCalls:
             log.info("Lekora: GPT-Live call started for %s", profile_id)
             return {"engine": engine, **opened}
         if engine == "fish-live":
-            key = self._fish_key() if self._fish_key else None
+            key = self._fish_key(profile_id) if self._fish_key else None
             if not key or self._http is None:
                 raise LiveError("UNAVAILABLE", "Fish Live 3 needs a Fish Audio API key on the Hermes instance")
             agent_id = await self._fish_agent(key)
@@ -322,7 +322,9 @@ class LiveCalls:
 
     async def _fish_agent(self, key: str) -> str:
         """Lekora's Fish agent (Live 3, with the ask_agent tool), made and published once."""
-        saved = self._store.get_app_setting("*", "fish_agent") or {}
+        import hashlib
+        slot = "fish_agent:" + hashlib.sha256(key.encode()).hexdigest()[:12]  # one per Fish account
+        saved = self._store.get_app_setting("*", slot) or {}
         if isinstance(saved, dict) and saved.get("agent_id") and saved.get("version") == FISH_AGENT_VERSION:
             return saved["agent_id"]
         tool = await asyncio.to_thread(self._http, "POST", f"{FISH}/v1/agent/tools", {
@@ -345,7 +347,7 @@ class LiveCalls:
             raise LiveError("LIVE_FAILED", "Fish didn't create Lekora's voice agent")
         await asyncio.to_thread(self._http, "POST", f"{FISH}/v1/agent/agents/{agent_id}/publish",
                                 {"version_title": "Lekora"}, key)
-        self._store.set_app_setting("*", "fish_agent", {"agent_id": agent_id, "tool_id": tool_id,
+        self._store.set_app_setting("*", slot, {"agent_id": agent_id, "tool_id": tool_id,
                                                          "version": FISH_AGENT_VERSION})
         log.info("Lekora: made its Fish voice agent %s", agent_id)
         return agent_id

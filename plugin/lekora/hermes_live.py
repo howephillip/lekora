@@ -50,10 +50,14 @@ class HermesLive:
         url = base.replace("https://", "wss://").replace("http://", "ws://") + "/live/sessions"
         return {"url": url, "key": key, "session": session}
 
-    def fish_key(self) -> Optional[str]:
+    def fish_key(self, profile_id: str) -> Optional[str]:
+        """The agent's own Fish Audio key, as its voice replies use it. Hermes only gives keys out inside an
+        agent's profile (a multiplexed gateway refuses an unscoped read), so it's read in there."""
         try:
+            from gateway.run import _profile_runtime_scope
             from hermes_cli.config import get_env_value
-            return (get_env_value("FISH_AUDIO") or "").strip() or None
+            with _profile_runtime_scope(Path(self._home_of(profile_id)), hydrate_secrets=True):
+                return (get_env_value("FISH_AUDIO") or "").strip() or None
         except Exception:
             return None
 
