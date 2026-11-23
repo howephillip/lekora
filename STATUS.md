@@ -38,7 +38,7 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
     - Linear accepted the app's sign-in return address (this registered an anonymous sign-in client with Linear; no account was used);
     - a live registry search worked.
   - Checked in the simulator.
-- **Your first test (2026-11-22), PayPal:** the sign-in on the phone worked. The connection afterwards failed with "Not Found", because PayPal uses the older SSE style and Hermes' catalog entry doesn't say so. Fixed: Lekora now marks such servers. Remove PayPal from Lauren and add it again after updating the plugin.
+- **Your first test (2026-11-22), PayPal:** the sign-in on the phone worked. The connection afterwards failed with "Not Found", because PayPal uses the older SSE style and Hermes' catalog entry doesn't say so. Fixed: Lekora now marks such servers. Your next two tries still failed, because that fix only applied to newly added servers and PayPal was already set up for Lauren. Lekora now also repairs an existing entry when you sign in, test or add it again (config backed up first). Checked on a throwaway copy of the broken entry on your instance: it was repaired and reached PayPal's sign-in page.
 - **To check on your phone (after updating the plugin and app):** add a server from Hermes' catalog for one or two agents, try one that needs a sign-in (e.g. Linear or Notion), and ask an agent to use it.
 
 ## Done, confirmed on your phone 2026-11-22: cards remember their changes (your ask; spec: `docs/artifacts.md`)

@@ -253,6 +253,18 @@ class Mcp:
             raise McpError("UNKNOWN_SERVER", "That server isn't there any more")
         return got
 
+    def _repair(self, profile_id: str, name: str) -> dict:
+        """An entry saved before Lekora marked SSE servers (or by Hermes' own catalog) gets ``transport: sse``
+        now, after a backup (owner's PayPal test, 2026-11-22: it was added before the fix)."""
+        config = self._config(profile_id, name)
+        fixed = with_transport(config)
+        if fixed != config and name not in self._backend.plugin_owned(profile_id):
+            self._backup(profile_id)
+            self._backend.save(profile_id, name, fixed)
+            log.info("Lekora: %s's MCP server %s marked as SSE so Hermes can reach it (config backed up first)",
+                     profile_id, name)
+        return fixed
+
     def _not_plugins(self, profile_id: str, name: str) -> None:
         if name in self._backend.plugin_owned(profile_id):
             raise McpError("INVALID_REQUEST", "Another Hermes plugin manages this server")
@@ -389,6 +401,7 @@ class Mcp:
         added, failed = [], []
         for profile_id in targets:
             if name in self._backend.servers(profile_id):
+                await asyncio.to_thread(self._repair, profile_id, name)
                 continue
             try:
                 self._backup(profile_id)
@@ -520,7 +533,7 @@ class Mcp:
 
     async def test(self, profile_id: Any, name: Any) -> dict:
         profile_id = self._agent(profile_id)
-        config = self._config(profile_id, name)
+        config = await asyncio.to_thread(self._repair, profile_id, name)
         got = await asyncio.to_thread(self._backend.probe, profile_id, name)
         if config.get("auth") == "oauth" and not got.get("ok"):
             got = {**got, "sign_in": not self._backend.signed_in(profile_id, name)}
@@ -530,7 +543,7 @@ class Mcp:
 
     async def sign_in_start(self, profile_id: Any, name: Any, redirect_uri: Any, share_with: Any = None) -> dict:
         profile_id = self._agent(profile_id)
-        config = self._config(profile_id, name)
+        config = await asyncio.to_thread(self._repair, profile_id, name)
         if config.get("auth") != "oauth":
             raise McpError("INVALID_REQUEST", "This server doesn't use an account sign-in")
         if not isinstance(redirect_uri, str) or not redirect_uri.startswith(("lekora://", "http://127.0.0.1:")):

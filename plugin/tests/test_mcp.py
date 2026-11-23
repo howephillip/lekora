@@ -181,6 +181,25 @@ async def test_sse_addresses_are_marked_so_hermes_can_reach_them(mcp, backend):
     assert backend.configs["coder"]["old"]["transport"] == "sse"
 
 
+async def test_a_server_added_before_the_fix_is_repaired_on_sign_in_test_or_re_add(mcp, backend):
+    backend.configs["default"]["paypal"] = {"url": "https://mcp.paypal.com/sse", "auth": "oauth"}
+    await mcp.sign_in_start("default", "paypal", "lekora://mcp-oauth")
+    assert backend.configs["default"]["paypal"]["transport"] == "sse" and "default" in mcp.backups, "backed up first"
+    backend.configs["coder"]["paypal"] = {"url": "https://mcp.paypal.com/sse", "auth": "oauth"}
+    await mcp.test("coder", "paypal")
+    assert backend.configs["coder"]["paypal"]["transport"] == "sse"
+    backend.configs["writer"] = {"paypal": {"url": "https://mcp.paypal.com/sse", "auth": "oauth"}}
+    CATALOG.append({"name": "paypal", "description": "PayPal", "auth": "oauth", "needs": [], "preregistered": False})
+    try:
+        got = await mcp.add({"source": "catalog", "name": "paypal", "to": ["writer"]})
+    finally:
+        CATALOG.pop()
+    assert got["added"] == [] and backend.configs["writer"]["paypal"]["transport"] == "sse"
+    backups = len(mcp.backups)
+    await mcp.test("coder", "paypal")
+    assert len(mcp.backups) == backups, "nothing to repair: no backup, no write"
+
+
 def test_the_catalog_says_who_has_each(mcp):
     found = mcp.catalog("lin")
     assert [e["name"] for e in found] == ["linear"] and found[0]["installed_for"] == ["default"] and found[0]["vetted"]
