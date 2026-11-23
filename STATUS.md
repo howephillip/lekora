@@ -11,7 +11,7 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). The limit you parked (only the default agent had Lekora's artifact and file tools) is now being fixed (below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
-## Built, waiting for your phone check: Tailscale polish (Phase 8, feature 4; spec: `docs/tailscale.md`)
+## Done, confirmed on your phone 2026-11-22: Tailscale polish (Phase 8, feature 4; with Tailscale off, the app took you to Tailscale to turn it back on; spec: `docs/tailscale.md`)
 - **Addresses stay current:** every connection, the instance sends its current addresses; the phone saves them. Turning Tailscale on later or a new home IP needs no re-pairing.
 - **Can't-connect help:** when the app can't reach the instance, it checks whether this phone is on Tailscale. If not, it shows **Turn On Tailscale**, which opens the Tailscale app (or the App Store). If the instance has no Tailscale address, it explains how to add it.
 - **Route in use:** Hermes Instances shows "Connected through Home network / Tailscale" and every address the phone knows, with the one in use ticked.
