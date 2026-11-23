@@ -98,6 +98,8 @@ Whenever the app reconnects (local Wi-Fi, 5G via Tailscale, or remote), it conne
 ```
 
 ### Step 5: `hello.ack`
+
+`hello.ack` also carries `endpoints`: the instance's addresses right now. The phone saves them, so new addresses need no re-pairing (docs/tailscale.md).
 The plugin verifies the credentials against its store:
 ```json
 {

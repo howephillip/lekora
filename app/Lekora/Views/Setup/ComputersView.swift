@@ -143,12 +143,35 @@ private struct ComputerDetailView: View {
             }
             Section {
                 ComputerStatus(gateway: gateway)
+                if let via = gateway.connectedVia, isConnected {
+                    LabeledContent("Connected through") { Text(LKRoute.of(via).label) }
+                }
                 if case .error(let reason) = gateway.state {
                     Text(reason).font(LK.Typography.footnote).foregroundStyle(.secondary)
                 }
                 if !isConnected {
+                    LKTailscaleHelp(endpoints: gateway.savedHost?.endpoints ?? [])
                     Button("Try Again") { Task { await gateway.resumeSavedSession() } }
                 }
+            }
+            Section {
+                ForEach(gateway.savedHost?.endpoints ?? [], id: \.self) { endpoint in
+                    LabeledContent {
+                        Text(URL(string: endpoint)?.host ?? endpoint).font(LK.Typography.caption).textSelection(.enabled)
+                    } label: {
+                        HStack(spacing: LK.Spacing.sm) {
+                            Text(LKRoute.of(endpoint).label)
+                            if endpoint == gateway.connectedVia && isConnected {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(LK.Palette.success)
+                                    .accessibilityLabel("In use")
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("Addresses")
+            } footer: {
+                Text("The phone tries them all at once and uses whichever answers first. They update by themselves each time it connects.")
             }
             if let failure {
                 Text(failure).font(LK.Typography.footnote).foregroundStyle(LK.Palette.danger)

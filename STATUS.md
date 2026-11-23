@@ -11,6 +11,14 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). The limit you parked (only the default agent had Lekora's artifact and file tools) is now being fixed (below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
+## Built, waiting for your phone check: Tailscale polish (Phase 8, feature 4; spec: `docs/tailscale.md`)
+- **Addresses stay current:** every connection, the instance sends its current addresses; the phone saves them. Turning Tailscale on later or a new home IP needs no re-pairing.
+- **Can't-connect help:** when the app can't reach the instance, it checks whether this phone is on Tailscale. If not, it shows **Turn On Tailscale**, which opens the Tailscale app (or the App Store). If the instance has no Tailscale address, it explains how to add it.
+- **Route in use:** Hermes Instances shows "Connected through Home network / Tailscale" and every address the phone knows, with the one in use ticked.
+- **Setup:** if pairing can't reach the instance, a short guide (same Wi-Fi, or Tailscale on both). `hermes lekora pair` says how to add Tailscale when the machine isn't on it.
+- **Checked:** plugin 493 pass (3 new), app 262 pass (2 new). The Tailscale check spotted this Mac's Tailscale address through the simulator. Your instance's address lookup returns its home and Tailscale addresses. I also made a flaky prompt-card test reliable (its card expired after 1 second).
+- **To check (after updating the plugin and app):** open Hermes Instances to see the route; turn Tailscale off on your phone while away from home and check the "Turn On Tailscale" help.
+
 ## Done, confirmed on your phone 2026-11-22: connecting on slow Wi-Fi (your report; `docs/auto-reconnect.md`)
 - **What was wrong:** on the Delta flight your phone could reach the instance through Tailscale, but slowly: about a second per round trip (checked from the instance). Opening the encrypted connection takes about four round trips, and the app gave up after 3 seconds, so it never connected.
 - **Fix:** each route now gets 15 seconds. All routes are still tried at once, so home and office connections are as fast as before.

@@ -154,6 +154,7 @@ public struct SetupWizardView: View {
             LKNotice(.progress, "Connecting…")
         case .error(let reason):
             LKNotice(.warning, reason)
+            LKReachGuide()
         default:
             if let notice { LKNotice(.warning, notice) }
         }
@@ -216,5 +217,39 @@ public struct SetupWizardView: View {
 
     public func handlePairingPayload(_ payload: String) {
         gateway.handlePairingPayload(payload)
+    }
+}
+
+/// Setup couldn't reach the instance (docs/tailscale.md): the two ways a phone reaches Hermes.
+struct LKReachGuide: View {
+    @Environment(\.openURL) private var openURL
+    @State private var onTailscale = LKRoute.phoneOnTailscale()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LK.Spacing.sm) {
+            Text("Can't reach it?").font(LK.Typography.headline)
+            Text("• At home: join the same Wi-Fi as the Hermes machine.")
+            Text("• Anywhere: install Tailscale on the Hermes machine and this phone, signed in to the same account, then pair again. " +
+                 (onTailscale ? "This phone is on Tailscale." : "This phone isn't on Tailscale right now."))
+            HStack {
+                if onTailscale {
+                    LKSecondaryButton("Open Tailscale", systemImage: "network") { openTailscale() }
+                } else {
+                    LKSecondaryButton("Turn On Tailscale", systemImage: "network") { openTailscale() }
+                }
+            }
+        }
+        .font(LK.Typography.footnote)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            onTailscale = LKRoute.phoneOnTailscale()
+        }
+    }
+
+    private func openTailscale() {
+        openURL(LKRoute.tailscaleApp) { opened in
+            if !opened { openURL(LKRoute.tailscaleAppStore) }
+        }
     }
 }

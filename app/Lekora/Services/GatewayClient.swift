@@ -79,6 +79,8 @@ public final class GatewayClient: ObservableObject {
     private var currentSession: URLSession?
     private var heartbeatTimer: Timer?
     private var activeURL: URL?
+    /// The address this connection uses (docs/tailscale.md: shown in Hermes Instances).
+    @Published public private(set) var connectedVia: String?
     /// Requests awaiting a reply with the same envelope id (agent create/delete).
     private var pendingReplies: [String: CheckedContinuation<Data, Error>] = [:]
     /// Where chats are kept between launches; nil = memory only (most tests).
@@ -900,6 +902,8 @@ public final class GatewayClient: ObservableObject {
 
             self.profiles = ack.profiles
             applyInstanceName(ack.instance_name)
+            applyEndpoints(ack.endpoints)
+            connectedVia = activeURL?.absoluteString
             userName = ack.user_name
             reconcileProfileChoice()
             // Live bubbles from before the reconnect are previews; the replay is the truth.
@@ -1866,6 +1870,7 @@ public final class GatewayClient: ObservableObject {
     }
 
     private func handleDisconnection() {
+        connectedVia = nil
         failPendingReplies()
         agentActivity = [:]
         heartbeatTimer?.invalidate()
@@ -1929,6 +1934,17 @@ public final class GatewayClient: ObservableObject {
         guard case .connected = state, let wsTask = webSocketTask, let instanceId = savedHost?.instanceId else { return }
         let envelope = Envelope(type: "voice.timing", instance_id: instanceId, profile_id: profileId, data: timing)
         Task { [weak self] in try? await self?.send(envelope, on: wsTask) }
+    }
+
+    /// The instance's current addresses replace the saved ones (the route in use stays first), so a new
+    /// home address or turning on Tailscale never needs pairing again (docs/tailscale.md).
+    private func applyEndpoints(_ current: [String]?) {
+        guard var host = savedHost, let current, !current.isEmpty else { return }
+        let updated = SavedHost.orderedEndpoints(preferred: activeURL, current)
+        guard updated != host.endpoints else { return }
+        host.endpoints = updated
+        try? host.saveEndpoints(to: keychain)
+        savedHost = host
     }
 
     private func applyInstanceName(_ name: String) {

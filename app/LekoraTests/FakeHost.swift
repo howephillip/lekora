@@ -204,6 +204,9 @@ final class FakeHost: @unchecked Sendable {
     var respondStatusOverride: String?
 
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+    /// The instance's current addresses, sent with hello.ack (docs/tailscale.md).
+    var helloEndpoints: [String]?
+
     /// MCP servers across agents (docs/mcp.md).
     var mcpServers: [[String: Any]] = [["name": "deepwiki", "description": "Public repos", "source": "catalog", "kind": "url",
                                         "url": "https://mcp.deepwiki.com/mcp", "auth": "none",
@@ -508,6 +511,7 @@ final class FakeHost: @unchecked Sendable {
                 if messageTime != nil { ack["message_times"] = true }
                 ack["read"] = Dictionary(uniqueKeysWithValues: profiles.compactMap { $0["profile_id"] }.map { ($0, readMarkers[$0] ?? 0) })
             }
+            if let helloEndpoints { ack["endpoints"] = helloEndpoints }
             send(type: "hello.ack", id: id, data: ack, on: connection)
             for event in replay {
                 send(type: "chat.message", data: legacyHello ? ["seq": event.seq, "role": event.role, "text": event.text] : messageData(event),

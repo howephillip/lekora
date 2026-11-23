@@ -52,6 +52,7 @@ public struct ReconnectingView: View {
 
             if !isWorking, let problem {
                 LKNotice(.warning, problem)
+                LKTailscaleHelp(endpoints: host.endpoints)
 
                 LKPrimaryButton("Try Again", systemImage: "arrow.clockwise") {
                     Task { await gateway.resumeSavedSession() }
@@ -83,6 +84,45 @@ public struct ReconnectingView: View {
             if gateway.isForgetting {
                 LKBlockingProgress("Forgetting \(host.instanceName)…")
             }
+        }
+    }
+}
+
+/// When the instance can't be reached (docs/tailscale.md): whether Tailscale is the missing piece, with a
+/// button to Tailscale (its app, or the App Store when it isn't installed).
+struct LKTailscaleHelp: View {
+    /// The addresses this phone knows for the instance.
+    let endpoints: [String]
+    @Environment(\.openURL) private var openURL
+    @State private var onTailscale = LKRoute.phoneOnTailscale()
+
+    private var instanceOnTailscale: Bool { endpoints.contains { LKRoute.of($0) == .tailscale } }
+
+    var body: some View {
+        Group {
+            if instanceOnTailscale && !onTailscale {
+                VStack(spacing: LK.Spacing.sm) {
+                    Text("Away from home? This phone isn't on Tailscale right now. Turn it on, then try again.")
+                        .font(LK.Typography.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    LKSecondaryButton("Turn On Tailscale", systemImage: "network") { openTailscale() }
+                }
+            } else if !instanceOnTailscale {
+                VStack(spacing: LK.Spacing.sm) {
+                    Text("This instance can only be reached on its home network. To use Lekora anywhere, install Tailscale on the Hermes machine and this phone (same account); Lekora finds the new address by itself.")
+                        .font(LK.Typography.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    LKSecondaryButton("Get Tailscale", systemImage: "arrow.down.app") { openURL(LKRoute.tailscaleAppStore) }
+                }
+            }
+        }
+        .onAppear { onTailscale = LKRoute.phoneOnTailscale() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            onTailscale = LKRoute.phoneOnTailscale()
+        }
+    }
+
+    private func openTailscale() {
+        openURL(LKRoute.tailscaleApp) { opened in
+            if !opened { openURL(LKRoute.tailscaleAppStore) }
         }
     }
 }

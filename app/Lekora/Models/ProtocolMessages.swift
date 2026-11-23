@@ -143,6 +143,8 @@ public struct HelloAckData: Codable, Equatable {
     public let message_times: Bool?
     /// What this instance's agents call you ("" not chosen yet; absent from older plugins).
     public let user_name: String?
+    /// The instance's addresses right now (docs/tailscale.md); the phone saves them.
+    public var endpoints: [String]? = nil
 
     public init(
         status: String = "ok",

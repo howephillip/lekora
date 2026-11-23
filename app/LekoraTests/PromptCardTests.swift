@@ -103,13 +103,13 @@ final class PromptCardTests: XCTestCase {
 
     func testCardPastItsDeadlineIsNoLongerOpen() async throws {
         let gateway = try await connected()
-        host.ask(profile: "bruce", card: approvalCard(expiresIn: 1), role: "approval", text: "x")
+        host.ask(profile: "bruce", card: approvalCard(expiresIn: 30), role: "approval", text: "x")  // 30 s: long enough for a busy simulator
         _ = await waitUntil { gateway.timeline.entries.contains { $0.card != nil } }
         let card = try XCTUnwrap(gateway.timeline.entries.first { $0.card != nil }?.card)
         XCTAssertTrue(card.isOpen())
-        XCTAssertFalse(card.isOpen(now: Date().addingTimeInterval(5)))
-        XCTAssertNil(gateway.openPrompt(for: "bruce", now: Date().addingTimeInterval(5)))
-        XCTAssertEqual(LKPromptText.outcome(of: card, now: Date().addingTimeInterval(5)).text, "Timed out — nothing ran")
+        XCTAssertFalse(card.isOpen(now: Date().addingTimeInterval(60)))
+        XCTAssertNil(gateway.openPrompt(for: "bruce", now: Date().addingTimeInterval(60)))
+        XCTAssertEqual(LKPromptText.outcome(of: card, now: Date().addingTimeInterval(60)).text, "Timed out — nothing ran")
     }
 
     // MARK: - Questions

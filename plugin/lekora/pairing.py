@@ -66,6 +66,19 @@ def create_invite(
                   store.now() + INVITE_TTL)
 
 
+def is_tailscale(endpoint: str) -> bool:
+    """A Tailscale address: in 100.64.0.0/10, or a MagicDNS name (….ts.net)."""
+    import ipaddress
+    from urllib.parse import urlparse
+    host = urlparse(endpoint).hostname or ""
+    if host.endswith(".ts.net"):
+        return True
+    try:
+        return ipaddress.ip_address(host) in ipaddress.ip_network("100.64.0.0/10")
+    except ValueError:
+        return False
+
+
 def format_pairing_output(invite: Invite, show_qr: bool = True) -> str:
     parts = []
     if show_qr:
@@ -78,6 +91,11 @@ def format_pairing_output(invite: Invite, show_qr: bool = True) -> str:
         "Routes your phone will try: " + ", ".join(invite.endpoints),
         f"This code works once and expires at {invite.expires_at:%H:%M} UTC (30 minutes).",
     ]
+    if not any(is_tailscale(e) for e in invite.endpoints):
+        parts += ["",
+                  "Away from home: this machine isn't on Tailscale, so your phone can reach it only on this "
+                  "network. To use Lekora anywhere, install Tailscale here and on your phone (same account): "
+                  "https://tailscale.com/download. Lekora picks up the new address by itself; no need to pair again."]
     return "\n".join(parts)
 
 

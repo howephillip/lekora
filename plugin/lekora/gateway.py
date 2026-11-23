@@ -667,6 +667,19 @@ class Gateway:
                     pass
         await conn.ws.close(1000, "device unpaired")
 
+    async def _current_endpoints(self) -> list:
+        """The addresses phones can reach this instance on, looked up at most once a minute."""
+        at, cached = getattr(self, "_endpoints_cache", (0.0, []))
+        if time.monotonic() - at < 60:
+            return cached
+        try:
+            found = await asyncio.to_thread(self._endpoints, self.port or 0)
+        except Exception:
+            log.debug("Lekora: couldn't list this instance's addresses", exc_info=True)
+            found = cached
+        self._endpoints_cache = (time.monotonic(), list(found or []))
+        return self._endpoints_cache[1]
+
     async def _hello(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
         if data.get("proto_version", PROTO_VERSION) != PROTO_VERSION:
             raise _Reject("INCOMPATIBLE_VERSION",
@@ -713,6 +726,11 @@ class Gateway:
                 for group in self.groups.list():
                     key = self.groups.key(group["group_id"])
                     ack["read"][key] = self.store.read_marker(key)
+        # The instance's addresses as they are now (home network, Tailscale): the phone keeps them, so a new
+        # address never needs pairing again (owner, 2026-11-22).
+        current = await self._current_endpoints()
+        if current:
+            ack["endpoints"] = current
         # Hold the connection lock so live broadcasts queue behind the replay.
         async with conn.lock:
             conn.sent_rev = max([rev_now] + [e.rev for e in replay])

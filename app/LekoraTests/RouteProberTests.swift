@@ -120,4 +120,36 @@ final class RouteProberTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 3.0)
         XCTAssertEqual(route.winningURL.absoluteString, host.endpoint)
     }
+
+    /// Tailscale polish (docs/tailscale.md): which kind of route each address is.
+    func testRoutesAreNamed() {
+        XCTAssertEqual(LKRoute.of("wss://100.88.44.108:40225"), .tailscale)
+        XCTAssertEqual(LKRoute.of("wss://howeitsdone.tail203404.ts.net:40225"), .tailscale)
+        XCTAssertEqual(LKRoute.of("wss://192.168.8.121:40225"), .home)
+        XCTAssertEqual(LKRoute.of("wss://10.0.0.5:1"), .home)
+        XCTAssertEqual(LKRoute.of("wss://hermes.local:1"), .home)
+        XCTAssertEqual(LKRoute.of("wss://my.domain.example:1"), .internet)
+        XCTAssertEqual(LKRoute.of("wss://100.200.1.1:1"), .internet, "outside Tailscale's range")
+        _ = LKRoute.phoneOnTailscale()  // true here when this Mac is on Tailscale (the simulator shares its network)
+    }
+
+    /// A new address from the instance (Tailscale turned on later, a new home IP) is saved: no re-pairing.
+    @MainActor
+    func testNewAddressesFromTheInstanceAreSaved() async throws {
+        let host = try FakeHost()
+        host.helloEndpoints = ["wss://100.88.1.2:40225", "wss://box.tail1.ts.net:40225"]
+        try await host.start()
+        defer { host.stop() }
+        let store = InMemoryCredentialStore()
+        try SavedHost(instanceId: host.instanceId, instanceName: host.instanceName, deviceId: "dev_1",
+                      deviceToken: host.acceptedDeviceToken, endpoints: [host.endpoint],
+                      enabledProfileIds: ["default"], activeProfileId: "default").save(to: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
+        await gateway.resumeSavedSession()
+        let saved = await waitUntil { SavedHost.load(from: store)?.endpoints.count == 3 }
+        XCTAssertTrue(saved)
+        XCTAssertEqual(SavedHost.load(from: store)?.endpoints,
+                       [host.endpoint, "wss://100.88.1.2:40225", "wss://box.tail1.ts.net:40225"], "the route in use stays first")
+        XCTAssertEqual(gateway.connectedVia, host.endpoint)
+    }
 }

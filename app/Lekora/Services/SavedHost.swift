@@ -19,8 +19,9 @@ public struct SavedHost: Equatable {
     public var instanceName: String
     public let deviceId: String
     public let deviceToken: String
-    /// Candidate `ws://` addresses, tried in parallel; the one that worked last is first.
-    public let endpoints: [String]
+    /// Candidate `ws://` addresses, tried in parallel; the one that worked last is first. Refreshed on every
+    /// connection from the instance's current addresses (docs/tailscale.md).
+    public var endpoints: [String]
     /// Fingerprint of the host's certificate; connections accept only this certificate.
     public let certPin: String?
     /// Agents (profile ids) chosen for this phone; nil until the user has chosen.
@@ -111,6 +112,11 @@ public struct SavedHost: Equatable {
         }
     }
 
+    /// Persists just the addresses (the instance sends its current ones on every connection).
+    public func saveEndpoints(to store: CredentialStore) throws {
+        try store.save(key: Key.of(instanceId, Key.endpoints), value: endpoints.joined(separator: "\n"))
+    }
+
     /// Persists just the computer's name (renamed in the app or on another phone).
     public func saveName(to store: CredentialStore) throws {
         try store.save(key: Key.of(instanceId, Key.instanceName), value: instanceName)
@@ -181,4 +187,56 @@ public struct SavedHost: Equatable {
         let all = [preferred?.absoluteString].compactMap { $0 } + lists.flatMap { $0 }
         return all.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
+}
+
+/// How the phone reaches an instance (docs/tailscale.md): its home network, Tailscale, or the internet.
+public enum LKRoute: Equatable {
+    case home, tailscale, internet
+
+    public static func of(_ endpoint: String) -> LKRoute {
+        guard let host = URL(string: endpoint)?.host?.lowercased() else { return .internet }
+        if host.hasSuffix(".ts.net") || inTailnet(host) { return .tailscale }
+        if host.hasSuffix(".local") || isPrivate(host) { return .home }
+        return .internet
+    }
+
+    public var label: String {
+        switch self {
+        case .home: return "Home network"
+        case .tailscale: return "Tailscale"
+        case .internet: return "Internet"
+        }
+    }
+
+    /// Tailscale's address range, 100.64.0.0/10.
+    static func inTailnet(_ host: String) -> Bool {
+        let parts = host.split(separator: ".").compactMap { UInt8($0) }
+        return parts.count == 4 && parts[0] == 100 && (64...127).contains(parts[1])
+    }
+
+    static func isPrivate(_ host: String) -> Bool {
+        let parts = host.split(separator: ".").compactMap { UInt8($0) }
+        guard parts.count == 4 else { return false }
+        return parts[0] == 10 || (parts[0] == 172 && (16...31).contains(parts[1])) || (parts[0] == 192 && parts[1] == 168)
+    }
+
+    /// True when this phone has a Tailscale address right now (Tailscale is on and connected).
+    public static func phoneOnTailscale() -> Bool {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return false }
+        defer { freeifaddrs(list) }
+        for item in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            guard let address = item.pointee.ifa_addr, address.pointee.sa_family == UInt8(AF_INET) else { continue }
+            var text = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(address, socklen_t(address.pointee.sa_len), &text, socklen_t(text.count), nil, 0, NI_NUMERICHOST) == 0,
+               inTailnet(String(cString: text)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Tailscale's app (opened if installed), else its App Store page.
+    public static let tailscaleApp = URL(string: "tailscale://")!
+    public static let tailscaleAppStore = URL(string: "https://apps.apple.com/app/tailscale/id1470499037")!
 }
