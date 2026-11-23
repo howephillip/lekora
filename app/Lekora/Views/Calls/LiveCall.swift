@@ -11,11 +11,14 @@ import LiveKit
 
 @MainActor
 public final class LiveCallSession: ObservableObject {
-    @Published public private(set) var phase: HandsFreeSession.Phase = .starting
+    @Published public private(set) var phase: HandsFreeSession.Phase = .starting { didSet { onChange?() } }
     @Published public var muted = false {
-        didSet { Task { await applyMute() } }
+        didSet { onChange?(); Task { await applyMute() } }
     }
-    @Published public private(set) var level: Double = 0
+    @Published public private(set) var level: Double = 0 { didSet { onChange?() } }
+    /// The call screen holds this call in a @State, which doesn't follow its changes: it's told here
+    /// (owner, 2026-11-23: a connected Fish call still said "Starting…").
+    var onChange: (() -> Void)?
 
     let gateway: GatewayClient
     let profileId: String

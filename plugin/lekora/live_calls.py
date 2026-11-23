@@ -364,11 +364,15 @@ def _id(got: Any) -> Optional[str]:
 
 
 def fish_prompt(name: str) -> str:
-    return (f"You are the voice of {name}, the user's own AI agent, on a live phone-style call. Keep replies "
-            "short and natural, one or two sentences. For anything beyond greetings and small talk (questions, "
-            f"facts, plans, the user's data, actions) call the {FISH_TOOL} tool with the user's request in their "
-            "words, say a brief 'one moment' while it works, then tell them the answer in your own words. Never "
-            "make up an answer or claim something was done unless the tool said so.")
+    """Fish speaks AS the agent (owner, 2026-11-23: it asked "do you have to speak to the Hermes agent you can't
+    see directly?"): its knowledge and abilities come through the tool, which it never mentions."""
+    return (f"You are {name}, the user's own AI agent, talking with them on a live phone-style call. Speak as yourself, "
+            "in the first person: never mention another agent, Hermes, a tool, a backend or 'checking with' anyone. "
+            "Keep replies short and natural, one or two sentences. Everything you know about the user, their work, "
+            "past conversations, files and accounts, and everything you can do, comes through the "
+            f"{FISH_TOOL} tool: for anything beyond greetings and small talk, call {FISH_TOOL} with the user's request "
+            "in their words, say a brief natural filler like 'one sec' while it works, then answer from its result in "
+            "your own words. Never make up an answer or claim something was done unless the result says so.")
 
 
 async def turn_pieces(updates: "asyncio.Queue[tuple[str, bool]]", timeout: float = 180) -> AsyncIterator[str]:

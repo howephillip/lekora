@@ -14,8 +14,10 @@ struct HandsFreeView: View {
     @State private var engines: LiveEngines?
     @State private var live: LiveCallSession?
     @State private var engine = "agent"
+    /// Bumped whenever the live call changes, so the screen shows its state.
+    @State private var liveTick = 0
 
-    private var phase: HandsFreeSession.Phase { live?.phase ?? session.phase }
+    private var phase: HandsFreeSession.Phase { _ = liveTick; return live?.phase ?? session.phase }
     private var level: Double { live?.level ?? session.level }
     private var isMuted: Bool { live?.muted ?? session.muted }
 
@@ -174,6 +176,8 @@ struct HandsFreeView: View {
             await session.start()
         } else {
             let call = LiveCallSession(gateway: gateway, profileId: profileId, engine: id)
+            let tick = $liveTick
+            call.onChange = { tick.wrappedValue &+= 1 }
             live = call
             await call.start()
         }
