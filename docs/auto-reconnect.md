@@ -19,7 +19,7 @@ After pairing once, the app reconnects to the host by itself: on launch and when
 - A socket that dies after a newer one has connected is ignored, so it can't knock the new connection offline.
 
 ## Forget Host
-In the chat screen's toolbar and on the Reconnecting screen, with a confirmation. Sends `device.unpair` on its own short-lived socket (2 s probe, 3 s reply timeout) so the host revokes this phone, then deletes the Keychain items, clears the screen and shows the wizard. If the host can't be reached it still forgets locally and the setup screen explains how to revoke the phone with `hermes lekora devices`.
+In the chat screen's toolbar and on the Reconnecting screen, with a confirmation. Sends `device.unpair` on its own short-lived socket (10 s probe, 3 s reply timeout) so the host revokes this phone, then deletes the Keychain items, clears the screen and shows the wizard. If the host can't be reached it still forgets locally and the setup screen explains how to revoke the phone with `hermes lekora devices`.
 
 Pairing sends a descriptive `device_name` (hardware model and OS version, e.g. "iPhone19,2 · iOS 27.0.1"); iOS hides the user's own device name from apps.
 
