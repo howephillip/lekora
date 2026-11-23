@@ -164,6 +164,23 @@ def test_every_server_once_with_the_agents_that_have_it(mcp):
     assert "secret-1" not in json.dumps(got), "secrets never go to the phone"
 
 
+async def test_sse_addresses_are_marked_so_hermes_can_reach_them(mcp, backend):
+    from lekora.mcp import with_transport
+    assert with_transport({"url": "https://mcp.paypal.com/sse"})["transport"] == "sse"
+    assert "transport" not in with_transport({"url": "https://mcp.linear.app/mcp"})
+    assert with_transport({"url": "https://x.example/stream"}, "sse")["transport"] == "sse"
+    backend.install_catalog = lambda p, name, values: backend.configs.setdefault(p, {}).__setitem__(
+        name, {"url": "https://mcp.paypal.com/sse", "auth": "oauth"})
+    CATALOG.append({"name": "paypal", "description": "PayPal", "auth": "oauth", "needs": [], "preregistered": False})
+    try:
+        await mcp.add({"source": "catalog", "name": "paypal", "to": ["coder"]})
+    finally:
+        CATALOG.pop()
+    assert backend.configs["coder"]["paypal"] == {"url": "https://mcp.paypal.com/sse", "auth": "oauth", "transport": "sse"}
+    await mcp.add({"source": "custom", "name": "old", "url": "https://old.example/sse", "to": ["coder"]})
+    assert backend.configs["coder"]["old"]["transport"] == "sse"
+
+
 def test_the_catalog_says_who_has_each(mcp):
     found = mcp.catalog("lin")
     assert [e["name"] for e in found] == ["linear"] and found[0]["installed_for"] == ["default"] and found[0]["vetted"]

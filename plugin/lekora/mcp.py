@@ -80,6 +80,16 @@ def _vars(value: Any) -> set[str]:
     return set()
 
 
+def with_transport(config: dict, remote_type: Optional[str] = None) -> dict:
+    """An address that serves the older SSE style (registry type ``sse``, or a path ending in /sse) is
+    marked ``transport: sse``; Hermes otherwise speaks the newer style to it, which such servers refuse
+    with "Not Found" (owner's PayPal test, 2026-11-22: even Hermes' own catalog entry lacks it)."""
+    url = str(config.get("url") or "")
+    if url and "transport" not in config and (remote_type == "sse" or urlparse(url).path.rstrip("/").endswith("/sse")):
+        return {**config, "transport": "sse"}
+    return config
+
+
 def _tools_label(config: dict) -> str:
     tools = config.get("tools") if isinstance(config.get("tools"), dict) else {}
     if isinstance(tools.get("include"), list):
@@ -168,7 +178,7 @@ def registry_config(option: dict, server_name: str, values: dict[str, str]) -> t
         config: dict[str, Any] = {"url": option["url"]}
         if headers:
             config["headers"] = headers
-        return config, store
+        return with_transport(config, option.get("transport")), store
     env = {}
     for need in option["needs"]:
         got = value_for(need)
@@ -346,6 +356,9 @@ class Mcp:
                     if need.get("secret") and values.get(need["name"]):
                         self._backend.save_secret(profile_id, need["name"], values[need["name"]])
                 self._backend.install_catalog(profile_id, name, values)
+                installed = self._backend.servers(profile_id).get(name)
+                if installed is not None and with_transport(installed) != installed:
+                    self._backend.save(profile_id, name, with_transport(installed))
         elif source == "registry":
             server = await self._registry_server(str(data.get("id") or ""))
             option = registry_option(server, self._backend.has_runner)
@@ -418,7 +431,7 @@ class Mcp:
                 config["headers"] = {"Authorization": "Bearer ${" + key + "}"}
             elif data.get("oauth"):
                 config["auth"] = "oauth"
-            return config, store
+            return with_transport(config), store
         if command:
             args = data.get("args") or []
             if not isinstance(args, list) or not all(isinstance(a, str) for a in args):

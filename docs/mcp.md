@@ -52,6 +52,7 @@ agent, in each agent's `config.yaml` (`mcp_servers`).
   - Required settings become fields in the app. Secret ones are stored in `.env` as `${VAR}`.
 - **Your own:** a URL (optional bearer token, stored by Hermes as `MCP_<NAME>_API_KEY`), or a command
   with arguments and settings.
+- An address that serves the older SSE style (registry type `sse`, or a path ending in `/sse`) is saved with `transport: sse`. Without it Hermes speaks the newer style and the server answers "Not Found". Hermes' own catalog entry for PayPal lacks this (owner's test, 2026-11-22).
 - Every save goes through Hermes' `_save_mcp_server`, which applies Hermes' own safety check
   (`validate_mcp_server_entry`). A rejected server is not saved.
 - **On/off** sets `enabled`. **Remove** uses Hermes' `_remove_mcp_server`.
