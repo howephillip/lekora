@@ -10,6 +10,7 @@ struct SideMenuView: View {
     var openAnalytics: (GatewayClient) -> Void = { _ in }
     var openHome: () -> Void = {}
     var openSkills: (GatewayClient) -> Void = { _ in }
+    var openMcp: (GatewayClient) -> Void = { _ in }
     /// The page on screen, marked in the menu.
     var current: Place = .home
 
@@ -20,6 +21,7 @@ struct SideMenuView: View {
         case schedules(String?)
         case analytics(String?)
         case skills(String?)
+        case mcp(String?)
     }
 
     let openYourName: () -> Void
@@ -85,6 +87,10 @@ struct SideMenuView: View {
                                  selected: current == .skills(client.savedHost?.instanceId)) { pick { openSkills(client) } }
                         }
                         ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
+                            item("MCP Servers", detail: client.savedHost?.instanceName, symbol: "puzzlepiece.extension",
+                                 selected: current == .mcp(client.savedHost?.instanceId)) { pick { openMcp(client) } }
+                        }
+                        ForEach(hosts.clients, id: \.savedHost?.instanceId) { client in
                             item("Analytics", detail: client.savedHost?.instanceName, symbol: "chart.bar.xaxis",
                                  selected: current == .analytics(client.savedHost?.instanceId)) { pick { openAnalytics(client) } }
                         }
@@ -92,6 +98,7 @@ struct SideMenuView: View {
                         item("Board", symbol: "square.stack.3d.up", selected: current == .board(client.savedHost?.instanceId)) { pick { openBoard(client) } }
                         item("Cron Jobs", symbol: "calendar.badge.clock", selected: current == .schedules(client.savedHost?.instanceId)) { pick { openSchedules(client) } }
                         item("Skills", symbol: "graduationcap", selected: current == .skills(client.savedHost?.instanceId)) { pick { openSkills(client) } }
+                        item("MCP Servers", symbol: "puzzlepiece.extension", selected: current == .mcp(client.savedHost?.instanceId)) { pick { openMcp(client) } }
                         item("Analytics", symbol: "chart.bar.xaxis", selected: current == .analytics(client.savedHost?.instanceId)) { pick { openAnalytics(client) } }
                     }
                 }

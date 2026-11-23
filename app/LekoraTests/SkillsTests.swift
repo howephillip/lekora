@@ -70,6 +70,30 @@ final class SkillsTests: XCTestCase {
         XCTAssertTrue(draft.content.hasPrefix("---\nname: weekly-review"))
     }
 
+    /// MCP servers (docs/mcp.md): list, add from the registry, then sign in on the phone.
+    func testMcpServersAddAndSignIn() async throws {
+        let gateway = try await connected()
+        let servers = try await gateway.mcpServers()
+        XCTAssertEqual(servers.map(\.name), ["deepwiki"])
+        XCTAssertEqual(servers.first?.agents.first?.tools, "all")
+        let found = try await gateway.searchMcpRegistry("weather")
+        XCTAssertEqual(found.first?.runnable, true)
+        let added = try await gateway.addMcpServer(McpAddRequest(source: "registry", name: "weather", id: "io.github.acme/weather",
+                                                                 to: ["default"]))
+        XCTAssertEqual(added.added, ["default"])
+        XCTAssertEqual(added.test?.sign_in, true, "it asks for an account sign-in")
+        let sent = host.received(type: "mcp.add").first
+        XCTAssertEqual((sent?["data"] as? [String: Any])?["source"] as? String, "registry")
+        XCTAssertNil((sent?["data"] as? [String: Any])?["bearer"], "nothing that isn't set is sent")
+        let started = try await gateway.startMcpSignIn("weather", for: "default", redirect: McpSignInButton.appReturn)
+        XCTAssertEqual(started.status, "authorization_required")
+        let done = try await gateway.finishMcpSignIn(started.flow_id ?? "", callback: URL(string: "lekora://mcp-oauth?code=c&state=s1")!)
+        XCTAssertEqual(done.status, "approved")
+        let listed = try await gateway.mcpServers()
+        XCTAssertEqual(listed.last?.agents.first?.signed_in, false, "the list comes from Hermes")
+        XCTAssertEqual(LKMcpText.source("registry"), "Public Registry (not vetted)")
+    }
+
     func testLekorasOwnSkillIsLabelled() {
         XCTAssertEqual(LKSkillText.source("lekora"), "From Lekora")
     }

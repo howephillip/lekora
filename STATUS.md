@@ -11,6 +11,29 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). The limit you parked (only the default agent had Lekora's artifact and file tools) is now being fixed (below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
+## Built, waiting for your phone check: MCP servers (Phase 8, feature 3; spec: `docs/mcp.md`)
+- **Where (your choice, 2026-11-22):** left menu › **MCP Servers**, one page for all agents. Each server appears once with the agents that have it (faded where it's off), grouped as Hermes Catalog / Public Registry / Added by You, with **Sign in needed** where an agent still has to sign in.
+- **A server's page:**
+  - each agent with on/off;
+  - **Add** to agents that don't have it (its keys and sign-in are shared on your Hermes instance, never through the phone);
+  - swipe to **Remove** (confirmed);
+  - **Sign In** per agent;
+  - **Test Connection**, which shows whether it answers and its tools.
+- **+ › Hermes Catalog:** Hermes' own 66 Nous-checked servers. **+ › Public Registry:** the official MCP registry, every result marked **Not vetted**; those that can't run on your machine say why. **+ › Add Your Own:** an address (optional token, or account sign-in) or a command.
+- **Adding:** pick the agents (all by default), fill in any keys, then Lekora adds it and tests it. If it needs an account, you sign in once on the phone and every agent you picked uses that sign-in.
+- **Sign-ins (your choice):** done in the app with Apple's sign-in sheet. Hermes checks them and keeps the tokens on your instance. Keys go into each agent's `.env` through Hermes and are never shown again.
+- **Rule 8 exception you chose (2026-11-22):** adding, removing and on/off change only that server's entry in the agent's `mcp_servers`, through Hermes' own MCP helpers (with its safety check), after a backup (original + 10 newest). I can't edit AGENTS.md myself; the line to add is in my message.
+- **Checked:**
+  - Plugin 488 pass (12 new), app 258 pass.
+  - In a throwaway agent folder on your instance (your agents were only read):
+    - added DeepWiki from Hermes' catalog, tested it (it listed its tools), turned it off, saved a key and removed it;
+    - Hermes' safety check refused a risky command;
+    - keys stay as placeholders in config.yaml;
+    - Linear accepted the app's sign-in return address (this registered an anonymous sign-in client with Linear; no account was used);
+    - a live registry search worked.
+  - Checked in the simulator.
+- **To check on your phone (after updating the plugin and app):** add a server from Hermes' catalog for one or two agents, try one that needs a sign-in (e.g. Linear or Notion), and ask an agent to use it.
+
 ## Done, confirmed on your phone 2026-11-22: cards remember their changes (your ask; spec: `docs/artifacts.md`)
 - **What changes:** what you do inside a card's page (tick items, count, type, change settings) is still there when you close it and open it again. It's saved on your Hermes instance, so it also survives a new phone or a re-setup. One copy per card, shared by all its versions.
 - **How:** the page's own browser storage (`localStorage`) is saved shortly after each change and when the card closes, then put back the next time it opens. Edits you save with Edit already became new versions; that part was fine.

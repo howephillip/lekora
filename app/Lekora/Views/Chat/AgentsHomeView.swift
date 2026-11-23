@@ -28,6 +28,7 @@ public struct AgentsHomeView: View {
     @State private var schedulesOn: GatewayClient?
     @State private var analyticsOn: GatewayClient?
     @State private var skillsOn: GatewayClient?
+    @State private var mcpOn: GatewayClient?
     @AppStorage("homeLayout") private var layoutChoice = Layout.recent.rawValue
 
     public init(hosts: HostsModel) {
@@ -86,6 +87,7 @@ public struct AgentsHomeView: View {
                          openAnalytics: { show(analytics: $0) },
                          openHome: { show() },
                          openSkills: { show(skills: $0) },
+                         openMcp: { show(mcp: $0) },
                          current: currentPage,
                          openYourName: { editingName = true },
                          openInstances: { showingComputers = true },
@@ -107,6 +109,8 @@ public struct AgentsHomeView: View {
             AnalyticsView(gateway: client).toolbar { menuToolbar }
         } else if let client = skillsOn {
             SkillsView(gateway: client).toolbar { menuToolbar }
+        } else if let client = mcpOn {
+            McpView(gateway: client).toolbar { menuToolbar }
         } else {
             agentList.toolbar { homeToolbar }
         }
@@ -118,16 +122,18 @@ public struct AgentsHomeView: View {
         if let client = schedulesOn { return .schedules(client.savedHost?.instanceId) }
         if let client = analyticsOn { return .analytics(client.savedHost?.instanceId) }
         if let client = skillsOn { return .skills(client.savedHost?.instanceId) }
+        if let client = mcpOn { return .mcp(client.savedHost?.instanceId) }
         return .home
     }
 
     private func show(board: GatewayClient? = nil, schedules: GatewayClient? = nil, analytics: GatewayClient? = nil,
-                      skills: GatewayClient? = nil) {
+                      skills: GatewayClient? = nil, mcp: GatewayClient? = nil) {
         path = []
         boardOn = board
         schedulesOn = schedules
         analyticsOn = analytics
         skillsOn = skills
+        mcpOn = mcp
     }
 
     @ToolbarContentBuilder

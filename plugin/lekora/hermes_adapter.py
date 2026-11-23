@@ -233,6 +233,16 @@ class LekoraAdapter(BasePlatformAdapter):
             logger.info("Lekora: this Hermes can't be read for usage; Analytics is unavailable")
             return None
 
+    def _hermes_mcp(self):
+        """Hermes' own MCP helpers, per agent (docs/mcp.md); None on a Hermes without them."""
+        try:
+            from hermes_cli.mcp_config import _save_mcp_server  # noqa: F401
+            from .hermes_mcp import HermesMcp
+            return HermesMcp(self._profile_home, runner=lambda: self.gateway_runner)
+        except Exception:
+            logger.info("Lekora: this Hermes can't manage MCP servers from Lekora")
+            return None
+
     def group_chats_changed(self) -> None:
         """Groups changed: their members' chats get (or lose) their in-memory routes."""
         self.offered_profiles()
@@ -589,6 +599,7 @@ class LekoraAdapter(BasePlatformAdapter):
             chat_sessions_reader=self._chat_sessions_for, current_session_reader=self._current_session_for,
             kanban_boards=_hermes_boards(), hermes_schedules=_hermes_schedules(), draft_llm=_draft_llm,
             hermes_helpers=_hermes_helpers(), hermes_analytics=self._hermes_analytics(),
+            hermes_mcp=self._hermes_mcp(),
             skills_scan=_skills_scan, skill_llm=_draft_skill_llm)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:

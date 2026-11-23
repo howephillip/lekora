@@ -566,6 +566,62 @@ public final class GatewayClient: ObservableObject {
                           reply: SkillCopyResult.self, timeout: 240)
     }
 
+    // MARK: - MCP servers (docs/mcp.md)
+
+    public func mcpServers() async throws -> [McpServer] {
+        try await request(type: "mcp.all", data: EmptyData(), reply: McpServersData.self, timeout: 60).servers
+    }
+
+    public func mcpCatalog(_ query: String = "") async throws -> [McpCatalogEntry] {
+        try await request(type: "mcp.catalog", data: McpQuery(query: query), reply: McpCatalogData.self, timeout: 30).entries
+    }
+
+    public func searchMcpRegistry(_ query: String) async throws -> [McpRegistryResult] {
+        try await request(type: "mcp.registry.search", data: McpQuery(query: query), reply: McpRegistryData.self, timeout: 40).results
+    }
+
+    /// Adds a server for the chosen agents; the result says whether it answers or needs a sign-in.
+    public func addMcpServer(_ add: McpAddRequest) async throws -> McpChangeResult {
+        try await request(type: "mcp.add", data: add, reply: McpChangeResult.self, timeout: 240)
+    }
+
+    /// Gives `agents` a server `profileId` has (its keys and sign-in are copied on the Hermes instance).
+    public func copyMcpServer(_ name: String, from profileId: String, to agents: [String]) async throws -> McpChangeResult {
+        try await request(type: "mcp.copy", profileId: profileId, data: McpCopyRequest(name: name, to: agents),
+                          reply: McpChangeResult.self, timeout: 120)
+    }
+
+    public func setMcpServer(_ name: String, enabled: Bool, for profileId: String) async throws {
+        _ = try await request(type: "mcp.enable", profileId: profileId, data: McpEnableRequest(name: name, enabled: enabled),
+                              reply: McpEnableResult.self, timeout: 60)
+    }
+
+    public func removeMcpServer(_ name: String, for profileId: String) async throws {
+        _ = try await request(type: "mcp.remove", profileId: profileId, data: McpNameRequest(name: name),
+                              reply: McpNameRequest.self, timeout: 60)
+    }
+
+    public func testMcpServer(_ name: String, for profileId: String) async throws -> McpTestResult {
+        try await request(type: "mcp.test", profileId: profileId, data: McpNameRequest(name: name),
+                          reply: McpTestResult.self, timeout: 120)
+    }
+
+    public func startMcpSignIn(_ name: String, for profileId: String, redirect: String,
+                               shareWith: [String] = []) async throws -> McpSignIn {
+        try await request(type: "mcp.signin.start", profileId: profileId,
+                          data: McpSignInStart(name: name, redirect_uri: redirect, share_with: shareWith.isEmpty ? nil : shareWith),
+                          reply: McpSignIn.self, timeout: 60)
+    }
+
+    public func finishMcpSignIn(_ flowId: String, callback: URL) async throws -> McpSignIn {
+        try await request(type: "mcp.signin.finish", data: McpSignInFinish(flow_id: flowId, callback_url: callback.absoluteString),
+                          reply: McpSignIn.self, timeout: 120)
+    }
+
+    public func cancelMcpSignIn(_ flowId: String) async {
+        _ = try? await request(type: "mcp.signin.cancel", data: McpFlowRequest(flow_id: flowId), reply: McpCancelResult.self, timeout: 20)
+    }
+
     public func skill(_ name: String, for profileId: String) async throws -> SkillDetail {
         try await request(type: "skill.get", profileId: profileId, data: SkillNameRequest(name: name), reply: SkillDetail.self, timeout: 20)
     }

@@ -70,6 +70,10 @@ class _Conn:
         return self.device_id is not None
 
 
+MCP_REQUESTS = ("mcp.all", "mcp.catalog", "mcp.registry.search", "mcp.add", "mcp.copy", "mcp.enable", "mcp.remove",
+                "mcp.test", "mcp.signin.start", "mcp.signin.finish", "mcp.signin.cancel")
+
+
 class _Reject(Exception):
     def __init__(self, code: str, reason: str, recoverable: bool, close: bool,
                  msg_id: Optional[str] = None) -> None:
@@ -106,6 +110,7 @@ class Gateway:
         self.groups: Optional[Any] = None       # Groups: group chats (docs/group-chats.md)
         self.analytics: Optional[Any] = None    # Analytics: usage and spend (docs/analytics.md)
         self.skills: Optional[Any] = None       # Skills: each agent's Hermes skills (docs/skills.md)
+        self.mcp: Optional[Any] = None          # MCP servers for every agent (docs/mcp.md)
         self.name_changed: Optional[Callable[[], None]] = None  # set by the service
         self.groups_changed: Optional[Callable[[], None]] = None  # set by the service
         self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
@@ -590,6 +595,8 @@ class Gateway:
         elif type_ in ("skills.list", "skills.all", "skill.copy", "skill.get", "skill.enable", "skills.search",
                        "skill.scan", "skill.install", "skill.remove", "skill.draft", "skill.save"):
             await self._skills_request(conn, msg_id, type_, env.get("profile_id"), data)
+        elif type_ in MCP_REQUESTS:
+            await self._mcp_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "analytics.get":
             await self._analytics_request(conn, msg_id, data)
         elif type_ == "delegation.stop":
@@ -1141,6 +1148,45 @@ class Gateway:
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
     # ---- analytics (docs/analytics.md) ---------------------------------------------
+
+    async def _mcp_request(self, conn: _Conn, msg_id: Optional[str], type_: str, profile_id: Any, data: dict) -> None:
+        from .mcp import McpError
+        mcp = self.mcp
+        if mcp is None:
+            raise _Reject("MCP_UNAVAILABLE", "MCP servers aren't available on this Hermes instance", True, False, msg_id)
+        try:
+            if type_ == "mcp.all":
+                result: dict[str, Any] = {"servers": await asyncio.to_thread(mcp.all)}
+            elif type_ == "mcp.catalog":
+                result = {"entries": await asyncio.to_thread(mcp.catalog, data.get("query"))}
+            elif type_ == "mcp.registry.search":
+                result = {"results": await mcp.search_registry(data.get("query"))}
+            elif type_ == "mcp.add":
+                result = await mcp.add(data)
+            elif type_ == "mcp.copy":
+                result = await mcp.copy(profile_id, data.get("name"), data.get("to"))
+            elif type_ == "mcp.enable":
+                result = await mcp.set_enabled(profile_id, data.get("name"), data.get("enabled"))
+            elif type_ == "mcp.remove":
+                result = await mcp.remove(profile_id, data.get("name"))
+            elif type_ == "mcp.test":
+                result = await mcp.test(profile_id, data.get("name"))
+            elif type_ == "mcp.signin.start":
+                result = await mcp.sign_in_start(profile_id, data.get("name"), data.get("redirect_uri"),
+                                                 data.get("share_with"))
+            elif type_ == "mcp.signin.finish":
+                result = await mcp.sign_in_finish(data.get("flow_id"), data.get("callback_url"))
+            else:
+                result = mcp.sign_in_cancel(data.get("flow_id"))
+        except McpError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except _Reject:
+            raise
+        except Exception as exc:
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("MCP_FAILED", f"Hermes couldn't do that: {exc}", True, False, msg_id)
+        reply_profile = profile_id if isinstance(profile_id, str) else None
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=reply_profile))
 
     async def _analytics_request(self, conn: _Conn, msg_id: Optional[str], data: dict) -> None:
         from .analytics import AnalyticsError

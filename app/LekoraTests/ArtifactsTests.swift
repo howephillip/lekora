@@ -127,7 +127,7 @@ final class ArtifactPageMemoryTests: XCTestCase {
         </script></body>
         """
         controller.show(page, artifactId: "art_mem", remembering: ["count": "5", "theme": "dark"])
-        let saved = await waitUntil(timeout: 20) { reported != nil }
+        let saved = await waitUntil(timeout: 60) { reported != nil }  // a cold simulator can take ~25 s to start WebKit
         XCTAssertTrue(saved, "a change is reported")
         XCTAssertEqual(reported, ["count": "6", "theme": "dark"], "it started from what was kept, and everything is kept")
 

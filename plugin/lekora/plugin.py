@@ -156,6 +156,7 @@ class LekoraService:
         draft_llm: Optional[Callable[[str, str], Any]] = None,
         hermes_helpers: Optional[Any] = None,
         hermes_analytics: Optional[Any] = None,
+        hermes_mcp: Optional[Any] = None,
         skills_scan: Optional[Callable[[str], Optional[dict]]] = None,
         skill_llm: Optional[Callable[[str, str], Any]] = None,
         config_io: Optional[tuple] = None,
@@ -167,6 +168,7 @@ class LekoraService:
         self._skill_llm = skill_llm
         # Analytics (docs/analytics.md): Hermes' usage records and account checks, from the adapter.
         self._hermes_analytics = hermes_analytics
+        self._hermes_mcp = hermes_mcp  # MCP servers through Hermes' own helpers (docs/mcp.md)
         # Helpers (docs/delegation.md): Hermes' running-helper list and its Stop, from the adapter.
         self._hermes_helpers = hermes_helpers
         # Drafting a schedule from a description (docs/scheduler.md): Hermes' model for plugins.
@@ -305,6 +307,15 @@ class LekoraService:
             backup_config=RoutingConfig(skills_root / "lekora-backups" / "config").backup,
             run_cli=self._run_cli, backups=skills_root / "lekora-backups",
             scan=self._skills_scan, llm=self._skill_llm)
+        if self._hermes_mcp is not None:
+            from .mcp import Mcp, fetch_json
+            store_for_mcp, gateway_for_mcp = self._store, self.gateway
+            mcp_backup = RoutingConfig(skills_root / "lekora-backups" / "config")
+            self.gateway.mcp = Mcp(
+                profiles=lambda: [p["profile_id"] for p in gateway_for_mcp._profiles()],
+                backend=self._hermes_mcp,
+                backup=lambda pid: mcp_backup.backup(pid, _profiles.profile_home(pid, skills_root) / "config.yaml"),
+                origins=_McpOrigins(store_for_mcp), fetch_json=fetch_json)
         if self._hermes_analytics is not None:
             from .analytics import Analytics
             source = self._hermes_analytics
@@ -517,3 +528,16 @@ def register(ctx) -> None:
     """Hermes plugin entry point. Imported lazily so this module works without Hermes."""
     from .hermes_adapter import register as _register
     _register(ctx)
+
+
+class _McpOrigins:
+    """Where each MCP server came from, in Lekora's own store (docs/mcp.md)."""
+
+    def __init__(self, store: Any) -> None:
+        self._store = store
+
+    def get(self, name: str) -> Optional[dict]:
+        return self._store.mcp_origin(name)
+
+    def set(self, name: str, info: Optional[dict]) -> None:
+        self._store.set_mcp_origin(name, info)

@@ -184,7 +184,7 @@
 		CD269D6730B00ECA0012AFBC /* GroupViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupViews.swift; sourceTree = "<group>"; };
 		CD269D6930B010510012AFBC /* GroupChatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatTests.swift; sourceTree = "<group>"; };
 		CD269D6E30B1BB090012AFBC /* AnalyticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsTests.swift; sourceTree = "<group>"; };
-		CD269D7330B378210012AFBC /* SkillsTests.swift */ = {isa = PBXFileReference; path = SkillsTests.swift; sourceTree = "<group>"; };
+		CD269D7330B378210012AFBC /* SkillsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsTests.swift; sourceTree = "<group>"; };
 		D4796A331F35A27B4CBEA112 /* CodeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeEditorView.swift; sourceTree = "<group>"; };
 		DC7604CB5DE0481A3398ADD8 /* SetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWizardView.swift; sourceTree = "<group>"; };
 		DD6AA398351F711D345961F7 /* LKAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LKAgents.swift; sourceTree = "<group>"; };
@@ -210,6 +210,11 @@
 		CD269D7030B377EB0012AFBC /* Skills */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Skills;
+			sourceTree = "<group>";
+		};
+		CD269D7530B3A4120012AFBC /* MCP */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MCP;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -398,6 +403,7 @@
 				08C8D04330BB4F194B82DB82 /* Setup */,
 				CD269D6B30B1BAD50012AFBC /* Analytics */,
 				CD269D7030B377EB0012AFBC /* Skills */,
+				CD269D7530B3A4120012AFBC /* MCP */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -436,6 +442,7 @@
 			fileSystemSynchronizedGroups = (
 				CD269D6B30B1BAD50012AFBC /* Analytics */,
 				CD269D7030B377EB0012AFBC /* Skills */,
+				CD269D7530B3A4120012AFBC /* MCP */,
 			);
 			name = Lekora;
 			packageProductDependencies = (

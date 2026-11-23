@@ -325,6 +325,18 @@ class Demo:
         await gw.publish_message(pid, "Done.", role="system")
 
 
+def demo_mcp():
+    """MCP servers (docs/mcp.md) for made-up agents, in memory; the public registry search is real."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugin"))
+    from tests.test_mcp import Backend
+    backend = Backend()
+    backend.configs = {"default": {"linear": {"url": "https://mcp.linear.app/mcp", "auth": "oauth"},
+                                   "deepwiki": {"url": "https://mcp.deepwiki.com/mcp"}},
+                       "scout": {"deepwiki": {"url": "https://mcp.deepwiki.com/mcp", "enabled": False}}}
+    backend.has_runner = lambda command: command == "npx"
+    return backend
+
+
 def demo_board():
     """A made-up board (docs/kanban.md), in memory, shaped like Hermes' own."""
     import time
@@ -402,7 +414,7 @@ async def main():
                         commands_provider=lambda pid: COMMANDS, kanban_boards=demo_board(),
                         settings_reader=lambda pid: demo.settings_for(pid), model_info=_model_info,
                         resolvers=demo.resolvers(), tools_reader=tools_read, tools_writer=tools_write,
-                        hermes_analytics=DemoAnalytics(), run_cli=demo_cli,
+                        hermes_analytics=DemoAnalytics(), run_cli=demo_cli, hermes_mcp=demo_mcp(),
                         skills_scan=demo_scan, skill_llm=demo_skill_llm,
                         config_io=(lambda path: _demo_configs.get(str(path), {}),
                                    lambda path, data: _demo_configs.__setitem__(str(path), data)))

@@ -111,6 +111,19 @@ CREATE TABLE IF NOT EXISTS artifact_page_state (
 
 # Group chats (docs/group-chats.md): a name and member agents; ``seen`` is, per member, the last
 # message of the group it has been given (so it gets only what's new).
+# MCP servers (docs/mcp.md): where each came from (Hermes catalog, the public registry, added by the
+# user) and its description; Hermes' config doesn't say. profile_id "*": the same server on any agent.
+MCP_ORIGINS = """
+CREATE TABLE IF NOT EXISTS mcp_origins (
+    instance_id TEXT NOT NULL,
+    profile_id  TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    info_json   TEXT NOT NULL,
+    updated_at  TEXT,
+    PRIMARY KEY (instance_id, profile_id, name)
+);
+"""
+
 GROUPS = """
 CREATE TABLE IF NOT EXISTS groups (
     group_id     TEXT PRIMARY KEY,
@@ -233,6 +246,7 @@ class Store:
             self._db.executescript(APP_SETTINGS)
             self._db.executescript(ARTIFACTS)
             self._db.executescript(GROUPS)
+            self._db.executescript(MCP_ORIGINS)
             # The version last shown as a card (changes made outside the tools get one too).
             columns = {r[1] for r in self._db.execute("PRAGMA table_info(artifacts)")}
             if "announced" not in columns:
@@ -825,6 +839,30 @@ class Store:
                              (version, now, title or row["title"], artifact_id))
             self._db.commit()
         return version
+
+    # ---- MCP servers (docs/mcp.md) -------------------------------------------------
+
+    def mcp_origin(self, name: str) -> Optional[dict]:
+        with self._lock:
+            row = self._db.execute("SELECT info_json FROM mcp_origins WHERE instance_id = ? AND profile_id = '*' AND name = ?",
+                                   (self.instance_id, name)).fetchone()
+        try:
+            return json.loads(row["info_json"]) if row else None
+        except ValueError:
+            return None
+
+    def set_mcp_origin(self, name: str, info: Optional[dict]) -> None:
+        with self._lock:
+            if info is None:
+                self._db.execute("DELETE FROM mcp_origins WHERE instance_id = ? AND profile_id = '*' AND name = ?",
+                                 (self.instance_id, name))
+            else:
+                self._db.execute(
+                    "INSERT INTO mcp_origins (instance_id, profile_id, name, info_json, updated_at) VALUES (?,'*',?,?,?)"
+                    " ON CONFLICT(instance_id, profile_id, name) DO UPDATE SET info_json = excluded.info_json,"
+                    " updated_at = excluded.updated_at",
+                    (self.instance_id, name, json.dumps(info), _iso(self._clock())))
+            self._db.commit()
 
     def artifact_page_state(self, artifact_id: str) -> dict:
         with self._lock:

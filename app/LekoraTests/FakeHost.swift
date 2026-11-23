@@ -204,6 +204,11 @@ final class FakeHost: @unchecked Sendable {
     var respondStatusOverride: String?
 
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+    /// MCP servers across agents (docs/mcp.md).
+    var mcpServers: [[String: Any]] = [["name": "deepwiki", "description": "Public repos", "source": "catalog", "kind": "url",
+                                        "url": "https://mcp.deepwiki.com/mcp", "auth": "none",
+                                        "agents": [["profile_id": "default", "enabled": true, "tools": "all"]]]]
+
     /// An agent's skills (docs/skills.md).
     var skillList: [[String: Any]] = [["name": "golf", "description": "My golf notes", "source": "local", "enabled": true, "essential": false],
                                       ["name": "hermes-agent", "description": "How Hermes works", "source": "builtin", "enabled": true, "essential": true]]
@@ -631,6 +636,26 @@ final class FakeHost: @unchecked Sendable {
             send(type: "group.create.result", id: id, data: ["group": group], on: connection)
         case "skills.list":
             send(type: "skills.list.result", id: id, data: ["skills": skillList], profileId: message["profile_id"] as? String, on: connection)
+        case "mcp.all":
+            send(type: "mcp.all.result", id: id, data: ["servers": mcpServers], on: connection)
+        case "mcp.registry.search":
+            send(type: "mcp.registry.search.result", id: id, data: ["results": [
+                ["id": "io.github.acme/weather", "name": "weather", "title": "Weather", "description": "Forecasts",
+                 "version": "2.0.0", "kind": "url", "needs": [] as [Any], "runnable": true, "vetted": false]]], on: connection)
+        case "mcp.add":
+            let to = data["to"] as? [String] ?? []
+            mcpServers.append(["name": "weather", "description": "Forecasts", "source": "registry", "kind": "url",
+                               "url": "https://weather.example/mcp", "auth": "oauth",
+                               "agents": to.map { ["profile_id": $0, "enabled": true, "tools": "all", "signed_in": false] }])
+            send(type: "mcp.add.result", id: id, data: ["name": "weather", "added": to, "failed": [] as [Any],
+                                                        "test": ["ok": false, "failure": "auth_required", "sign_in": true]], on: connection)
+        case "mcp.signin.start":
+            send(type: "mcp.signin.start.result", id: id, data: ["flow_id": "f1", "status": "authorization_required",
+                                                                 "authorization_url": "https://auth.example/authorize?state=s1"], on: connection)
+        case "mcp.signin.finish":
+            let ok = (data["callback_url"] as? String ?? "").contains("state=s1")
+            send(type: "mcp.signin.finish.result", id: id, data: ok ? ["status": "approved", "tools": [["name": "forecast", "description": ""]]]
+                 : ["status": "error", "error": "The sign-in didn't match"], on: connection)
         case "skills.all":
             let shared: [[String: Any]] = skillList.map { skill in
                 ["name": skill["name"] ?? "", "description": skill["description"] ?? "",

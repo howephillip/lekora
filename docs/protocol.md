@@ -490,3 +490,16 @@ A group's chat key is `group:<group_id>`; it is used as `profile_id` on every me
 - `skill.draft` `{description}` → `{name, description, category?, content}` (nothing saved).
 - `skill.save` `{name, content, category?, create: bool}` → `{skill}`; errors `INVALID_SKILL`, `SKILL_EXISTS`, `UNKNOWN_SKILL`.
 - Errors: `UNKNOWN_PROFILE`, `UNKNOWN_SKILL`, `SKILLS_UNAVAILABLE`, `DRAFT_UNAVAILABLE`, `DRAFT_FAILED`.
+
+## 26. MCP servers (spec: `mcp.md`)
+`profile_id` is the agent concerned (`mcp.enable`, `mcp.remove`, `mcp.test`, `mcp.copy` (the agent that has it), `mcp.signin.start`); the rest have none.
+- `mcp.all` → `{servers: [{name, description, source: catalog|registry|custom|plugin, kind: url|command, url?, command?, auth: none|key|oauth, agents: [{profile_id, enabled, tools ("all" | "N selected" | "N left out"), signed_in? (oauth only)}]}]}`. Secret values are never sent.
+- `mcp.catalog` `{query?}` → `{entries: [{name, description, auth: none|api_key|oauth, needs: [{name, prompt, secret, required, default?}], preregistered, url?, vetted: true, installed_for: [profile_id]}]}`.
+- `mcp.registry.search` `{query}` → `{results: [{id, name, title, description, version, kind: url|command|null, needs, runnable, reason?, website?, repository?, vetted: false}]}`; error `REGISTRY_UNAVAILABLE`.
+- `mcp.add` `{source: catalog|registry|custom, name? (catalog, custom; optional for registry), id? (registry), to: [profile_id], values?: {need name: value}, url?, bearer?, oauth?, command?, args?, env?, description?}` → `{name, added: [profile_id], failed: [{profile_id, reason}], test?: {ok, tools?, failure?, error?, sign_in?}}`. Errors `MISSING_VALUE`, `CANT_RUN`, `SIGN_IN_ON_HERMES`, `INVALID_REQUEST`.
+- `mcp.copy` `{name, to: [profile_id]}` → `{name, added, failed}` (its keys and sign-in are copied on the instance).
+- `mcp.enable` `{name, enabled}` → `{name, enabled}`. `mcp.remove` `{name}` → `{name}` (confirmed in the app). Both back up the agent's config first.
+- `mcp.test` `{name}` → `{ok, tools?: [{name, description}], failure?, error?, sign_in?}`.
+- `mcp.signin.start` `{name, redirect_uri: lekora://mcp-oauth | http://127.0.0.1:<port>/callback, share_with?: [profile_id]}` → `{flow_id, status: starting|authorization_required|approved|error, authorization_url?, error?}`.
+- `mcp.signin.finish` `{flow_id, callback_url}` → `{status, tools?, error?}` (on approval the sign-in is also copied to `share_with`). `mcp.signin.cancel` `{flow_id}` → `{cancelled}`.
+- Errors: `UNKNOWN_PROFILE`, `UNKNOWN_SERVER`, `UNKNOWN_FLOW`, `REJECTED` (Hermes' safety check), `MCP_UNAVAILABLE`, `MCP_FAILED`.

@@ -722,6 +722,119 @@ struct SkillRemoveResult: Codable { let name: String; let backup: String? }
 struct SkillDraftRequest: Codable { let description: String }
 struct SkillSaveRequest: Codable { let name: String?; let content: String; let category: String?; let create: Bool }
 
+// MARK: - MCP servers (docs/mcp.md)
+/// A server across every agent that has it.
+public struct McpServer: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public struct Agent: Codable, Equatable, Hashable, Sendable {
+        public let profile_id: String
+        public var enabled: Bool
+        public let tools: String
+        /// Account sign-in servers only.
+        public let signed_in: Bool?
+    }
+    public let name: String
+    public let description: String
+    /// catalog | registry | custom | plugin
+    public let source: String
+    /// url | command
+    public let kind: String
+    public let url: String?
+    public let command: String?
+    /// none | key | oauth
+    public let auth: String
+    public var agents: [Agent]
+    public var id: String { name }
+}
+/// A setting a server needs (an address, an API key…).
+public struct McpNeed: Codable, Equatable, Hashable, Sendable {
+    public let name: String
+    public let prompt: String
+    public let secret: Bool
+    public let required: Bool
+    public let `default`: String?
+}
+public struct McpCatalogEntry: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public let name: String
+    public let description: String
+    /// none | api_key | oauth
+    public let auth: String
+    public let needs: [McpNeed]
+    public let preregistered: Bool?
+    public let url: String?
+    public let installed_for: [String]
+    public var id: String { name }
+}
+public struct McpRegistryResult: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let name: String
+    public let title: String
+    public let description: String
+    public let version: String
+    /// url | command | nil (can't run here)
+    public let kind: String?
+    public let needs: [McpNeed]
+    public let runnable: Bool
+    public let reason: String?
+    public let website: String?
+    public let repository: String?
+}
+public struct McpTestResult: Codable, Equatable, Sendable {
+    public struct Tool: Codable, Equatable, Hashable, Sendable { public let name: String; public let description: String }
+    public let ok: Bool
+    public let tools: [Tool]?
+    public let failure: String?
+    public let error: String?
+    public let sign_in: Bool?
+}
+public struct McpAddRequest: Codable, Equatable, Sendable {
+    public var source: String
+    public var name: String?
+    public var id: String?
+    public var to: [String]
+    public var values: [String: String]?
+    public var url: String?
+    public var bearer: String?
+    public var oauth: Bool?
+    public var command: String?
+    public var args: [String]?
+    public var env: [String: String]?
+    public var description: String?
+    public init(source: String, name: String? = nil, id: String? = nil, to: [String], values: [String: String]? = nil,
+                url: String? = nil, bearer: String? = nil, oauth: Bool? = nil, command: String? = nil, args: [String]? = nil,
+                env: [String: String]? = nil, description: String? = nil) {
+        self.source = source; self.name = name; self.id = id; self.to = to; self.values = values; self.url = url
+        self.bearer = bearer; self.oauth = oauth; self.command = command; self.args = args; self.env = env
+        self.description = description
+    }
+}
+public struct McpChangeResult: Codable, Equatable, Sendable {
+    public struct Failure: Codable, Equatable, Sendable { public let profile_id: String; public let reason: String }
+    public let name: String
+    public let added: [String]
+    public let failed: [Failure]
+    public let test: McpTestResult?
+}
+public struct McpSignIn: Codable, Equatable, Sendable {
+    public let flow_id: String?
+    /// starting | authorization_required | approved | error
+    public let status: String
+    public let authorization_url: String?
+    public let error: String?
+    public let tools: [McpTestResult.Tool]?
+}
+struct McpServersData: Codable { let servers: [McpServer] }
+struct McpCatalogData: Codable { let entries: [McpCatalogEntry] }
+struct McpRegistryData: Codable { let results: [McpRegistryResult] }
+struct McpQuery: Codable { let query: String }
+struct McpNameRequest: Codable { let name: String }
+struct McpEnableRequest: Codable { let name: String; let enabled: Bool }
+struct McpEnableResult: Codable { let name: String; let enabled: Bool }
+struct McpCopyRequest: Codable { let name: String; let to: [String] }
+struct McpSignInStart: Codable { let name: String; let redirect_uri: String; let share_with: [String]? }
+struct McpSignInFinish: Codable { let flow_id: String; let callback_url: String }
+struct McpFlowRequest: Codable { let flow_id: String }
+struct McpCancelResult: Codable { let cancelled: Bool }
+
 // MARK: - Slash commands (docs/slash-commands.md)
 /// A command an agent can use, from Hermes' own lists.
 public struct SlashCommand: Codable, Equatable, Hashable, Sendable {
