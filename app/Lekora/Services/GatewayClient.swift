@@ -978,7 +978,7 @@ public final class GatewayClient: ObservableObject {
             session.invalidateAndCancel()
         }
         do {
-            let route = try await RouteProber(session: session).probeFastest(endpoints: usable(endpoints), timeoutSeconds: 2)
+            let route = try await RouteProber(session: session).probeFastest(endpoints: usable(endpoints), timeoutSeconds: 10)
             let wsTask = session.webSocketTask(with: route.winningURL)
             unpairSocket = wsTask
             wsTask.resume()

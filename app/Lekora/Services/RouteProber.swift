@@ -34,7 +34,12 @@ public actor RouteProber {
     }
 
     /// Races multiple candidate WebSocket endpoints in parallel and returns the first verified reachable route.
-    public func probeFastest(endpoints: [String], timeoutSeconds: Double = 3.0) async throws -> RouteProbeResult {
+    /// The first to answer wins, so a long limit costs nothing on a good network; it's for slow links where
+    /// each round trip takes about a second (in-flight Wi-Fi, satellite; owner's report, 2026-11-22). Opening
+    /// a TLS WebSocket and answering a ping takes about four round trips, so 3 seconds always failed there.
+    public static let defaultTimeout: Double = 15.0
+
+    public func probeFastest(endpoints: [String], timeoutSeconds: Double = RouteProber.defaultTimeout) async throws -> RouteProbeResult {
         guard !endpoints.isEmpty else {
             throw RouteProberError.noEndpointsProvided
         }

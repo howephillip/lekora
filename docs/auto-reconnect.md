@@ -35,3 +35,7 @@ Uses `pair.request`/`pair.response`, `hello`/`hello.ack`, `error`, and `device.u
 - **Writing offline:** a text message (also an "ask to change" or a review) shows straight away with "Offline · sends when connected", is kept on the phone (it survives quitting the app), and goes out by itself, once, when the connection is back. Voice notes and files need the connection to upload, so they wait.
 - **Back quickly:** every 5 s for the first two minutes offline (a gateway restart takes seconds), then every 30 s.
 - Tests: `OfflineTests` (written offline, kept through a relaunch, sent once on connecting). Simulator (iOS 27.0, real plugin, the instance stopped and started): stayed in the chat and the list, offline message shown and kept through a force-quit, sent exactly once on reconnecting, back about 3–4 s after the instance came back, "Offline" fits the header.
+
+## Slow links (owner's report, 2026-11-22)
+- On in-flight Wi-Fi each round trip took about a second, and opening the encrypted connection takes about four. The app used to give each route 3 seconds, so it never connected, even though Tailscale worked.
+- Each route now gets 15 seconds. All routes are still tried at once and the first to answer wins, so good networks connect as fast as before.

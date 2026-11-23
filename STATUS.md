@@ -11,6 +11,12 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). The limit you parked (only the default agent had Lekora's artifact and file tools) is now being fixed (below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
+## Built, waiting for your phone check: connecting on slow Wi-Fi (your report, 2026-11-22; `docs/auto-reconnect.md`)
+- **What was wrong:** on the Delta flight your phone could reach the instance through Tailscale, but slowly: about a second per round trip (checked from the instance). Opening the encrypted connection takes about four round trips, and the app gave up after 3 seconds, so it never connected.
+- **Fix:** each route now gets 15 seconds. All routes are still tried at once, so home and office connections are as fast as before.
+- **Checked:** a new test relays the connection through an artificially slow link; the old limit failed and the new one connects. App 260 pass.
+- **To check:** on your next slow Wi-Fi, open the app and give it up to about 15 seconds.
+
 ## Built, waiting for your phone check: MCP servers (Phase 8, feature 3; spec: `docs/mcp.md`)
 - **Where (your choice, 2026-11-22):** left menu › **MCP Servers**, one page for all agents. Each server appears once with the agents that have it (faded where it's off), grouped as Hermes Catalog / Public Registry / Added by You, with **Sign in needed** where an agent still has to sign in.
 - **A server's page:**
