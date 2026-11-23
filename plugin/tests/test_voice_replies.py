@@ -266,3 +266,59 @@ async def test_words_said_in_a_call_reach_hermes_as_a_voice_turn(fgw, store, fil
     assert in_call.startswith(CALL_NOTE) and "background" in in_call, "a call says it's a call"
     assert typed is None, "nothing added outside a call (rule 7)"
     await ws.close()
+
+
+async def test_cutting_in_tells_the_agent_what_was_actually_heard(fgw, store, file_store, tmp_path):
+    """Owner, 2026-11-22: "if I interrupt on something it started talking about earlier, it thinks I heard
+    the whole thing"."""
+    make(fgw, store, file_store, tmp_path)
+    ws = await phone(fgw, store)
+    await ws.send(env(store, "chat.send", {"text": "wait, which one", "hands_free": True,
+                                           "heard": "There are three options. The first is"}, profile_id="coder"))
+    await ws.send(env(store, "chat.send", {"text": "typed", "heard": "ignored outside a call"}, profile_id="coder"))
+    for _ in range(100):
+        if len(fgw.received) >= 2:
+            break
+        await asyncio.sleep(0.02)
+    in_call, typed = fgw.received[-2][3], fgw.received[-1][3]
+    assert "heard only this much" in in_call and "The first is" in in_call and "did not hear the rest" in in_call
+    assert typed is None, "nothing added outside a call (rule 7)"
+    from lekora.voice_replies import CALL_NOTE, interrupted_note
+    assert "one to three short" in CALL_NOTE, "call replies are short, like a phone call"
+    assert "before hearing any of it" in interrupted_note("")
+    await ws.close()
+
+
+def test_a_call_model_changes_only_hermes_voice_chat_slot(tmp_path):
+    import json
+    from lekora.call_model import CallModel, CallModelError
+    from lekora.routing_config import RoutingConfig
+    home = tmp_path / "hermes"
+    home.mkdir()
+    (home / "config.yaml").write_text(json.dumps({"model": {"default": "big"}, "auxiliary": {"vision": {"model": "v"}}}))
+    read = lambda p: json.loads(p.read_text())  # noqa: E731
+    write = lambda p, d: p.write_text(json.dumps(d))  # noqa: E731
+    cm = CallModel(lambda pid: home, read, write, RoutingConfig(tmp_path / "backups").backup)
+    assert cm.get("default") == {}
+    assert cm.set("default", "google/gemini-3-flash", "openrouter") == {"model": "google/gemini-3-flash", "provider": "openrouter"}
+    saved = read(home / "config.yaml")
+    assert saved["auxiliary"] == {"vision": {"model": "v"}, "voice_chat": {"provider": "openrouter", "model": "google/gemini-3-flash"}}
+    assert saved["model"] == {"default": "big"}, "nothing else changed"
+    assert list((tmp_path / "backups").rglob("*")), "backed up first"
+    assert cm.set("default", "") == {} and "voice_chat" not in read(home / "config.yaml")["auxiliary"]
+    import pytest
+    with pytest.raises(CallModelError):
+        cm.set("default", "bad model; rm -rf")
+
+
+async def test_the_phone_sets_a_call_model(fgw, store, tmp_path):
+    from lekora.call_model import CallModel
+    saved = {}
+    fgw.call_model = CallModel(lambda pid: tmp_path, lambda p: dict(saved), lambda p, d: saved.update(d) or saved.clear() or saved.update(d),
+                               lambda pid, p: None)
+    ws = await phone(fgw, store)
+    got = await ask(ws, store, "voice.call_model.set", {"model": "x/fast", "provider": "openrouter"})
+    assert got["data"] == {"model": "x/fast", "provider": "openrouter"}
+    got = await ask(ws, store, "voice.call_model.get", {})
+    assert got["data"]["model"] == "x/fast"
+    await ws.close()

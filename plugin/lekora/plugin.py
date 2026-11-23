@@ -307,6 +307,13 @@ class LekoraService:
             backup_config=RoutingConfig(skills_root / "lekora-backups" / "config").backup,
             run_cli=self._run_cli, backups=skills_root / "lekora-backups",
             scan=self._skills_scan, llm=self._skill_llm)
+        from .call_model import CallModel
+        call_root = skills_root
+        self.gateway.call_model = CallModel(
+            home_of=lambda pid: _profiles.profile_home(pid, call_root),
+            read=(self._config_io or (hermes_read, hermes_write))[0],
+            write=(self._config_io or (hermes_read, hermes_write))[1],
+            backup=RoutingConfig(call_root / "lekora-backups" / "config").backup)
         if self._hermes_mcp is not None:
             from .mcp import Mcp, fetch_json
             store_for_mcp, gateway_for_mcp = self._store, self.gateway

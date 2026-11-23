@@ -182,9 +182,12 @@ public struct ChatSendData: Codable, Equatable {
     public let about: ArtifactRef?
     /// With `about`: comments on its lines, sent together.
     public let review: [ReviewComment]?
+    /// In a call, cutting in: what of the agent's last reply was actually heard (docs/voice.md §3).
+    public var heard: String? = nil
 
     public init(text: String, files: [String]? = nil, voice: VoiceDetails? = nil, hands_free: Bool? = nil,
-                about: ArtifactRef? = nil, review: [ReviewComment]? = nil) {
+                about: ArtifactRef? = nil, review: [ReviewComment]? = nil, heard: String? = nil) {
+        self.heard = heard
         self.about = about
         self.review = review
         self.text = text
@@ -324,6 +327,8 @@ public struct VoiceStreamData: Codable, Sendable {
     public let rate: Int
     public let data: String
     public let last: Bool?
+    /// With the last chunk: the words of this part (the phone knows what was heard).
+    public var text: String? = nil
 }
 
 // MARK: - Direct voice (docs/voice.md §4)
@@ -723,6 +728,13 @@ struct SkillIdentifierRequest: Codable { let identifier: String }
 struct SkillRemoveResult: Codable { let name: String; let backup: String? }
 struct SkillDraftRequest: Codable { let description: String }
 struct SkillSaveRequest: Codable { let name: String?; let content: String; let category: String?; let create: Bool }
+
+// MARK: - Call model (docs/voice.md §3)
+public struct CallModelData: Codable, Equatable, Sendable {
+    public var model: String?
+    public var provider: String?
+    public init(model: String? = nil, provider: String? = nil) { self.model = model; self.provider = provider }
+}
 
 // MARK: - MCP servers (docs/mcp.md)
 /// A server across every agent that has it.

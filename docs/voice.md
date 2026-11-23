@@ -49,6 +49,47 @@ Owner's choices (2026-11-12): full-screen like a call; talking over the agent in
 - **Diagnostics:** during a call the phone sends short lines to the Hermes log (`Lekora phone call (<agent>)`, never your words): the microphone's format, whether on-device recognition started (or why not), every 10 s the loudest sound, the room's level and the bar for talking, and each turn's length and outcome (sent, no words, dropped). Message `voice.log` (`protocol.md` §15).
 - **Speed** (owner, 2026-11-12: 5–10 s from speaking to the reply): every hands-free turn writes one line to the Hermes log (`Lekora hands-free timing`): waiting for quiet, recognition, the agent's first words, its first sentence, making the voice, sending it, the phone receiving and starting it, and the total from your last word to the first sound. Quicker already: the end of your turn after 0.9 s of quiet (was 1.2 s; the words tell a turn from noise); the reply's first sentence is spoken at once however short (later short ones still join the next); a small first voice part travels with its `voice.segment` so the phone plays it without fetching it.
 - **What the first measurements showed** (owner's calls, 2026-11-12/13; from your last word to the first sound): at home 5.0–8.2 s = waiting for quiet 0.9 + recognition 0.15 + **the agent writing its first words 2.0–5.0** + **making the first sentence's voice 1.1–2.3** + getting it to the phone 0.1–0.2 + starting it 0.05. Away from home (over the internet) the trip between phone and instance added 0.7–1.4 s, once 9.6 s. Lekora's own steps are now a fraction of a second; the rest is the agent (Hermes and its model) and the voice service.
+- **Polished (owner, 2026-11-22: "rough around the edges and not fast")**:
+  - **Speed: a call model per agent.** Words said in a call already reach Hermes as voice turns, which
+    Hermes runs on the agent's `auxiliary.voice_chat` model when one is set.
+    - The call screen's **Call model** picks it: a quick OpenRouter model (quick picks are the
+      cheapest flash/mini/haiku/fast/lite models), or the main model.
+    - Only `auxiliary.voice_chat` in that agent's config.yaml changes, through Hermes' config writer,
+      after a backup (rule 8 exception, like OpenRouter routing). Typed chats keep the main model.
+    - The measured wait was the agent's first words: 4.5–13 s on the owner's calls (2026-11-20/21).
+      Making the voice took about 0.5 s.
+  - **No dead air.**
+    - A soft two-note sound every 2.4 s while the agent works (after 0.7 s; made on the phone,
+      quiet, stops the moment it answers).
+    - The call screen shows what the agent is doing ("Searching the web…") instead of "Thinking…".
+  - **Short replies.** CALL_NOTE now asks for one to three short sentences, the headline first, and
+    an offer to go on.
+  - **Pause, then resume.** Talking over the agent **pauses** it. If the turn turns out not to be you
+    (no words, its own voice, a stray word or "mm-hm"), it goes on where it was. Before, it stopped
+    for good.
+  - **Words meant for it.** While it talks, these pause it:
+    - a stop word that isn't its own ("wait", "stop", "hold on", "hang on", "sorry", "actually"…), at once;
+    - otherwise, two words that aren't its own and aren't acknowledgements ("yeah", "okay", "mm-hm",
+      "right", "got it"…).
+    Acknowledgements alone never interrupt.
+  - **What you heard.** Each streamed part's last `voice.stream` carries its words (`text`). The phone
+    counts what has actually played: whole parts, then the share of the current one (the iPhone voice
+    by the words it has said). Cutting in sends `heard` with the turn. The plugin then adds to the call
+    note (rule 7 call exception): "The user interrupted your previous reply. They heard only this much
+    of it: «…». They did not hear the rest…".
+  - **Tests.** App:
+    - `testOnlyWordsMeantForTheAgentInterruptIt`;
+    - `testWhatWasHeardIsTrackedAndAPauseHoldsTheRest` (real audio playback);
+    - `testTheThinkingSoundIsAShortQuietLoop`;
+    - `testHeardTextTravelsOnlyWithCallTurns`.
+
+    Plugin:
+    - `test_cutting_in_tells_the_agent_what_was_actually_heard`;
+    - `test_a_call_model_changes_only_hermes_voice_chat_slot`;
+    - `test_the_phone_sets_a_call_model`.
+
+    Real Hermes (a copy of Bruce's settings): it reads the slot, and its voice-turn route picks the
+    call model.
 - Tests: `HandsFreeTests` (turns start and end on talking and quiet, coughs and blips aren't turns, noise raises the bar, noise that starts later stops counting, a long stretch of talking stays one turn); sounds woven in by time, once each, only meaningful ones; plugin `test_hands_free_replies_are_always_spoken`, `test_timings_are_logged_for_the_first_sound_and_the_phones_half`, first sentence at once and inline audio (`test_a_streamed_reply_is_a_voice_note_from_the_first_word`); app inline audio kept as a fetched file (`HearingRepliesTests`); simulator: the call screen, mute, style switch, end, 110 s of silence sends nothing, a spoken phrase (the Mac's voice) goes through and is answered.
 
 ## 4. Direct voice

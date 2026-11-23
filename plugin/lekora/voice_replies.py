@@ -105,14 +105,27 @@ Synthesize = Callable[[str, str], list[Path]]
 CALL_NOTE = (
     "[This message was spoken in a live voice call: it is a transcript recognised on the phone, "
     "so it may contain mis-hearings, hesitations and later corrections; use the latest intent. "
-    "Your reply is spoken aloud as you write it: answer in plain conversational sentences, keep it "
-    "short (a few sentences unless the user asked for detail), no markdown, no lists, no code "
-    "blocks, no URLs read out. Keep the conversation flowing: if a request needs longer work "
-    "(research, several tool calls, anything that takes more than a few seconds), say briefly "
-    "that you're on it and hand it to a background task (delegate_task with background=true, if "
-    "you have that tool), then keep talking; share the result when it comes back. Do not guess a "
-    "result while waiting, and do not claim an action succeeded before it actually did.]"
+    "Your reply is spoken aloud as you write it, like a phone call: one to three short "
+    "conversational sentences. If there's more to say, give the headline and offer to go on; "
+    "the user can always ask for detail. No markdown, no lists, no code blocks, no URLs read "
+    "out. Keep the conversation flowing: if a request needs longer work (research, several tool "
+    "calls, anything that takes more than a few seconds), say briefly that you're on it and hand "
+    "it to a background task (delegate_task with background=true, if you have that tool), then "
+    "keep talking; share the result when it comes back. Do not guess a result while waiting, and "
+    "do not claim an action succeeded before it actually did.]"
 )
+
+
+def interrupted_note(heard: str) -> str:
+    """The user talked over the last reply (owner, 2026-11-22: "it thinks I heard the whole thing"):
+    what of it they actually heard, from the phone's playback. Part of the call's per-turn note."""
+    heard = " ".join(str(heard or "").split())[-1500:]
+    if not heard:
+        return ("[The user interrupted your previous reply before hearing any of it. They did not hear "
+                "it; don't assume they know what it said.]")
+    return ("[The user interrupted your previous reply. They heard only this much of it: \u00ab" + heard +
+            "\u00bb. They did not hear the rest; don't assume they know it, and repeat anything still "
+            "needed briefly.]")
 
 MIN_TTS_PIECE = 40            # very short sentences are spoken with the next (less choppy)
 MIN_PERSONALITY_PIECE = MIN_TTS_PIECE
@@ -324,7 +337,8 @@ class VoiceReplies:
                     break
         finally:
             await worker
-        await self.gateway.publish_voice_stream(reply.profile_id, reply.key, index, number, rate, b"", last=True)
+        await self.gateway.publish_voice_stream(reply.profile_id, reply.key, index, number, rate, b"", last=True,
+                                                text=piece)
         return (rate, bytes(pcm)) if pcm else None
 
     async def _keep_streamed(self, reply: _Reply, piece: str, index: int, streamed: tuple[int, bytes]) -> None:

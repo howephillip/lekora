@@ -11,6 +11,17 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). The limit you parked (only the default agent had Lekora's artifact and file tools) is now being fixed (below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
+## Built, waiting for your phone check: live calling, part 1 (polished calls; Phase 8, feature 5; spec: `docs/voice.md` §3)
+- **Speed:** the call screen has **Call model**, a faster model your agent answers calls with (typed chats keep the main one). It's Hermes' own voice-chat setting; only that setting changes, after a backup. Your logs showed the wait is the agent's first words (4.5–13 s), not the voice (0.5 s).
+- **No dead air:** a soft sound while the agent works, and its live status ("Searching the web…") on the call screen.
+- **Short replies:** one to three sentences, the headline first, then an offer to go on.
+- **Pauses, then goes on:** talking over the agent pauses it. If that wasn't you (a noise, its own echo, "mm-hm"), it picks up where it was.
+- **Words meant for it:** "wait", "stop", "hold on" pause it at once. Otherwise it takes two real words. "Yeah", "okay", "mm-hm" never interrupt.
+- **What you heard:** when you cut in, the agent is told exactly what of its reply you heard, and that you missed the rest.
+- **Rule 8 exception you chose (2026-11-22):** the call model writes only `auxiliary.voice_chat`. The line for AGENTS.md is in my message.
+- **Checked:** plugin 496 pass, app 266 pass (including real audio: what was heard is tracked, and a pause holds the rest). On a copy of Bruce's settings on your instance, Hermes reads the call model and would route call turns to it.
+- **Part 2, live voice engines (GPT-Live, Fish Live 3):** waiting for your choices (see my message).
+
 ## Done, confirmed on your phone 2026-11-22: Tailscale polish (Phase 8, feature 4; with Tailscale off, the app took you to Tailscale to turn it back on; spec: `docs/tailscale.md`)
 - **Addresses stay current:** every connection, the instance sends its current addresses; the phone saves them. Turning Tailscale on later or a new home IP needs no re-pairing.
 - **Can't-connect help:** when the app can't reach the instance, it checks whether this phone is on Tailscale. If not, it shows **Turn On Tailscale**, which opens the Tailscale app (or the App Store). If the instance has no Tailscale address, it explains how to add it.

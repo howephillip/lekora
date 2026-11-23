@@ -505,3 +505,8 @@ A group's chat key is `group:<group_id>`; it is used as `profile_id` on every me
 - `mcp.signin.start` `{name, redirect_uri: lekora://mcp-oauth | http://127.0.0.1:<port>/callback, share_with?: [profile_id]}` → `{flow_id, status: starting|authorization_required|approved|error, authorization_url?, error?}`.
 - `mcp.signin.finish` `{flow_id, callback_url}` → `{status, tools?, error?}` (on approval the sign-in is also copied to `share_with`). `mcp.signin.cancel` `{flow_id}` → `{cancelled}`.
 - Errors: `UNKNOWN_PROFILE`, `UNKNOWN_SERVER`, `UNKNOWN_FLOW`, `REJECTED` (Hermes' safety check), `MCP_UNAVAILABLE`, `MCP_FAILED`.
+
+## 27. Calls, polished (spec: `voice.md` §3)
+- `chat.send` with `hands_free` may carry `heard`: what of the agent's last reply was actually played when the user cut in. Ignored outside a call.
+- `voice.stream`'s last chunk of a part carries `text`, that part's words.
+- `voice.call_model.get` `{}` → `{model, provider}` or `{}` (calls use the main model). `voice.call_model.set` `{model, provider}` → the same (`""` model: back to the main model). Changes only `auxiliary.voice_chat`, backed up first.

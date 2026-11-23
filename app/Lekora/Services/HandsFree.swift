@@ -389,7 +389,9 @@ public final class HandsFreeSession: ObservableObject {
         case failed(String)
     }
 
-    @Published public private(set) var phase: Phase = .starting
+    @Published public private(set) var phase: Phase = .starting {
+        didSet { if phase == .thinking { thinkingCue.start(after: 0.7) } else { thinkingCue.stop() } }
+    }
     @Published public var muted = false {
         didSet {
             if muted, phase == .hearing { microphone.dropTurn(); phase = .listening }
@@ -413,8 +415,13 @@ public final class HandsFreeSession: ObservableObject {
     private var appended = 0
     private var thinkingTimeout: Task<Void, Never>?
     private var ticker: Task<Void, Never>?
-    /// The current turn began while the agent was talking (it's stopped once words are heard).
+    /// The current turn began while the agent was talking (it's paused once words meant for it are heard).
     private var interrupting = false
+    /// The agent's voice is paused because you may be talking; it goes on if that wasn't you
+    /// (owner, 2026-11-22: "it completely stops and then never continues").
+    private var agentPaused = false
+    /// A soft sound while the agent works on its reply (owner, 2026-11-22: silence after you speak).
+    private let thinkingCue = ThinkingCue()
     private var listenedFor: TimeInterval = 0
     private let settleTime: TimeInterval = 2
     /// Without recognition: how much of the turn was clearly sound (noise blips aren't sent).
@@ -503,6 +510,7 @@ public final class HandsFreeSession: ObservableObject {
         microphone.stop()
         player.stop()
         speaker.stop()
+        thinkingCue.stop()
         #if os(iOS)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         #endif
@@ -543,22 +551,24 @@ public final class HandsFreeSession: ObservableObject {
                 phase = .hearing
             }
         case .hearing:
-            // Talking over the agent stops it, but only once real words are heard (a cough, a
-            // door or its own voice leaking back doesn't); echo cancellation keeps its voice out.
-            // Its voice leaking back can be heard as words, so it takes two words that aren't
-            // the agent's own (owner, 2026-11-13: random noises interrupted it).
-            if interrupting, !transcriber.ready || EchoFilter.fresh(heard: transcriber.wordsSoFar, agent: agentText) >= 2 {
-                player.stop()
-                speaker.stop()
-                microphone.speech.stop()
-                interrupting = false
+            // Talking over the agent pauses it, but only once words meant for it are heard: not a
+            // cough, a door, its own voice leaking back, or "mm-hm" (owner, 2026-11-13 and 2026-11-22).
+            // If the turn then turns out not to be you, it goes on where it was.
+            if interrupting, !agentPaused, agentTalking {
+                if !transcriber.ready {
+                    pauseAgent()  // no words to go by: any sustained sound
+                } else if Interruption.isMeant(heard: transcriber.wordsSoFar, agent: agentText) {
+                    pauseAgent()
+                }
             }
-            if detector.feed(level: interrupting ? heardOverAgent(dB) : dB, duration: duration) == .ended {
+            if detector.feed(level: interrupting && !agentPaused ? heardOverAgent(dB) : dB, duration: duration) == .ended {
                 finishTurn()
             } else if !detector.talking {
                 microphone.dropTurn()  // too short to be meant
-                phase = interrupting ? .speaking : .listening
+                let wasInterrupting = interrupting
                 interrupting = false
+                resumeAgent()
+                phase = wasInterrupting && agentTalking ? .speaking : .listening
             }
         default:
             break
@@ -580,17 +590,22 @@ public final class HandsFreeSession: ObservableObject {
                 let pieces = await transcriber.endTurn()
                 try? FileManager.default.removeItem(at: turn.url)
                 let said = pieces.map(\.text).joined(separator: " ")
-                if wasInterrupting, EchoFilter.fresh(heard: said, agent: agentText) < 2 {
-                    // Only the agent's own words (or a stray one) while it talked: not you.
-                    note("turn of \(String(format: "%.1f", turn.duration)) s while the agent talked: its own voice or noise, dropped")
+                if wasInterrupting, !Interruption.isMeant(heard: said, agent: agentText) {
+                    // Only the agent's own words, a stray word or "mm-hm" while it talked: not meant
+                    // for it. It goes on where it was.
+                    note("turn of \(String(format: "%.1f", turn.duration)) s while the agent talked: not meant for it, dropped; it goes on")
+                    resumeAgent()
                     phase = agentTalking ? .speaking : .listening
                     return
                 }
                 guard !pieces.isEmpty else {
                     note("turn of \(String(format: "%.1f", turn.duration)) s: no words recognised, dropped (\(transcriber.stats))")
+                    resumeAgent()
                     phase = wasInterrupting && agentTalking ? .speaking : .listening
                     return
                 }
+                // Cutting in: the agent is told what of its reply you actually heard.
+                let heardOfReply = wasInterrupting && replyId != nil ? heardSoFar : nil
                 // How it was said: laughs, sighs… where they happened.
                 let heard = await sounds.sounds(since: transcriber.turnStartSeconds)
                 let words = SoundCue.weave(words: pieces, sounds: heard)
@@ -600,7 +615,7 @@ public final class HandsFreeSession: ObservableObject {
                 beginWaiting()
                 turnEnded = ended
                 wordsReady = Date()
-                await gateway.sendMessage(words, handsFree: true)  // straight to the agent: no upload
+                await gateway.sendMessage(words, handsFree: true, heard: heardOfReply)  // straight to the agent: no upload
                 sentAt = Date()
                 return
             }
@@ -613,7 +628,8 @@ public final class HandsFreeSession: ObservableObject {
             guard turn.duration >= 1.2, speechy >= 0.35 else {
                 note("turn dropped (too short or mostly background)")
                 try? FileManager.default.removeItem(at: turn.url)
-                phase = .listening
+                resumeAgent()
+                phase = wasInterrupting && agentTalking ? .speaking : .listening
                 return
             }
             note("turn: sent the recording")
@@ -628,7 +644,31 @@ public final class HandsFreeSession: ObservableObject {
         }
     }
 
+    /// What of the current reply has been heard so far (streamed voice, or the iPhone voice).
+    private var heardSoFar: String {
+        let streamed = microphone.speech.heardText
+        return streamed.isEmpty ? speaker.heardText : streamed
+    }
+
+    private func pauseAgent() {
+        agentPaused = true
+        microphone.speech.pause()
+        player.pause()
+        speaker.pause()
+        note("you started talking: the agent paused")
+    }
+
+    /// The agent goes on where it paused (the sound wasn't you, or wasn't meant for it).
+    private func resumeAgent() {
+        guard agentPaused else { return }
+        agentPaused = false
+        microphone.speech.resume()
+        player.continuePlaying()
+        speaker.resume()
+    }
+
     private func beginWaiting() {
+        agentPaused = false
         player.stop()
         speaker.stop()
         microphone.speech.stop()
@@ -716,7 +756,8 @@ public final class HandsFreeSession: ObservableObject {
     /// What the agent is saying now (to tell its voice leaking back from yours).
     private var agentText: String { messages.last(where: { $0.id == replyId })?.text ?? "" }
 
-    private var agentTalking: Bool { player.isPlaying || speaker.speakingId != nil || microphone.speech.isSpeaking }
+    /// The agent has sound playing or waiting to go on (a pause still counts: it may resume).
+    private var agentTalking: Bool { agentPaused || player.isPlaying || speaker.speakingId != nil || microphone.speech.isSpeaking }
 
     private func streamed(_ chunk: VoiceStreamData) {
         guard phase == .thinking || phase == .speaking || (phase == .hearing && interrupting) else { return }
@@ -724,13 +765,17 @@ public final class HandsFreeSession: ObservableObject {
         seenStreams.insert(chunk.message_id)
         // This turn's reply (or the agent's next message in it): queued after what's playing.
         streamKey = chunk.message_id
-        if chunk.last == true { microphone.speech.flush() }
+        let piece = "\(chunk.message_id)#\(chunk.index)"
+        if chunk.last == true {
+            microphone.speech.finish(piece: piece, text: chunk.text)
+            microphone.speech.flush()
+        }
         guard let pcm = Data(base64Encoded: chunk.data), !pcm.isEmpty else { return }
-        streamedParts.insert("\(chunk.message_id)#\(chunk.index)")
+        streamedParts.insert(piece)
         let first = audioArrived == nil
         if first { audioArrived = Date() }
         thinkingTimeout?.cancel()
-        microphone.speech.play(pcm: pcm, rate: chunk.rate)
+        microphone.speech.play(pcm: pcm, rate: chunk.rate, piece: piece)
         if phase == .thinking { phase = .speaking }
         if first { reportTiming() }
     }
@@ -831,7 +876,7 @@ final class StreamSpeaker {
     private var generation = 0
     /// A little sound is kept in hand before playing, so uneven arrival over the internet
     /// doesn't stutter (owner, 2026-11-13); after running dry, a little less to resume.
-    private var holding: [AVAudioPCMBuffer] = []
+    private var holding: [(buffer: AVAudioPCMBuffer, piece: String?)] = []
     private var heldSeconds: Double = 0
     private var flowing = false
     private let startAfter: Double = 0.5
@@ -858,7 +903,56 @@ final class StreamSpeaker {
         return wanted
     }
 
-    func play(pcm: Data, rate: Int) {
+    /// What each streamed part said and how much of it has played (docs/voice.md §3: the agent is told
+    /// what you heard when you cut in).
+    private struct Piece { let key: String; var text: String?; var frames: Double = 0; var played: Double = 0; var complete = false }
+    private var pieces: [Piece] = []
+    private(set) var paused = false
+
+    /// The words of a streamed part, given with its last chunk.
+    func finish(piece key: String, text: String?) {
+        if let i = pieces.firstIndex(where: { $0.key == key }) {
+            pieces[i].text = text ?? pieces[i].text
+            pieces[i].complete = true
+        } else if let text {
+            pieces.append(Piece(key: key, text: text, complete: true))
+        }
+    }
+
+    /// What of the reply has actually been heard: whole parts played to the end, then the share of the
+    /// part playing now.
+    var heardText: String {
+        var out: [String] = []
+        for piece in pieces {
+            guard let text = piece.text else { continue }
+            if piece.complete, piece.frames > 0, piece.played >= piece.frames {
+                out.append(text)
+                continue
+            }
+            if piece.frames > 0, piece.played > 0 {
+                let words = text.split(separator: " ")
+                let share = min(piece.played / piece.frames, 1)
+                out.append(words.prefix(Int((Double(words.count) * share).rounded(.down))).joined(separator: " "))
+            }
+            break
+        }
+        return out.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// Paused while you start talking over it; it goes on if that wasn't you.
+    func pause() {
+        guard !paused else { return }
+        paused = true
+        node.pause()
+    }
+
+    func resume() {
+        guard paused else { return }
+        paused = false
+        if queued > 0 { node.play() }
+    }
+
+    func play(pcm: Data, rate: Int, piece: String? = nil) {
         guard rate > 0, let format = ready(rate: Double(rate)) else { return }
         let frames = pcm.count / 2
         guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
@@ -868,7 +962,8 @@ final class StreamSpeaker {
             let samples = raw.bindMemory(to: Int16.self)
             for i in 0..<frames { out[i] = Float(Int16(littleEndian: samples[i])) / 32_768 }
         }
-        hold(buffer)
+        if let piece, !pieces.contains(where: { $0.key == piece }) { pieces.append(Piece(key: piece)) }
+        hold(buffer, piece: piece)
     }
 
     /// The end of a streamed part: play whatever is held.
@@ -878,15 +973,15 @@ final class StreamSpeaker {
         let held = holding
         holding = []
         heldSeconds = 0
-        held.forEach(schedule)
+        held.forEach { schedule($0.buffer, piece: $0.piece) }
     }
 
-    private func hold(_ buffer: AVAudioPCMBuffer) {
+    private func hold(_ buffer: AVAudioPCMBuffer, piece: String?) {
         if flowing {
-            schedule(buffer)
+            schedule(buffer, piece: piece)
             return
         }
-        holding.append(buffer)
+        holding.append((buffer, piece))
         heldSeconds += Double(buffer.frameLength) / buffer.format.sampleRate
         if heldSeconds >= (generation == startedGeneration ? resumeAfter : startAfter) {
             startedGeneration = generation
@@ -913,16 +1008,19 @@ final class StreamSpeaker {
         }
         if error == nil, output.frameLength > 0 {
             flush()
-            schedule(output)
+            schedule(output, piece: nil)
         }
     }
 
-    private func schedule(_ buffer: AVAudioPCMBuffer) {
+    private func schedule(_ buffer: AVAudioPCMBuffer, piece: String? = nil) {
         queued += 1
         let current = generation
+        let frames = Double(buffer.frameLength)
+        if let piece, let i = pieces.firstIndex(where: { $0.key == piece }) { pieces[i].frames += frames }
         node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.generation == current else { return }
+                if let piece, let i = self.pieces.firstIndex(where: { $0.key == piece }) { self.pieces[i].played += frames }
                 self.queued = max(self.queued - 1, 0)
                 if self.queued == 0 {
                     self.flowing = false  // ran dry: hold a little again before resuming
@@ -930,7 +1028,7 @@ final class StreamSpeaker {
                 }
             }
         }
-        if !node.isPlaying { node.play() }
+        if !node.isPlaying && !paused { node.play() }
     }
 
     /// Stop at once (you talked over it, or the call ended).
@@ -940,6 +1038,8 @@ final class StreamSpeaker {
         holding = []
         heldSeconds = 0
         flowing = false
+        paused = false
+        pieces = []
         node.stop()
     }
 }
@@ -953,7 +1053,83 @@ public enum EchoFilter {
 
     /// How many of the words heard aren't in what the agent is saying.
     public static func fresh(heard: String, agent: String) -> Int {
+        freshWords(heard: heard, agent: agent).count
+    }
+
+    /// The words heard that aren't in what the agent is saying.
+    public static func freshWords(heard: String, agent: String) -> [String] {
         let theirs = Set(words(agent))
-        return words(heard).filter { !theirs.contains($0) }.count
+        return words(heard).filter { !theirs.contains($0) }
+    }
+}
+
+
+/// Whether words heard while the agent talks are meant for it (owner, 2026-11-22): its own voice leaking
+/// back, a stray word or "mm-hm" aren't; "wait", "stop", "hold on" are at once; otherwise two words
+/// that aren't the agent's own and aren't just acknowledgements.
+public enum Interruption {
+    static let acknowledgements: Set<String> = [
+        "mm", "mhm", "mmhm", "mm-hm", "hmm", "hm", "uh", "um", "huh", "uh-huh", "uhhuh", "ah", "oh", "yeah", "yep",
+        "yes", "ya", "yup", "ok", "okay", "k", "right", "sure", "cool", "nice", "wow", "great", "got", "it", "i",
+        "see", "totally", "exactly", "true", "haha", "ha", "lol", "gotcha", "alright", "fine", "good", "perfect", "nah"]
+    static let stopWords: [String] = ["wait", "stop", "hold on", "hang on", "hold up", "pause", "excuse me", "sorry", "actually", "no no"]
+
+    public static func isMeant(heard: String, agent: String) -> Bool {
+        let lower = heard.lowercased()
+        let fresh = EchoFilter.freshWords(heard: heard, agent: agent)
+        if stopWords.contains(where: { word in
+            lower.range(of: "\\b\(word)\\b", options: .regularExpression) != nil && fresh.contains(where: { word.contains($0) })
+        }) { return true }
+        return fresh.filter { !acknowledgements.contains($0) }.count >= 2
+    }
+}
+
+/// A soft two-note sound every couple of seconds while the agent works on its reply, so a call
+/// never goes silent (owner, 2026-11-22). Quiet, made on the phone, stopped the moment it answers.
+@MainActor
+final class ThinkingCue {
+    private var player: AVAudioPlayer?
+    private var starting: Task<Void, Never>?
+
+    func start(after delay: Double) {
+        guard starting == nil, player?.isPlaying != true else { return }
+        starting = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            self.starting = nil
+            if self.player == nil { self.player = try? AVAudioPlayer(data: Self.sound()) }
+            self.player?.numberOfLoops = -1
+            self.player?.volume = 0.12
+            self.player?.currentTime = 0
+            self.player?.play()
+        }
+    }
+
+    func stop() {
+        starting?.cancel()
+        starting = nil
+        player?.stop()
+    }
+
+    /// 2.4 s: two short soft notes, then quiet. 16-bit mono WAV.
+    nonisolated static func sound(rate: Int = 22_050) -> Data {
+        let total = Int(2.4 * Double(rate))
+        var samples = [Int16](repeating: 0, count: total)
+        for (start, frequency) in [(0.0, 660.0), (0.18, 880.0)] {
+            let first = Int(start * Double(rate)), length = Int(0.12 * Double(rate))
+            for i in 0..<length where first + i < total {
+                let t = Double(i) / Double(rate)
+                let envelope = sin(Double.pi * Double(i) / Double(length))  // soft in, soft out
+                samples[first + i] = Int16(sin(2 * Double.pi * frequency * t) * envelope * 0.5 * 32_767)
+            }
+        }
+        var data = Data()
+        func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        data.append(contentsOf: Array("RIFF".utf8)); put(UInt32(36 + total * 2))
+        data.append(contentsOf: Array("WAVEfmt ".utf8)); put(UInt32(16)); put(UInt16(1)); put(UInt16(1))
+        put(UInt32(rate)); put(UInt32(rate * 2)); put(UInt16(2)); put(UInt16(16))
+        data.append(contentsOf: Array("data".utf8)); put(UInt32(total * 2))
+        samples.forEach { put($0) }
+        return data
     }
 }

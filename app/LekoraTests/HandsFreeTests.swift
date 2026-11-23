@@ -134,4 +134,69 @@ final class HandsFreeLongTurnTests: XCTestCase {
         XCTAssertNil(chat.currentId, "nothing of the note is left to resume")
         XCTAssertTrue(call.belongsToCall)
     }
+
+    // MARK: - Calls, polished (owner, 2026-11-22)
+
+    /// "If it recognizes something it needs to differentiate between me speaking to it or accidentally
+    /// hearing a word or two."
+    func testOnlyWordsMeantForTheAgentInterruptIt() {
+        let agent = "There are three options. The first is the ramen place on Fifth."
+        XCTAssertFalse(Interruption.isMeant(heard: "mm-hm", agent: agent))
+        XCTAssertFalse(Interruption.isMeant(heard: "yeah okay", agent: agent), "acknowledgements aren't interruptions")
+        XCTAssertFalse(Interruption.isMeant(heard: "the ramen place", agent: agent), "its own voice leaking back")
+        XCTAssertFalse(Interruption.isMeant(heard: "uh", agent: agent), "a stray word")
+        XCTAssertTrue(Interruption.isMeant(heard: "wait", agent: agent), "a stop word pauses it at once")
+        XCTAssertTrue(Interruption.isMeant(heard: "hold on", agent: agent))
+        XCTAssertTrue(Interruption.isMeant(heard: "what about sushi instead", agent: agent), "real words for it")
+        XCTAssertFalse(Interruption.isMeant(heard: "wait", agent: "Wait a second while I check."),
+                       "its own \"wait\" leaking back isn't you")
+    }
+
+    /// "If I interrupt on something it started talking about earlier, it thinks I heard the whole thing":
+    /// the app knows what has actually played, and a pause holds the rest for later.
+    @MainActor
+    func testWhatWasHeardIsTrackedAndAPauseHoldsTheRest() async throws {
+        let speaker = StreamSpeaker()
+        func tone(_ seconds: Double) -> Data {
+            Data((0..<Int(seconds * 24_000)).flatMap { i -> [UInt8] in
+                let v = Int16(sin(Double(i) / 10) * 3000)
+                return [UInt8(truncatingIfNeeded: v), UInt8(truncatingIfNeeded: v >> 8)]
+            })
+        }
+        speaker.play(pcm: tone(0.6), rate: 24_000, piece: "r#0")
+        speaker.finish(piece: "r#0", text: "There are three options.")
+        speaker.flush()
+        speaker.play(pcm: tone(3.0), rate: 24_000, piece: "r#1")
+        speaker.finish(piece: "r#1", text: "The first is the ramen place on Fifth, which is open late tonight.")
+        speaker.flush()
+        let started = await waitUntil(timeout: 10) { speaker.heardText.hasPrefix("There are three options.") }
+        XCTAssertTrue(started, "the first part has played")
+        speaker.pause()
+        let heard = speaker.heardText
+        XCTAssertTrue(heard.hasPrefix("There are three options."))
+        XCTAssertFalse(heard.hasSuffix("tonight."), "the second part hasn't all played")
+        try await Task.sleep(for: .milliseconds(800))
+        XCTAssertEqual(speaker.heardText, heard, "nothing plays while paused")
+        XCTAssertTrue(speaker.isSpeaking, "the rest is held, ready to go on")
+        speaker.resume()
+        let finished = await waitUntil(timeout: 10) { speaker.heardText.hasSuffix("open late tonight.") }
+        XCTAssertTrue(finished, "after resuming it plays to the end")
+        speaker.stop()
+        XCTAssertEqual(speaker.heardText, "")
+    }
+
+    /// Silence after you speak is filled by a soft sound (owner, 2026-11-22).
+    func testTheThinkingSoundIsAShortQuietLoop() throws {
+        let player = try AVAudioPlayer(data: ThinkingCue.sound())
+        XCTAssertEqual(player.duration, 2.4, accuracy: 0.05)
+    }
+
+    /// The words heard go with the next turn only from a call.
+    func testHeardTextTravelsOnlyWithCallTurns() throws {
+        let call = GatewayClient.makeChatSendEnvelope(text: "which one", instanceId: "i", profileId: "p", handsFree: true,
+                                                      heard: "There are three options.")
+        XCTAssertEqual(call.data.heard, "There are three options.")
+        let typed = GatewayClient.makeChatSendEnvelope(text: "hi", instanceId: "i", profileId: "p", heard: "x")
+        XCTAssertNil(typed.data.heard)
+    }
 }

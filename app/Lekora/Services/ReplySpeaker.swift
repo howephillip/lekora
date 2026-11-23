@@ -95,6 +95,7 @@ public final class ReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizer
     public func follow(id: String, text: String, final: Bool, settings: AgentVoiceSettings) {
         guard belongsToCall || !AudioSessionOwner.handsFree else { return }
         if speakingId != id {
+            if speakingId == nil { heardSentences = []; hearingNow = "" }
             guard speakingId == nil || !synthesizer.isSpeaking else {
                 // Another reply is still being spoken: this one starts after it.
                 if spoken[id] == nil { spoken[id] = 0 }
@@ -123,6 +124,25 @@ public final class ReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizer
         queued = []
         speakingId = nil
         later = []
+        heardSentences = []
+        hearingNow = ""
+    }
+
+    // MARK: Calls (docs/voice.md §3): pausing while you might be talking, and what was heard.
+
+    /// Paused while you start talking over it: it goes on if that wasn't you.
+    public func pause() { synthesizer.pauseSpeaking(at: .immediate) }
+    public func resume() { synthesizer.continueSpeaking() }
+
+    private var heardSentences: [String] = []
+    private var hearingNow = ""
+    /// What of the current reply has actually been said so far.
+    public var heardText: String { (heardSentences + [hearingNow]).filter { !$0.isEmpty }.joined(separator: " ") }
+
+    public nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString range: NSRange,
+                                              utterance: AVSpeechUtterance) {
+        let text = (utterance.speechString as NSString).substring(to: min(NSMaxRange(range), (utterance.speechString as NSString).length))
+        Task { @MainActor in self.hearingNow = text }
     }
 
     private func configure(_ settings: AgentVoiceSettings) {
@@ -163,7 +183,8 @@ public final class ReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizer
 
     public nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         let key = ObjectIdentifier(utterance)
-        Task { @MainActor in self.utteranceEnded(key) }
+        let text = utterance.speechString
+        Task { @MainActor in self.utteranceEnded(key, text: text) }
     }
 
     public nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
@@ -171,8 +192,10 @@ public final class ReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizer
         Task { @MainActor in self.queued.remove(key) }  // a stopped one; only ever removes its own
     }
 
-    private func utteranceEnded(_ key: ObjectIdentifier) {
+    private func utteranceEnded(_ key: ObjectIdentifier, text: String = "") {
         guard queued.remove(key) != nil else { return }  // from before a stop
+        if !text.isEmpty { heardSentences.append(text) }
+        hearingNow = ""
         guard pending == 0, let id = speakingId else { return }
         guard finished.contains(id) || id == "preview" else { return }  // more of this reply is coming
         speakingId = nil

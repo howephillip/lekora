@@ -568,6 +568,21 @@ public final class GatewayClient: ObservableObject {
                           reply: SkillCopyResult.self, timeout: 240)
     }
 
+    // MARK: - Call model (docs/voice.md §3, "Speed")
+
+    /// The faster model this agent answers calls with (Hermes' auxiliary.voice_chat); nil = its main model.
+    public func callModel(for profileId: String) async throws -> CallModelData {
+        try await request(type: "voice.call_model.get", profileId: profileId, data: EmptyData(),
+                          reply: CallModelData.self, timeout: 20)
+    }
+
+    /// Sets it ("" model: calls use the agent's main model). Backed up on the instance first.
+    @discardableResult
+    public func setCallModel(_ model: String, provider: String, for profileId: String) async throws -> CallModelData {
+        try await request(type: "voice.call_model.set", profileId: profileId,
+                          data: CallModelData(model: model, provider: provider), reply: CallModelData.self, timeout: 30)
+    }
+
     // MARK: - MCP servers (docs/mcp.md)
 
     public func mcpServers() async throws -> [McpServer] {
@@ -1227,13 +1242,15 @@ public final class GatewayClient: ObservableObject {
                                                         voice: VoiceDetails? = nil,
                                                         handsFree: Bool = false,
                                                         about: String? = nil,
-                                                        review: [ReviewComment]? = nil) -> Envelope<ChatSendData> {
+                                                        review: [ReviewComment]? = nil,
+                                                        heard: String? = nil) -> Envelope<ChatSendData> {
         Envelope(
             type: "chat.send",
             instance_id: instanceId,
             profile_id: profileId,
             data: ChatSendData(text: text, files: files, voice: voice, hands_free: handsFree ? true : nil,
-                               about: about.map { ArtifactRef(artifact_id: $0) }, review: review)
+                               about: about.map { ArtifactRef(artifact_id: $0) }, review: review,
+                               heard: handsFree ? heard : nil)
         )
     }
 
@@ -1241,7 +1258,7 @@ public final class GatewayClient: ObservableObject {
     /// away; a failed send is marked on that bubble instead of dropping the connection.
     public func sendMessage(_ text: String, files: [ChatFile] = [], voice: VoiceDetails? = nil,
                             handsFree: Bool = false, about: ArtifactCard? = nil,
-                            review: [ReviewComment]? = nil) async {
+                            review: [ReviewComment]? = nil, heard: String? = nil) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty || review?.isEmpty == false,
               let instanceId = savedHost?.instanceId else {
@@ -1260,7 +1277,8 @@ public final class GatewayClient: ObservableObject {
 
         let envelope = Self.makeChatSendEnvelope(text: trimmed, instanceId: instanceId, profileId: activeProfileId,
                                                  files: files.isEmpty ? nil : files.map(\.file_id), voice: voice,
-                                                 handsFree: handsFree, about: about?.artifact_id, review: review)
+                                                 handsFree: handsFree, about: about?.artifact_id, review: review,
+                                                 heard: heard)
         timeline.addOutgoing(id: envelope.id, profileId: activeProfileId, text: trimmed,
                              files: files.isEmpty ? nil : files, voice: voice, about: about, review: review)
 

@@ -8,6 +8,8 @@ struct HandsFreeView: View {
     let agentName: String
     @StateObject private var session: HandsFreeSession
     @Environment(\.dismiss) private var dismiss
+    @State private var choosingModel = false
+    @State private var callModel: CallModelData?
 
     init(gateway: GatewayClient, agentName: String) {
         self.gateway = gateway
@@ -25,7 +27,10 @@ struct HandsFreeView: View {
         case .starting: return "Starting…"
         case .listening: return session.muted ? "Muted" : "Listening…"
         case .hearing: return "Listening…"
-        case .thinking: return "Thinking…"
+        case .thinking:
+            // What the agent is doing, as Hermes says it ("Searching the web…"; owner, 2026-11-22).
+            if let doing = gateway.agentActivity[profileId]?.status, !doing.isEmpty { return doing }
+            return "Thinking…"
         case .speaking: return "Speaking… talk to interrupt"
         case .failed(let reason): return reason
         }
@@ -54,6 +59,16 @@ struct HandsFreeView: View {
                     .frame(maxWidth: 260)
                     .accessibilityLabel("Voice style")
                 }
+
+                Button {
+                    choosingModel = true
+                } label: {
+                    Label(callModel?.model.map { "Call model: \(LKCallModelSheet.short($0))" } ?? "Call model: main model",
+                          systemImage: "bolt.fill")
+                        .font(LK.Typography.caption)
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+                .accessibilityHint("The faster model this agent answers calls with")
 
                 Spacer()
 
@@ -96,6 +111,10 @@ struct HandsFreeView: View {
             }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: session.phase)
+        .sheet(isPresented: $choosingModel) {
+            LKCallModelSheet(gateway: gateway, profileId: profileId, agentName: agentName, current: callModel) { callModel = $0 }
+        }
+        .task { callModel = try? await gateway.callModel(for: profileId) }
         .task { await session.start() }
         .onDisappear { session.end() }
     }
@@ -124,6 +143,100 @@ struct HandsFreeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(label)
             Text(label).font(.caption).foregroundStyle(.white.opacity(0.8))
+        }
+    }
+}
+
+/// The faster model an agent answers calls with (docs/voice.md §3, "Speed"): Hermes' own voice-chat
+/// model, set per agent and kept until changed. The same agent, voice and tools; only calls use it.
+struct LKCallModelSheet: View {
+    @ObservedObject var gateway: GatewayClient
+    let profileId: String
+    let agentName: String
+    let current: CallModelData?
+    let changed: (CallModelData) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var models: [CatalogModel] = []
+    @State private var failure: String?
+    @State private var saving: String?
+
+    static func short(_ model: String) -> String { model.split(separator: "/").last.map(String.init) ?? model }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("Calls feel fast when the agent starts talking quickly. A quick model here answers words said in calls; typed chats keep \(agentName)'s main model. Same agent, same voice, same tools.")
+                        .font(LK.Typography.footnote).foregroundStyle(.secondary)
+                }
+                if let failure { Text(failure).foregroundStyle(LK.Palette.danger) }
+                Section {
+                    row("Main model", detail: "Calls use the same model as chats", id: "") { save("", provider: "main") }
+                    if let model = current?.model {
+                        row(Self.short(model), detail: "Now: \(model)", id: model, selected: true) {}
+                    }
+                }
+                Section("Quick picks") {
+                    ForEach(quickPicks) { model in
+                        row(model.name ?? model.id, detail: LKModelText.prices(input: model.input, output: model.output) ?? model.id,
+                            id: model.id, selected: current?.model == model.id) { save(model.id, provider: "openrouter") }
+                    }
+                    if models.isEmpty && failure == nil { ProgressView() }
+                }
+                if !models.isEmpty {
+                    Section {
+                        NavigationLink("All OpenRouter models") {
+                            LKOpenRouterBrowser(models: models, current: current?.model, switching: saving) { model in
+                                save(model.id, provider: "openrouter")
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Call Model")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            .task {
+                do { models = try await gateway.modelCatalog(provider: "openrouter", in: profileId).models }
+                catch { failure = "OpenRouter's list couldn't load: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    /// Fast, low-cost models that use tools: "flash", "mini", "haiku", "fast" in the name, cheapest first.
+    private var quickPicks: [CatalogModel] {
+        let words = ["flash", "haiku", "mini", "fast", "lite", "instant"]
+        return models.filter { m in words.contains { (m.id + " " + (m.name ?? "")).lowercased().contains($0) } }
+            .sorted { ($0.output ?? 99) < ($1.output ?? 99) }
+            .prefix(8).map { $0 }
+    }
+
+    private func row(_ title: String, detail: String, id: String, selected: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).foregroundStyle(.primary)
+                    Text(detail).font(LK.Typography.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                if saving == id { ProgressView() }
+                else if selected || (id.isEmpty && current?.model == nil) { Image(systemName: "checkmark").foregroundStyle(LK.Palette.accent) }
+            }
+        }
+        .disabled(saving != nil)
+    }
+
+    private func save(_ model: String, provider: String) {
+        saving = model
+        Task {
+            defer { saving = nil }
+            do {
+                let result = try await gateway.setCallModel(model, provider: provider, for: profileId)
+                changed(result)
+                dismiss()
+            } catch {
+                failure = error.localizedDescription
+            }
         }
     }
 }

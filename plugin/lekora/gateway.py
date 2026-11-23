@@ -111,6 +111,7 @@ class Gateway:
         self.analytics: Optional[Any] = None    # Analytics: usage and spend (docs/analytics.md)
         self.skills: Optional[Any] = None       # Skills: each agent's Hermes skills (docs/skills.md)
         self.mcp: Optional[Any] = None          # MCP servers for every agent (docs/mcp.md)
+        self.call_model: Optional[Any] = None   # an agent's call model (docs/voice.md §3)
         self.name_changed: Optional[Callable[[], None]] = None  # set by the service
         self.groups_changed: Optional[Callable[[], None]] = None  # set by the service
         self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
@@ -339,13 +340,15 @@ class Gateway:
         await self._broadcast_ephemeral(self._envelope("voice.segment", data, profile_id=profile_id))
 
     async def publish_voice_stream(self, profile_id: str, key: str, index: int, number: int, rate: int,
-                                   pcm: bytes, last: bool = False) -> None:
+                                   pcm: bytes, last: bool = False, text: Optional[str] = None) -> None:
         """Direct voice (docs/voice.md §4): sound for part ``index`` of a reply as it's made
         (16-bit mono PCM at ``rate``), for phones in a hands-free call to play at once."""
         data: dict[str, Any] = {"message_id": key, "index": index, "chunk": number, "rate": rate,
                                 "data": base64.b64encode(pcm).decode("ascii")}
         if last:
             data["last"] = True
+        if text:
+            data["text"] = text  # the words of this part: the phone knows what was heard (docs/voice.md §3)
         await self._broadcast_ephemeral(self._envelope("voice.stream", data, profile_id=profile_id))
 
     async def publish_voice_reply(self, profile_id: str, key: str, style: str, problem: Optional[str] = None,
@@ -575,6 +578,8 @@ class Gateway:
             await self._kanban_request(conn, msg_id, type_, data)
         elif type_ in ("agent.tools.get", "agent.tools.set"):
             await self._tools_request(conn, msg_id, type_, env.get("profile_id"), data)
+        elif type_ in ("voice.call_model.get", "voice.call_model.set"):
+            await self._call_model_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ in ("voice.settings.get", "voice.settings.set", "voice.speak",
                        "voice.direct.get", "voice.direct.set", "voice.direct.test"):
             await self._voice_request(conn, msg_id, type_, env.get("profile_id"), data)
@@ -801,9 +806,10 @@ class Gateway:
         elif about is not None:
             # The agent learns which artifact (its id), as the user's card in the chat shows it.
             text = f'{text}\n\n(About the artifact "{about["title"]}", id {about["artifact_id"]}, version {about["version"]}.)'
+        heard = data.get("heard") if bool(data.get("hands_free")) and isinstance(data.get("heard"), str) else None
         task = asyncio.create_task(self._run_dispatch(conn, msg_id, profile_id, text, attachments,
                                                       spoken=bool(data.get("hands_free")) and not voice,
-                                                      in_call=bool(data.get("hands_free"))))
+                                                      in_call=bool(data.get("hands_free")), heard=heard))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -1357,6 +1363,26 @@ class Gateway:
             raise _Reject("UNAVAILABLE", "Couldn't read this agent's tools from Hermes", True, False, msg_id)
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
 
+    async def _call_model_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
+                                  profile_id: Any, data: dict) -> None:
+        """An agent's call model: Hermes' auxiliary.voice_chat (docs/voice.md §3, "Speed")."""
+        from .call_model import CallModelError
+        if self.call_model is None:
+            raise _Reject("UNAVAILABLE", "Call models can't be set on this Hermes instance", True, False, msg_id)
+        if not isinstance(profile_id, str) or profile_id not in {p["profile_id"] for p in self._profiles()}:
+            raise _Reject("UNKNOWN_PROFILE", "Unknown agent", True, False, msg_id)
+        try:
+            if type_ == "voice.call_model.get":
+                result = await asyncio.to_thread(self.call_model.get, profile_id)
+            else:
+                result = await asyncio.to_thread(self.call_model.set, profile_id, data.get("model"), data.get("provider"))
+        except CallModelError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except Exception as exc:
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("UNAVAILABLE", f"Hermes couldn't do that: {exc}", True, False, msg_id)
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
+
     async def _voice_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
                              profile_id: Any, data: dict) -> None:
         """An agent's voice settings, and its replies in Hermes' voice (docs/voice.md §2)."""
@@ -1480,7 +1506,7 @@ class Gateway:
 
     async def _run_dispatch(self, conn: _Conn, msg_id: Optional[str],
                             profile_id: str, text: str, files: Optional[list] = None,
-                            spoken: bool = False, in_call: bool = False) -> None:
+                            spoken: bool = False, in_call: bool = False, heard: Optional[str] = None) -> None:
         try:
             extra: dict[str, Any] = {}
             if files:  # only when needed: bridges from before take (profile, text, id)
@@ -1496,8 +1522,9 @@ class Gateway:
                     instructions = None
                 if in_call:
                     # A hands-free call (docs/voice.md §3): it's a spoken conversation.
-                    from .voice_replies import CALL_NOTE
-                    instructions = "\n\n".join(part for part in (CALL_NOTE, instructions) if part)
+                    from .voice_replies import CALL_NOTE, interrupted_note
+                    cut = interrupted_note(heard) if heard is not None else None
+                    instructions = "\n\n".join(part for part in (CALL_NOTE, cut, instructions) if part)
                 if instructions:
                     extra["instructions"] = instructions  # personality voice (docs/voice.md §2)
             await self._dispatch(profile_id, text, msg_id or str(uuid.uuid4()), **extra)

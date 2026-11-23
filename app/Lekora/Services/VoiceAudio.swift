@@ -354,6 +354,9 @@ public final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
         progress = min((before + player.currentTime) / total, 1)
     }
 
+    /// Goes on after a pause (a call: the sound that paused it wasn't you).
+    public func continuePlaying() { if player != nil { resume() } }
+
     public func pause() {
         player?.pause()
         isPlaying = false
