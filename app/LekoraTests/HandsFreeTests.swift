@@ -1,4 +1,5 @@
 import XCTest
+import LiveKit
 import AVFoundation
 @testable import Lekora
 
@@ -198,5 +199,58 @@ final class HandsFreeLongTurnTests: XCTestCase {
         XCTAssertEqual(call.data.heard, "There are three options.")
         let typed = GatewayClient.makeChatSendEnvelope(text: "hi", instanceId: "i", profileId: "p", heard: "x")
         XCTAssertNil(typed.data.heard)
+    }
+
+    // MARK: - Live voice engines (docs/live-calls.md)
+
+    /// The engine is kept per agent; GPT-Live's voice reaches the phone; the microphone's sound goes out.
+    @MainActor
+    func testLiveEnginesAreKeptAndGptLiveSoundFlows() async throws {
+        let host = try FakeHost()
+        host.profiles = [["profile_id": "default", "name": "Default", "avatar": "sparkles"]]
+        try await host.start()
+        defer { host.stop() }
+        let store = InMemoryCredentialStore()
+        try SavedHost(instanceId: host.instanceId, instanceName: host.instanceName, deviceId: "dev_1",
+                      deviceToken: host.acceptedDeviceToken, endpoints: [host.endpoint],
+                      enabledProfileIds: ["default"], activeProfileId: "default").save(to: store)
+        let gateway = GatewayClient(keychain: store, requireTLS: false)
+        await gateway.resumeSavedSession()
+        var engines = try await gateway.liveEngines(for: "default")
+        XCTAssertEqual(engines.engine, "agent")
+        XCTAssertEqual(engines.engines.first { $0.id == "fish-live" }?.available, false)
+        engines = try await gateway.setLiveEngine("gpt-live", for: "default")
+        XCTAssertEqual(engines.engine, "gpt-live", "kept until changed")
+        var voice: String?
+        gateway.onLiveAudio = { voice = $0 }
+        let started = try await gateway.startLive("gpt-live", for: "default")
+        XCTAssertEqual(started.session_id, "live_1")
+        let arrived = await waitUntil { voice != nil }
+        XCTAssertTrue(arrived, "its voice comes back over the same connection")
+        gateway.sendLiveAudio("AAAA", profileId: "default")
+        let sent = await waitUntil { host.liveAudioReceived == 1 }
+        XCTAssertTrue(sent, "the microphone's sound goes out with no reply expected")
+        await gateway.stopLive(for: "default")
+    }
+
+    /// Fish's ask_agent tool calls arrive as data on `agent-event`; the rest is ignored.
+    @MainActor
+    func testFishToolCallsAreRead() async throws {
+        let events = FishRoomEvents()
+        var asked: (String, String)?
+        var ended: String?
+        events.onToolCall = { asked = ($0, $1) }
+        events.onEnded = { ended = $0 }
+        let room = Room()
+        let call = #"{"type":"client_tool.call","callId":"call_1","toolName":"ask_agent","params":{"request":"what's on today"},"expectsResponse":true}"#
+        events.room(room, participant: nil, didReceiveData: Data(call.utf8), forTopic: "agent-event", encryptionType: .none)
+        events.room(room, participant: nil, didReceiveData: Data(call.utf8), forTopic: "other", encryptionType: .none)
+        events.room(room, participant: nil, didReceiveData: Data(#"{"type":"session.ended","reason":"user_hangup"}"#.utf8),
+                    forTopic: "agent-event", encryptionType: .none)
+        let got = await waitUntil { asked != nil && ended != nil }
+        XCTAssertTrue(got)
+        XCTAssertEqual(asked?.0, "call_1")
+        XCTAssertEqual(asked?.1, "what's on today")
+        XCTAssertEqual(ended, "user_hangup")
     }
 }

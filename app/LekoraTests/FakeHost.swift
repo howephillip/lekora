@@ -204,6 +204,10 @@ final class FakeHost: @unchecked Sendable {
     var respondStatusOverride: String?
 
     func rev(of seq: Int) -> Int { corrections[seq] ?? seq * 10 }
+    /// Live calls (docs/live-calls.md).
+    var liveEngine = "agent"
+    var liveAudioReceived = 0
+
     /// The instance's current addresses, sent with hello.ack (docs/tailscale.md).
     var helloEndpoints: [String]?
 
@@ -640,6 +644,24 @@ final class FakeHost: @unchecked Sendable {
             send(type: "group.create.result", id: id, data: ["group": group], on: connection)
         case "skills.list":
             send(type: "skills.list.result", id: id, data: ["skills": skillList], profileId: message["profile_id"] as? String, on: connection)
+        case "live.engine.get", "live.engine.set":
+            let asked = message["type"] as? String ?? "live.engine.get"
+            if asked == "live.engine.set" { liveEngine = data["engine"] as? String ?? liveEngine }
+            let list: [[String: Any]] = [
+                ["id": "agent", "name": "Your agent", "available": true],
+                ["id": "gpt-live", "name": "GPT-Live", "available": true],
+                ["id": "fish-live", "name": "Fish Live 3", "available": false, "reason": "Needs a Fish Audio API key"]]
+            let reply: [String: Any] = ["engine": liveEngine, "engines": list]
+            send(type: asked + ".result", id: id, data: reply, profileId: message["profile_id"] as? String, on: connection)
+        case "live.start":
+            send(type: "live.start.result", id: id, data: ["engine": data["engine"] ?? "", "session_id": "live_1"],
+                 profileId: message["profile_id"] as? String, on: connection)
+            send(type: "live.audio", data: ["data": Data(repeating: 0, count: 480).base64EncodedString()],
+                 profileId: message["profile_id"] as? String, on: connection)
+        case "live.audio":
+            liveAudioReceived += 1
+        case "live.stop":
+            send(type: "live.stop.result", id: id, data: ["stopped": true], on: connection)
         case "mcp.all":
             send(type: "mcp.all.result", id: id, data: ["servers": mcpServers], on: connection)
         case "mcp.registry.search":

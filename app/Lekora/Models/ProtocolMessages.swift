@@ -729,6 +729,38 @@ struct SkillRemoveResult: Codable { let name: String; let backup: String? }
 struct SkillDraftRequest: Codable { let description: String }
 struct SkillSaveRequest: Codable { let name: String?; let content: String; let category: String?; let create: Bool }
 
+// MARK: - Live calls (docs/live-calls.md)
+/// The call engines an agent can use, and the one chosen (kept until changed).
+public struct LiveEngines: Codable, Equatable, Sendable {
+    public struct Engine: Codable, Equatable, Hashable, Identifiable, Sendable {
+        public let id: String
+        public let name: String
+        public let available: Bool
+        public let reason: String?
+    }
+    public let engine: String
+    public let engines: [Engine]
+}
+public struct LiveStartResult: Codable, Equatable, Sendable {
+    public let engine: String
+    public let session_id: String?
+    public let livekit_url: String?
+    public let token: String?
+}
+public struct LiveAudioData: Codable, Sendable { public let data: String }
+public struct LiveEventData: Codable, Sendable {
+    /// transcript | working | done | error | closed
+    public let kind: String
+    public let who: String?
+    public let text: String?
+}
+struct LiveEngineRequest: Codable { let engine: String }
+struct LiveAskRequest: Codable { let text: String }
+struct LiveAskResult: Codable { let text: String }
+struct LiveMuteRequest: Codable { let muted: Bool }
+struct LiveMuteResult: Codable { let muted: Bool }
+struct LiveStopResult: Codable { let stopped: Bool }
+
 // MARK: - Call model (docs/voice.md §3)
 public struct CallModelData: Codable, Equatable, Sendable {
     public var model: String?

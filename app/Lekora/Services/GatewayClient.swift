@@ -568,6 +568,51 @@ public final class GatewayClient: ObservableObject {
                           reply: SkillCopyResult.self, timeout: 240)
     }
 
+    // MARK: - Live calls (docs/live-calls.md)
+
+    /// A live call's voice (GPT-Live), base64 16-bit 24 kHz mono, as it arrives.
+    public var onLiveAudio: ((String) -> Void)?
+    /// A live call's events: what was said, the agent working, the call closing.
+    public var onLiveEvent: ((LiveEventData) -> Void)?
+
+    public func liveEngines(for profileId: String) async throws -> LiveEngines {
+        try await request(type: "live.engine.get", profileId: profileId, data: EmptyData(), reply: LiveEngines.self, timeout: 20)
+    }
+
+    /// Kept for this agent until changed (owner, 2026-11-22).
+    @discardableResult
+    public func setLiveEngine(_ engine: String, for profileId: String) async throws -> LiveEngines {
+        try await request(type: "live.engine.set", profileId: profileId, data: LiveEngineRequest(engine: engine),
+                          reply: LiveEngines.self, timeout: 20)
+    }
+
+    public func startLive(_ engine: String, for profileId: String) async throws -> LiveStartResult {
+        try await request(type: "live.start", profileId: profileId, data: LiveEngineRequest(engine: engine),
+                          reply: LiveStartResult.self, timeout: 45)
+    }
+
+    public func stopLive(for profileId: String) async {
+        _ = try? await request(type: "live.stop", profileId: profileId, data: EmptyData(), reply: LiveStopResult.self, timeout: 15)
+    }
+
+    public func muteLive(_ muted: Bool, for profileId: String) async {
+        _ = try? await request(type: "live.mute", profileId: profileId, data: LiveMuteRequest(muted: muted),
+                               reply: LiveMuteResult.self, timeout: 15)
+    }
+
+    /// Fish Live 3's ask_agent tool: the agent's whole reply.
+    public func askAgentLive(_ text: String, for profileId: String) async throws -> String {
+        try await request(type: "live.ask", profileId: profileId, data: LiveAskRequest(text: text),
+                          reply: LiveAskResult.self, timeout: 118).text
+    }
+
+    /// The microphone's sound for a live call (no reply, never stored).
+    func sendLiveAudio(_ base64: String, profileId: String) {
+        guard case .connected = state, let wsTask = webSocketTask, let instanceId = savedHost?.instanceId else { return }
+        let envelope = Envelope(type: "live.audio", instance_id: instanceId, profile_id: profileId, data: LiveAudioData(data: base64))
+        Task { [weak self] in try? await self?.send(envelope, on: wsTask) }
+    }
+
     // MARK: - Call model (docs/voice.md §3, "Speed")
 
     /// The faster model this agent answers calls with (Hermes' auxiliary.voice_chat); nil = its main model.
@@ -1750,6 +1795,12 @@ public final class GatewayClient: ObservableObject {
         case "voice.stream":
             guard let envelope = try? decoder.decode(Envelope<VoiceStreamData>.self, from: data) else { return }
             onVoiceStream?(envelope.data)
+        case "live.audio":
+            guard let envelope = try? decoder.decode(Envelope<LiveAudioData>.self, from: data) else { return }
+            onLiveAudio?(envelope.data.data)
+        case "live.event":
+            guard let envelope = try? decoder.decode(Envelope<LiveEventData>.self, from: data) else { return }
+            onLiveEvent?(envelope.data)
         case "voice.segment":
             guard let envelope = try? decoder.decode(Envelope<VoiceSegmentData>.self, from: data) else { return }
             if let inline = envelope.data.data, cachedFileURL(envelope.data.file) == nil,

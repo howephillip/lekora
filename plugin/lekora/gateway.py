@@ -112,6 +112,10 @@ class Gateway:
         self.skills: Optional[Any] = None       # Skills: each agent's Hermes skills (docs/skills.md)
         self.mcp: Optional[Any] = None          # MCP servers for every agent (docs/mcp.md)
         self.call_model: Optional[Any] = None   # an agent's call model (docs/voice.md §3)
+        self.live: Optional[Any] = None         # live voice engines for calls (docs/live-calls.md)
+        # Who follows an agent's reply as it's written (live calls): profile -> [(text so far, final)].
+        self.reply_listeners: dict[str, list] = {}
+        self._live_owner: dict[str, Any] = {}   # profile -> the connection whose live call it is
         self.name_changed: Optional[Callable[[], None]] = None  # set by the service
         self.groups_changed: Optional[Callable[[], None]] = None  # set by the service
         self.kanban: Optional[Any] = None      # Kanban: Hermes' board (docs/kanban.md)
@@ -295,7 +299,16 @@ class Gateway:
         await self._broadcast(self.store.get_event(seq), draft_id=draft_id)
         if role == "assistant" and self.voice_replies is not None and key is not None:
             await self._follow_reply(profile_id, key, text, True, seq)
+        if role == "assistant":
+            self._tell_listeners(profile_id, text, True)
         return seq
+
+    def _tell_listeners(self, profile_id: str, text: str, final: bool) -> None:
+        for listener in list(self.reply_listeners.get(profile_id, [])):
+            try:
+                listener(text, final)
+            except Exception:
+                log.debug("Lekora: a reply listener failed", exc_info=True)
 
     async def _publish_group_message(self, member_chat: str, chat: str, speaker: str, text: str,
                                      role: str, draft_id: Optional[str]) -> int:
@@ -442,6 +455,8 @@ class Gateway:
             "chat.draft", {"draft_id": draft_id, "text": text}, profile_id=profile_id))
         if text and self.voice_replies is not None:
             await self._follow_reply(profile_id, draft_id, text, False)
+        if text:
+            self._tell_listeners(profile_id, text, False)
 
     async def publish_typing(self, profile_id: str, active: bool, status: Optional[str] = None) -> None:
         """Whether an agent is working, and on what. Not stored or replayed."""
@@ -521,6 +536,9 @@ class Gateway:
             pass
         finally:
             self._conns.discard(conn)
+            for profile_id, owner in list(self._live_owner.items()):
+                if owner is conn:  # the phone went away mid-call: end its live call
+                    self._spawn(self._live_end(profile_id))
 
     async def _process(self, conn: _Conn, raw: Any) -> None:
         if isinstance(raw, bytes):
@@ -587,6 +605,12 @@ class Gateway:
             await self._instance_rename(conn, msg_id, data)
         elif type_ == "user.name.set":
             await self._user_name_set(conn, msg_id, data)
+        elif type_ == "live.audio":
+            # A live call's microphone sound (docs/live-calls.md): no reply, never stored.
+            if self.live is not None and isinstance(env.get("profile_id"), str):
+                await self.live.audio(env["profile_id"], data.get("data"))
+        elif type_ in ("live.engine.get", "live.engine.set", "live.start", "live.stop", "live.ask", "live.mute"):
+            await self._live_request(conn, msg_id, type_, env.get("profile_id"), data)
         elif type_ == "voice.log":
             # A hands-free call's diagnostics from the phone (never what was said).
             line = " ".join(str(data.get("line") or "").split())[:300]
@@ -1362,6 +1386,70 @@ class Gateway:
             log.exception("Lekora: %s failed", type_)
             raise _Reject("UNAVAILABLE", "Couldn't read this agent's tools from Hermes", True, False, msg_id)
         await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=profile_id))
+
+    # ---- live calls (docs/live-calls.md) -------------------------------------------------
+
+    async def live_agent_turn(self, profile_id: str, request: str):
+        """Words said in a live call go to the agent as a normal chat turn; its reply comes back in
+        speakable pieces as it's written."""
+        from .live_calls import LIVE_NOTE, turn_pieces
+        updates: asyncio.Queue = asyncio.Queue()
+        listener = lambda text, final: updates.put_nowait((text, final))  # noqa: E731
+        self.reply_listeners.setdefault(profile_id, []).append(listener)
+        try:
+            seq = self.store.append_event(profile_id, "chat.message", {"role": "user", "text": request})
+            await self._broadcast(self.store.get_event(seq))
+            if self.voice_replies is not None:
+                self.voice_replies.user_message(profile_id, False, False)
+            self._spawn(self._dispatch(profile_id, request, str(uuid.uuid4()), instructions=LIVE_NOTE))
+            async for piece in turn_pieces(updates):
+                yield piece
+        finally:
+            with contextlib.suppress(ValueError):
+                self.reply_listeners.get(profile_id, []).remove(listener)
+
+    async def _live_end(self, profile_id: str) -> None:
+        self._live_owner.pop(profile_id, None)
+        if self.voice_replies is not None:
+            self.voice_replies.quiet.discard(profile_id)
+        if self.live is not None:
+            await self.live.stop(profile_id)
+
+    async def _live_request(self, conn: _Conn, msg_id: Optional[str], type_: str, profile_id: Any, data: dict) -> None:
+        from .live_calls import LiveError
+        if self.live is None:
+            raise _Reject("UNAVAILABLE", "Live calls aren't available on this Hermes instance", True, False, msg_id)
+        live = self.live
+        try:
+            if type_ == "live.engine.get":
+                result = await asyncio.to_thread(live.engines, profile_id)
+            elif type_ == "live.engine.set":
+                result = await asyncio.to_thread(live.set_engine, profile_id, data.get("engine"))
+            elif type_ == "live.start":
+                async def to_phone(kind: str, payload: dict, conn: _Conn = conn, profile: Any = profile_id) -> None:
+                    with contextlib.suppress(ConnectionClosed):
+                        await self._send(conn, self._envelope(kind, payload, profile_id=profile))
+                result = await live.start(profile_id, data.get("engine"), to_phone)
+                self._live_owner[profile_id] = conn
+                if self.voice_replies is not None:
+                    self.voice_replies.quiet.add(profile_id)  # the live voice speaks: no voice notes too
+            elif type_ == "live.ask":
+                result = await live.ask(profile_id, data.get("text"))
+            elif type_ == "live.mute":
+                await live.mute(profile_id, bool(data.get("muted")))
+                result = {"muted": bool(data.get("muted"))}
+            else:
+                await self._live_end(profile_id)
+                result = {"stopped": True}
+        except LiveError as exc:
+            raise _Reject(exc.code, exc.reason, True, False, msg_id)
+        except _Reject:
+            raise
+        except Exception as exc:
+            log.exception("Lekora: %s failed", type_)
+            raise _Reject("LIVE_FAILED", f"The live call couldn't do that: {exc}", True, False, msg_id)
+        reply_profile = profile_id if isinstance(profile_id, str) else None
+        await self._send(conn, self._envelope(type_ + ".result", result, msg_id=msg_id, profile_id=reply_profile))
 
     async def _call_model_request(self, conn: _Conn, msg_id: Optional[str], type_: str,
                                   profile_id: Any, data: dict) -> None:

@@ -10,6 +10,14 @@ struct HandsFreeView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var choosingModel = false
     @State private var callModel: CallModelData?
+    /// Live voice engines (docs/live-calls.md): the one chosen is kept per agent until changed.
+    @State private var engines: LiveEngines?
+    @State private var live: LiveCallSession?
+    @State private var engine = "agent"
+
+    private var phase: HandsFreeSession.Phase { live?.phase ?? session.phase }
+    private var level: Double { live?.level ?? session.level }
+    private var isMuted: Bool { live?.muted ?? session.muted }
 
     init(gateway: GatewayClient, agentName: String) {
         self.gateway = gateway
@@ -23,15 +31,15 @@ struct HandsFreeView: View {
     private var tint: Color { personality ? LKVoiceBubble.personalityColor : LK.Palette.accent }
 
     private var status: String {
-        switch session.phase {
+        switch phase {
         case .starting: return "Starting…"
-        case .listening: return session.muted ? "Muted" : "Listening…"
+        case .listening: return isMuted ? "Muted" : "Listening…"
         case .hearing: return "Listening…"
         case .thinking:
             // What the agent is doing, as Hermes says it ("Searching the web…"; owner, 2026-11-22).
             if let doing = gateway.agentActivity[profileId]?.status, !doing.isEmpty { return doing }
             return "Thinking…"
-        case .speaking: return "Speaking… talk to interrupt"
+        case .speaking: return live == nil ? "Speaking… talk to interrupt" : "Speaking…"
         case .failed(let reason): return reason
         }
     }
@@ -46,7 +54,9 @@ struct HandsFreeView: View {
                     .foregroundStyle(.white)
                     .padding(.top, LK.Spacing.xl)
 
-                if gateway.hermesVoice[profileId]?.available == true {
+                engineMenu
+
+                if engine == "agent", gateway.hermesVoice[profileId]?.available == true {
                     Picker("Voice", selection: Binding(get: { voice.style }, set: { style in
                         var updated = voice
                         updated.style = style
@@ -60,6 +70,7 @@ struct HandsFreeView: View {
                     .accessibilityLabel("Voice style")
                 }
 
+                if engine == "agent" {
                 Button {
                     choosingModel = true
                 } label: {
@@ -69,6 +80,7 @@ struct HandsFreeView: View {
                         .foregroundStyle(.white.opacity(0.75))
                 }
                 .accessibilityHint("The faster model this agent answers calls with")
+                }
 
                 Spacer()
 
@@ -78,10 +90,10 @@ struct HandsFreeView: View {
                             .stroke(tint.opacity(0.35 - Double(ring) * 0.1), lineWidth: 2)
                             .frame(width: 180 + CGFloat(ring) * 36, height: 180 + CGFloat(ring) * 36)
                             .scaleEffect(ringScale(ring))
-                            .animation(.easeOut(duration: 0.12), value: session.level)
+                            .animation(.easeOut(duration: 0.12), value: level)
                     }
                     LKAgentAvatar(id: profileId, palette: gateway.avatarPalettes[profileId], size: 150,
-                                  working: session.phase == .thinking || session.phase == .speaking)
+                                  working: phase == .thinking || phase == .speaking)
                 }
                 .frame(height: 300)
                 .accessibilityHidden(true)
@@ -97,11 +109,11 @@ struct HandsFreeView: View {
                 Spacer()
 
                 HStack(spacing: 56) {
-                    callButton(session.muted ? "mic.slash.fill" : "mic.fill",
-                               label: session.muted ? "Unmute" : "Mute",
-                               fill: session.muted ? .white : .white.opacity(0.18),
-                               glyph: session.muted ? .black : .white) {
-                        session.muted.toggle()
+                    callButton(isMuted ? "mic.slash.fill" : "mic.fill",
+                               label: isMuted ? "Unmute" : "Mute",
+                               fill: isMuted ? .white : .white.opacity(0.18),
+                               glyph: isMuted ? .black : .white) {
+                        if let live { live.muted.toggle() } else { session.muted.toggle() }
                     }
                     callButton("phone.down.fill", label: "End", fill: LK.Palette.danger, glyph: .white) {
                         dismiss()
@@ -110,19 +122,76 @@ struct HandsFreeView: View {
                 .padding(.bottom, LK.Spacing.xl)
             }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: session.phase)
+        .sensoryFeedback(.impact(weight: .light), trigger: phase)
         .sheet(isPresented: $choosingModel) {
             LKCallModelSheet(gateway: gateway, profileId: profileId, agentName: agentName, current: callModel) { callModel = $0 }
         }
         .task { callModel = try? await gateway.callModel(for: profileId) }
-        .task { await session.start() }
-        .onDisappear { session.end() }
+        .task {
+            engines = try? await gateway.liveEngines(for: profileId)
+            let chosen = engines?.engine ?? "agent"
+            let usable = engines?.engines.first { $0.id == chosen }?.available ?? (chosen == "agent")
+            await begin(usable ? chosen : "agent")
+        }
+        .onDisappear { stopCurrent() }
+    }
+
+    /// Engine: your agent's own voice, GPT-Live or Fish Live 3; kept for this agent until changed, and
+    /// switchable during the call (owner, 2026-11-22).
+    private var engineMenu: some View {
+        Menu {
+            ForEach(engines?.engines ?? []) { option in
+                Button {
+                    switchTo(option.id)
+                } label: {
+                    if option.id == engine { Label(option.name, systemImage: "checkmark") }
+                    else { Text(option.available ? option.name : "\(option.name) — \(option.reason ?? "unavailable")") }
+                }
+                .disabled(!option.available)
+            }
+        } label: {
+            Label(engines?.engines.first { $0.id == engine }?.name ?? "Your agent", systemImage: "waveform.circle")
+                .font(LK.Typography.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(.white.opacity(0.12), in: Capsule())
+        }
+        .accessibilityLabel("Call engine")
+    }
+
+    private func switchTo(_ id: String) {
+        guard id != engine else { return }
+        Task {
+            if let updated = try? await gateway.setLiveEngine(id, for: profileId) { engines = updated }
+            stopCurrent()
+            await begin(id)
+        }
+    }
+
+    private func begin(_ id: String) async {
+        engine = id
+        if id == "agent" {
+            await session.start()
+        } else {
+            let call = LiveCallSession(gateway: gateway, profileId: profileId, engine: id)
+            live = call
+            await call.start()
+        }
+    }
+
+    private func stopCurrent() {
+        if let live {
+            live.end()
+            self.live = nil
+        } else {
+            session.end()
+        }
     }
 
     private func ringScale(_ ring: Int) -> CGFloat {
-        switch session.phase {
+        switch phase {
         case .listening, .hearing:
-            return 1 + CGFloat(session.muted ? 0 : session.level) * (0.25 + CGFloat(ring) * 0.1)
+            return 1 + CGFloat(isMuted ? 0 : level) * (0.25 + CGFloat(ring) * 0.1)
         case .speaking:
             return 1.05 + CGFloat(ring) * 0.03
         default:

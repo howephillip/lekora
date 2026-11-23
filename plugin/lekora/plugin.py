@@ -157,6 +157,7 @@ class LekoraService:
         hermes_helpers: Optional[Any] = None,
         hermes_analytics: Optional[Any] = None,
         hermes_mcp: Optional[Any] = None,
+        hermes_live: Optional[Any] = None,
         skills_scan: Optional[Callable[[str], Optional[dict]]] = None,
         skill_llm: Optional[Callable[[str, str], Any]] = None,
         config_io: Optional[tuple] = None,
@@ -169,6 +170,7 @@ class LekoraService:
         # Analytics (docs/analytics.md): Hermes' usage records and account checks, from the adapter.
         self._hermes_analytics = hermes_analytics
         self._hermes_mcp = hermes_mcp  # MCP servers through Hermes' own helpers (docs/mcp.md)
+        self._hermes_live = hermes_live  # live voice engines for calls (docs/live-calls.md)
         # Helpers (docs/delegation.md): Hermes' running-helper list and its Stop, from the adapter.
         self._hermes_helpers = hermes_helpers
         # Drafting a schedule from a description (docs/scheduler.md): Hermes' model for plugins.
@@ -314,6 +316,20 @@ class LekoraService:
             read=(self._config_io or (hermes_read, hermes_write))[0],
             write=(self._config_io or (hermes_read, hermes_write))[1],
             backup=RoutingConfig(call_root / "lekora-backups" / "config").backup)
+        from .live_calls import LiveCalls
+        gateway_for_live, store_for_live, hermes_live = self.gateway, self._store, self._hermes_live
+        names = lambda pid: next((p.get("name") or pid for p in gateway_for_live._profiles() if p["profile_id"] == pid), pid)  # noqa: E731
+        history = None
+        if hermes_live is not None:
+            from .hermes_live import chat_history
+            history = lambda pid: chat_history(store_for_live, pid)  # noqa: E731
+        self.gateway.live = LiveCalls(
+            store_for_live, lambda: gateway_for_live._profiles(), gateway_for_live.live_agent_turn,
+            gpt_setup=hermes_live.gpt_setup if hermes_live is not None else None,
+            fish_key=hermes_live.fish_key if hermes_live is not None else None,
+            connect=hermes_live.connect if hermes_live is not None else None,
+            http=hermes_live.http if hermes_live is not None else None,
+            history=history or (lambda pid: []), agent_name=names)
         if self._hermes_mcp is not None:
             from .mcp import Mcp, fetch_json
             store_for_mcp, gateway_for_mcp = self._store, self.gateway
@@ -509,6 +525,8 @@ class LekoraService:
             if watch is not None:
                 watch.cancel()
         if self.gateway is not None:
+            if self.gateway.live is not None:
+                await self.gateway.live.stop_all()  # live calls end with Lekora (docs/live-calls.md)
             await self.gateway.stop()
             self.gateway = None
         if self._owns_store and self._store is not None:

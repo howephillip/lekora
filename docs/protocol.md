@@ -510,3 +510,12 @@ A group's chat key is `group:<group_id>`; it is used as `profile_id` on every me
 - `chat.send` with `hands_free` may carry `heard`: what of the agent's last reply was actually played when the user cut in. Ignored outside a call.
 - `voice.stream`'s last chunk of a part carries `text`, that part's words.
 - `voice.call_model.get` `{}` → `{model, provider}` or `{}` (calls use the main model). `voice.call_model.set` `{model, provider}` → the same (`""` model: back to the main model). Changes only `auxiliary.voice_chat`, backed up first.
+
+## 28. Live calls (spec: `live-calls.md`)
+`profile_id` is the agent.
+- `live.engine.get` `{}` → `{engine: agent|gpt-live|fish-live, engines: [{id, name, available, reason?}]}`. `live.engine.set` `{engine}` → the same (kept until changed).
+- `live.start` `{engine}` → `{engine, session_id?, livekit_url?, token?}` (Fish: a single-use LiveKit pass). Errors `NO_KEY`, `UNAVAILABLE`, `LIVE_FAILED`.
+- `live.audio` `{data}` both ways, base64 16-bit 24 kHz mono, GPT-Live only. No reply, never stored.
+- `live.event` (plugin → phone) `{kind: transcript|working|done|error|closed, who?, text?}`.
+- `live.ask` `{text}` → `{text}`: Fish's ask_agent tool, answered by the agent within 110 s.
+- `live.mute` `{muted}` → `{muted}`. `live.stop` `{}` → `{stopped}`; a call also ends when its phone disconnects.

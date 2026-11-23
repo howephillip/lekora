@@ -95,6 +95,7 @@
 		F4236DAA4828884BC84CCA40 /* ArtifactViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E766EF3A557A0C82CB0CFA83 /* ArtifactViews.swift */; };
 		F80A982058F1278A350FB7A3 /* MultipleComputersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37AF70E09D70B03C04EB1301 /* MultipleComputersTests.swift */; };
 		F8F1AF8CED29B5EEA4DE0B4F /* FilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 203F8C1E0485F0F73E02F72F /* FilesTests.swift */; };
+		LK1VEK1T0000000000000001 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = LK1VEK1T0000000000000002 /* LiveKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -217,7 +218,23 @@
 			path = MCP;
 			sourceTree = "<group>";
 		};
+		CD269D7E30B40D590012AFBC /* Calls */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Calls;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		LK1VEK1T0000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				LK1VEK1T0000000000000001 /* LiveKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		08C8D04330BB4F194B82DB82 /* Setup */ = {
@@ -404,6 +421,7 @@
 				CD269D6B30B1BAD50012AFBC /* Analytics */,
 				CD269D7030B377EB0012AFBC /* Skills */,
 				CD269D7530B3A4120012AFBC /* MCP */,
+				CD269D7E30B40D590012AFBC /* Calls */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -434,6 +452,7 @@
 			buildConfigurationList = 7CD9EDE71AE2D729211FA15E /* Build configuration list for PBXNativeTarget "Lekora" */;
 			buildPhases = (
 				04F5BCE46588F31DEBBDE43A /* Sources */,
+				LK1VEK1T0000000000000003 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -443,9 +462,11 @@
 				CD269D6B30B1BAD50012AFBC /* Analytics */,
 				CD269D7030B377EB0012AFBC /* Skills */,
 				CD269D7530B3A4120012AFBC /* MCP */,
+				CD269D7E30B40D590012AFBC /* Calls */,
 			);
 			name = Lekora;
 			packageProductDependencies = (
+				LK1VEK1T0000000000000002 /* LiveKit */,
 			);
 			productName = Lekora;
 			productReference = 67CFF004E89499109A1FC23C /* Lekora.app */;
@@ -475,6 +496,9 @@
 			);
 			mainGroup = CADC9A93832FCA6EDE03F23B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				LK1VEK1T0000000000000004 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 46518048217CBD42E0393F16 /* Products */;
 			projectDirPath = "";
@@ -708,6 +732,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		LK1VEK1T0000000000000004 /* XCRemoteSwiftPackageReference "client-sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/client-sdk-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.19.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		LK1VEK1T0000000000000002 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = LK1VEK1T0000000000000004 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			productName = LiveKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7E91D350641E6C64990AE136 /* Project object */;
 }

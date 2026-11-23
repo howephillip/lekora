@@ -11,6 +11,15 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 
 **Phase 7 (delegation and group chats) is complete** (your go-ahead 2026-11-21): delegation cards confirmed 2026-11-19; group chats tested by you (with @mentions, starting groups from a one-to-one chat, swipe to delete, group details). The limit you parked (only the default agent had Lekora's artifact and file tools) is now being fixed (below). **Phase 8 (analytics, skills, MCP library, Tailscale polish, live calling) has started.**
 
+## Built, waiting for your phone check: live calling, part 2 (GPT-Live and Fish Live 3; spec: `docs/live-calls.md`)
+- **Where:** the call screen's **Engine** menu: Your agent / GPT-Live / Fish Live 3. Kept per agent until changed; switch mid-call.
+- **How they work:** a real-time voice talks with you instantly and asks your agent for anything real. Its turn shows in the chat as usual.
+- **GPT-Live:** your sound goes through your Hermes instance, which holds the OpenAI key. Needs an OpenAI API key on the instance (`OPENAI_API_KEY` in the agent's `.env`); about $0.05/min plus the agent's usage.
+- **Fish Live 3:** uses your existing Fish key. On first use, Lekora creates a Fish agent named "Lekora" in your Fish account. $0.035/min this year, then $0.07. Answers that take over 2 minutes come back in the chat. English only.
+- **New app part:** LiveKit's iPhone package (for Fish).
+- **Checked:** plugin 502 pass, app 268 pass. On your instance: GPT-Live is greyed out with a plain reason until a key is added; with a fake key the call is built right and OpenAI's live server answers (refusing the fake key); your Fish key reaches Fish's agent service (read only).
+- **Not yet heard on a real call:** add an OpenAI key for GPT-Live; for Fish, just pick it.
+
 ## Built, waiting for your phone check: live calling, part 1 (polished calls; Phase 8, feature 5; spec: `docs/voice.md` §3)
 - **Speed:** the call screen has **Call model**, a faster model your agent answers calls with (typed chats keep the main one). It's Hermes' own voice-chat setting; only that setting changes, after a backup. Your logs showed the wait is the agent's first words (4.5–13 s), not the voice (0.5 s).
 - **No dead air:** a soft sound while the agent works, and its live status ("Searching the web…") on the call screen.
@@ -20,7 +29,7 @@ README rewritten as a how-to-use guide (2026-11-17): a section per feature with 
 - **What you heard:** when you cut in, the agent is told exactly what of its reply you heard, and that you missed the rest.
 - **Rule 8 exception you chose (2026-11-22):** the call model writes only `auxiliary.voice_chat`. The line for AGENTS.md is in my message.
 - **Checked:** plugin 496 pass, app 266 pass (including real audio: what was heard is tracked, and a pause holds the rest). On a copy of Bruce's settings on your instance, Hermes reads the call model and would route call turns to it.
-- **Part 2, live voice engines (GPT-Live, Fish Live 3):** waiting for your choices (see my message).
+- **Part 2, live voice engines:** built, see the next section.
 
 ## Done, confirmed on your phone 2026-11-22: Tailscale polish (Phase 8, feature 4; with Tailscale off, the app took you to Tailscale to turn it back on; spec: `docs/tailscale.md`)
 - **Addresses stay current:** every connection, the instance sends its current addresses; the phone saves them. Turning Tailscale on later or a new home IP needs no re-pairing.

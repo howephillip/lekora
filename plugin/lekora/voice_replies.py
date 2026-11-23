@@ -141,6 +141,7 @@ class VoiceReplies:
                  persona: Optional[Callable[[str, Optional[str]], str]] = None,
                  direct: Any = None) -> None:
         self.direct = direct              # DirectVoice, or None (docs/voice.md §4)
+        self.quiet: set[str] = set()      # agents in a live call: its own voice speaks (docs/live-calls.md)
         # (profile, Hermes personality name or None for the agent's own) -> its text (blocking)
         self.persona = persona
         self.gateway = gateway
@@ -155,6 +156,8 @@ class VoiceReplies:
 
     # ---- when is it on ---------------------------------------------------------------
 
+    quiet: set = set()  # agents in a live call (replaced per instance in __init__)
+
     def user_message(self, profile_id: str, voice: bool, hands_free: bool = False) -> None:
         self._last_was_voice[profile_id] = voice
         # Hands-free conversation (docs/voice.md §3): its replies are always spoken.
@@ -163,8 +166,8 @@ class VoiceReplies:
 
     def _choose(self, profile_id: str) -> Optional[dict]:
         """Voice-mode settings for a new reply, or None (a text reply)."""
-        if self.synthesize is None or self.gateway.files is None:
-            return None
+        if self.synthesize is None or self.gateway.files is None or profile_id in self.quiet:
+            return None  # quiet: a live call's own voice speaks (docs/live-calls.md)
         settings = self.settings.get_settings(profile_id)
         mode = settings.get("speak", "off")
         if self._hands_free.get(profile_id):

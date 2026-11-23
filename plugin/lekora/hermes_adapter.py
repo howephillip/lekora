@@ -233,6 +233,18 @@ class LekoraAdapter(BasePlatformAdapter):
             logger.info("Lekora: this Hermes can't be read for usage; Analytics is unavailable")
             return None
 
+    def _hermes_live(self):
+        """Hermes' GPT-Live settings and keys for live calls (docs/live-calls.md); None without them."""
+        try:
+            from tools import voice_live  # noqa: F401
+            from .hermes_live import HermesLive
+            names = lambda pid: next((p.get("name") or pid for p in self._cfg.current_profiles()  # noqa: E731
+                                      if p["profile_id"] == pid), pid)
+            return HermesLive(self._profile_home, names)
+        except Exception:
+            logger.info("Lekora: this Hermes has no live voice support")
+            return None
+
     def _hermes_mcp(self):
         """Hermes' own MCP helpers, per agent (docs/mcp.md); None on a Hermes without them."""
         try:
@@ -600,6 +612,7 @@ class LekoraAdapter(BasePlatformAdapter):
             kanban_boards=_hermes_boards(), hermes_schedules=_hermes_schedules(), draft_llm=_draft_llm,
             hermes_helpers=_hermes_helpers(), hermes_analytics=self._hermes_analytics(),
             hermes_mcp=self._hermes_mcp(),
+            hermes_live=self._hermes_live(),
             skills_scan=_skills_scan, skill_llm=_draft_skill_llm)
         self.offered_profiles()  # startup self-check: logs if only the default agent can be offered
         try:
